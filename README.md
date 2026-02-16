@@ -109,6 +109,8 @@ Runs alongside the data provider (substreams-tier1) and handles:
 - Escrow balance queries
 - Payment status monitoring
 
+**Usage metering note:** the provider sidecar does **not** currently meter bytes/blocks directly from the Substreams/Firehose stream. Usage must be **pushed to it** by the provider process (e.g. via `ProviderSidecarService.ReportUsage` or `PaymentGatewayService.PaymentSession` `usage_report`). A production integration will require a **metering plugin** in the provider stack (substreams-tier1 / firehose / substreams) to measure usage and emit those reports.
+
 ```bash
 # Using devenv addresses
 sds provider sidecar \

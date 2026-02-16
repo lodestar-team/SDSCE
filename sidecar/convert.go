@@ -15,10 +15,14 @@ func ProtoRAVToHorizon(pr *commonv1.RAV) (*horizon.RAV, error) {
 		return nil, nil
 	}
 
-	var collectionID horizon.CollectionID
-	if len(pr.Metadata) >= 32 {
-		copy(collectionID[:], pr.Metadata[:32])
+	if len(pr.CollectionId) == 0 {
+		return nil, fmt.Errorf("collection_id is required")
 	}
+	if len(pr.CollectionId) != 32 {
+		return nil, fmt.Errorf("collection_id: want 32 bytes, got %d", len(pr.CollectionId))
+	}
+	var collectionID horizon.CollectionID
+	copy(collectionID[:], pr.CollectionId)
 
 	payer, err := pr.Payer.ToEth()
 	if err != nil {
@@ -54,6 +58,7 @@ func HorizonRAVToProto(hr *horizon.RAV) *commonv1.RAV {
 	}
 
 	return &commonv1.RAV{
+		CollectionId:    hr.CollectionID[:],
 		Payer:           commonv1.AddressFromEth(hr.Payer),
 		DataService:     commonv1.AddressFromEth(hr.DataService),
 		ServiceProvider: commonv1.AddressFromEth(hr.ServiceProvider),

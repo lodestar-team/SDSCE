@@ -273,6 +273,7 @@ func TestValidatePayment_InvalidSignatureLength_ReturnsInvalidArgument(t *testin
 
 	invalidProtoRAV := &commonv1.SignedRAV{
 		Rav: &commonv1.RAV{
+			CollectionId:    make([]byte, 32),
 			Payer:           commonv1.AddressFromEth(env.Payer.Address),
 			DataService:     commonv1.AddressFromEth(env.DataService.Address),
 			ServiceProvider: commonv1.AddressFromEth(env.ServiceProvider.Address),

@@ -16,8 +16,10 @@ func TestProtoRAVToHorizon(t *testing.T) {
 	payer := eth.MustNewAddress("0x1111111111111111111111111111111111111111")
 	dataService := eth.MustNewAddress("0x2222222222222222222222222222222222222222")
 	serviceProvider := eth.MustNewAddress("0x3333333333333333333333333333333333333333")
+	collectionID := bytes.Repeat([]byte{0xAB}, 32)
 
 	protoRAV := &commonv1.RAV{
+		CollectionId:    collectionID,
 		Payer:           commonv1.AddressFromEth(payer),
 		DataService:     commonv1.AddressFromEth(dataService),
 		ServiceProvider: commonv1.AddressFromEth(serviceProvider),
@@ -33,6 +35,7 @@ func TestProtoRAVToHorizon(t *testing.T) {
 	assert.True(t, bytes.Equal(payer, result.Payer))
 	assert.True(t, bytes.Equal(dataService, result.DataService))
 	assert.True(t, bytes.Equal(serviceProvider, result.ServiceProvider))
+	assert.Equal(t, collectionID, result.CollectionID[:])
 	assert.Equal(t, uint64(1234567890), result.TimestampNs)
 	assert.Equal(t, int64(1000), result.ValueAggregate.Int64())
 }
@@ -41,8 +44,11 @@ func TestHorizonRAVToProto(t *testing.T) {
 	payer := eth.MustNewAddress("0x1111111111111111111111111111111111111111")
 	dataService := eth.MustNewAddress("0x2222222222222222222222222222222222222222")
 	serviceProvider := eth.MustNewAddress("0x3333333333333333333333333333333333333333")
+	var collectionID horizon.CollectionID
+	copy(collectionID[:], bytes.Repeat([]byte{0xCD}, 32))
 
 	horizonRAV := &horizon.RAV{
+		CollectionID:    collectionID,
 		Payer:           payer,
 		DataService:     dataService,
 		ServiceProvider: serviceProvider,
@@ -64,12 +70,52 @@ func TestHorizonRAVToProto(t *testing.T) {
 	assert.True(t, bytes.Equal(payer, gotPayer))
 	assert.True(t, bytes.Equal(dataService, gotDataService))
 	assert.True(t, bytes.Equal(serviceProvider, gotServiceProvider))
+	assert.Equal(t, collectionID[:], result.CollectionId)
 	assert.Equal(t, uint64(1234567890), result.TimestampNs)
 	assert.Equal(t, big.NewInt(1000).Bytes(), result.ValueAggregate.Bytes)
 }
 
+func TestProtoRAVToHorizon_CollectionIDRequired(t *testing.T) {
+	protoRAV := &commonv1.RAV{
+		Payer:           &commonv1.Address{Bytes: make([]byte, 20)},
+		DataService:     &commonv1.Address{Bytes: make([]byte, 20)},
+		ServiceProvider: &commonv1.Address{Bytes: make([]byte, 20)},
+		TimestampNs:     123,
+		ValueAggregate:  commonv1.BigIntFromNative(big.NewInt(1)),
+	}
+
+	_, err := ProtoRAVToHorizon(protoRAV)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "collection_id is required")
+}
+
+func TestProtoRAVToHorizon_DoesNotInferCollectionIDFromMetadata(t *testing.T) {
+	var metadata [64]byte
+	copy(metadata[0:32], bytes.Repeat([]byte{0x11}, 32))
+	copy(metadata[32:64], bytes.Repeat([]byte{0x22}, 32))
+
+	collectionID := bytes.Repeat([]byte{0x33}, 32)
+
+	protoRAV := &commonv1.RAV{
+		CollectionId:    collectionID,
+		Payer:           &commonv1.Address{Bytes: make([]byte, 20)},
+		DataService:     &commonv1.Address{Bytes: make([]byte, 20)},
+		ServiceProvider: &commonv1.Address{Bytes: make([]byte, 20)},
+		TimestampNs:     123,
+		ValueAggregate:  commonv1.BigIntFromNative(big.NewInt(1)),
+		Metadata:        metadata[:],
+	}
+
+	rav, err := ProtoRAVToHorizon(protoRAV)
+	require.NoError(t, err)
+	require.NotNil(t, rav)
+	assert.Equal(t, collectionID, rav.CollectionID[:])
+	assert.Equal(t, metadata[:], rav.Metadata)
+}
+
 func TestProtoRAVToHorizon_InvalidAddressLength(t *testing.T) {
 	protoRAV := &commonv1.RAV{
+		CollectionId:    make([]byte, 32),
 		Payer:           &commonv1.Address{Bytes: make([]byte, 19)},
 		DataService:     &commonv1.Address{Bytes: make([]byte, 20)},
 		ServiceProvider: &commonv1.Address{Bytes: make([]byte, 20)},
@@ -86,6 +132,7 @@ func TestProtoRAVToHorizon_InvalidAddressLength(t *testing.T) {
 func TestProtoSignedRAVToHorizon_InvalidSignatureLength(t *testing.T) {
 	protoSigned := &commonv1.SignedRAV{
 		Rav: &commonv1.RAV{
+			CollectionId:    make([]byte, 32),
 			Payer:           &commonv1.Address{Bytes: make([]byte, 20)},
 			DataService:     &commonv1.Address{Bytes: make([]byte, 20)},
 			ServiceProvider: &commonv1.Address{Bytes: make([]byte, 20)},

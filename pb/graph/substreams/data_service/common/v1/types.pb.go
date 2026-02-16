@@ -236,6 +236,8 @@ func (x *SignedRAV) GetSignature() []byte {
 // needs to be submitted on-chain for payment collection.
 type RAV struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// The collection identifier (32 bytes). This is part of the EIP-712 signed payload.
+	CollectionId []byte `protobuf:"bytes,7,opt,name=collection_id,json=collectionId,proto3" json:"collection_id,omitempty"`
 	// The payer's address (who is paying for the service)
 	Payer *Address `protobuf:"bytes,1,opt,name=payer,proto3" json:"payer,omitempty"`
 	// The data service contract address
@@ -246,7 +248,7 @@ type RAV struct {
 	TimestampNs uint64 `protobuf:"varint,4,opt,name=timestamp_ns,json=timestampNs,proto3" json:"timestamp_ns,omitempty"`
 	// Total value in GRT (wei) accumulated in this RAV
 	ValueAggregate *BigInt `protobuf:"bytes,5,opt,name=value_aggregate,json=valueAggregate,proto3" json:"value_aggregate,omitempty"`
-	// Arbitrary metadata (e.g., request CID, collection ID)
+	// Arbitrary metadata (e.g., request CID)
 	Metadata      []byte `protobuf:"bytes,6,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -280,6 +282,13 @@ func (x *RAV) ProtoReflect() protoreflect.Message {
 // Deprecated: Use RAV.ProtoReflect.Descriptor instead.
 func (*RAV) Descriptor() ([]byte, []int) {
 	return file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *RAV) GetCollectionId() []byte {
+	if x != nil {
+		return x.CollectionId
+	}
+	return nil
 }
 
 func (x *RAV) GetPayer() *Address {
@@ -691,8 +700,9 @@ const file_graph_substreams_data_service_common_v1_types_proto_rawDesc = "" +
 	"\x05bytes\x18\x01 \x01(\fR\x05bytes\"i\n" +
 	"\tSignedRAV\x12>\n" +
 	"\x03rav\x18\x01 \x01(\v2,.graph.substreams.data_service.common.v1.RAVR\x03rav\x12\x1c\n" +
-	"\tsignature\x18\x02 \x01(\fR\tsignature\"\x98\x03\n" +
-	"\x03RAV\x12F\n" +
+	"\tsignature\x18\x02 \x01(\fR\tsignature\"\xbd\x03\n" +
+	"\x03RAV\x12#\n" +
+	"\rcollection_id\x18\a \x01(\fR\fcollectionId\x12F\n" +
 	"\x05payer\x18\x01 \x01(\v20.graph.substreams.data_service.common.v1.AddressR\x05payer\x12S\n" +
 	"\fdata_service\x18\x02 \x01(\v20.graph.substreams.data_service.common.v1.AddressR\vdataService\x12[\n" +
 	"\x10service_provider\x18\x03 \x01(\v20.graph.substreams.data_service.common.v1.AddressR\x0fserviceProvider\x12!\n" +

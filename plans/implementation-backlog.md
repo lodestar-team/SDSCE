@@ -1,6 +1,6 @@
 # Substreams Data Service — Implementation Backlog
 
-_Last updated: 2026-02-12_
+_Last updated: 2026-02-16_
 
 This repo already contains a working **Horizon V2 (TAP) signing/verification core** (`horizon/`) and a **development environment + integration tests** (`horizon/devenv/`, `test/integration/`).
 
@@ -79,7 +79,7 @@ Update process:
 | SDS-004 | P0 | done | Fix README vs CLI flag drift (provider sidecar) |
 | SDS-005 | P0 | done | Fix `devel/sds` version ldflags mismatch |
 | SDS-006 | P0 | done | Validate address/signature byte lengths in conversions |
-| SDS-007 | P1 | not_started | Add explicit `collection_id` to proto `common.v1.RAV` |
+| SDS-007 | P1 | done | Add explicit `collection_id` to proto `common.v1.RAV` |
 | SDS-008 | P1 | not_started | Define and document `metadata` schema + encoding |
 | SDS-009 | P1 | not_started | Align pricing/service parameters across proto + impl |
 | SDS-010 | P1 | not_started | Define canonical signature encoding for RPC/header |
@@ -160,7 +160,7 @@ Update process:
 
 ## P1 — Protocol/Data Model Alignment (Before Wiring “Real” Flows)
 
-- [ ] SDS-007 Add `collection_id` to the protobuf `common.v1.RAV`.
+- [x] SDS-007 Add `collection_id` to the protobuf `common.v1.RAV`.
   - Today: `horizon.RAV` has `CollectionID`, but proto `RAV` does not; conversion tries to infer it from the first 32 bytes of `metadata` (`sidecar/convert.go`).
   - Target: explicit `bytes collection_id = ...` (32 bytes) and stop overloading `metadata`.
   - Follow-ups:
@@ -403,6 +403,7 @@ These can’t be completed solely in this repo, but should be tracked here becau
 - [ ] SDS-029 Integrate provider sidecar into the actual provider service (tier1):
   - Call `ValidatePayment` on connect.
   - Call `ReportUsage` during streaming.
+  - Note: the provider sidecar does **not** meter bytes/blocks itself; this integration will require a **metering plugin** (substreams-tier1 / firehose / substreams) that measures usage from the live stream and pushes usage reports into the sidecar (either via `ReportUsage` or via `PaymentSession` `usage_report` messages).
   - Act on Continue/Stop decisions from sidecar.
 - [ ] SDS-030 Integrate consumer sidecar into the actual substreams client:
   - Call `Init` before connecting to provider.

@@ -25,6 +25,8 @@ message SignedRAV {
 // commits to pay. RAVs are aggregated over time and only the latest RAV
 // needs to be submitted on-chain for payment collection.
 message RAV {
+  // The collection identifier (32 bytes). This is part of the EIP-712 signed payload.
+  bytes collection_id = 7;
   // The payer's address (who is paying for the service)
   Address payer = 1;
   // The data service contract address
@@ -35,7 +37,7 @@ message RAV {
   uint64 timestamp_ns = 4;
   // Total value in GRT (wei) accumulated in this RAV
   BigInt value_aggregate = 5;
-  // Arbitrary metadata (e.g., request CID, collection ID)
+  // Arbitrary metadata (e.g., request CID)
   bytes metadata = 6;
 }
 

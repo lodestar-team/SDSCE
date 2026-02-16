@@ -485,8 +485,8 @@ github.com/streamingfast/dgrpc v0.0.0-20251218142640-027692a12722 h1:gZcPR64H5aW
 github.com/streamingfast/dgrpc v0.0.0-20251218142640-027692a12722/go.mod h1:NbkvenEHfjQpUBRHTCp/tp0Ayjp5hDzzkv/Ve9Uka1I=
 github.com/streamingfast/dmetrics v0.0.0-20250711072030-f023e918a175 h1:pqgbZm2Agu9uoU4MIzTHpLunUB3IppREGL8itDrnEeo=
 github.com/streamingfast/dmetrics v0.0.0-20250711072030-f023e918a175/go.mod h1:JbxEDbzWRG1dHdNIPrYfuPllEkktZMgm40AwVIBENcw=
-github.com/streamingfast/eth-go v0.0.0-20260122151143-f04fd10948ac h1:2C41ppHE7uxthyp3qtFenlv7I2Lso9xb61PNOpbpLds=
-github.com/streamingfast/eth-go v0.0.0-20260122151143-f04fd10948ac/go.mod h1:1szIYZI+rTjWWVYd1kFJomFiPCMvcZfBmylCwRaK8yY=
+github.com/streamingfast/eth-go v0.0.0-20260216202159-4e2b7501894a h1:jHKRM0gM5Gh/vRzJTv5u0myac8zxlGgICZr71+QRPz0=
+github.com/streamingfast/eth-go v0.0.0-20260216202159-4e2b7501894a/go.mod h1:1szIYZI+rTjWWVYd1kFJomFiPCMvcZfBmylCwRaK8yY=
 github.com/streamingfast/logging v0.0.0-20260108192805-38f96de0a641 h1:dI+b2TyFS0rJw1xVGzxBBvn/RrSgBpqM/RjwDInxEfo=
 github.com/streamingfast/logging v0.0.0-20260108192805-38f96de0a641/go.mod h1:fJ5nP7ZSMB4MQQ6RM7cF+LiSQ43b5cVletcSUNL8z2M=
 github.com/streamingfast/sf-tracing v0.0.0-20251218140752-bafd5572499f h1:KXE5MEXwc7l6FwD9dBYH0r+0IojAS9VYZa/vuzCBnK0=

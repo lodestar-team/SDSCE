@@ -67,7 +67,16 @@ func (s *Sidecar) SubmitRAV(
 	}
 
 	// Check if signer is authorized
-	if !s.isAcceptedSigner(signerAddr) {
+	isAuthorized, err := s.isSignerAuthorized(ctx, session.Payer, signerAddr)
+	if err != nil {
+		s.logger.Warn("authorization check failed", zap.Error(err))
+		return connect.NewResponse(&providerv1.SubmitRAVResponse{
+			Accepted:        false,
+			RejectionReason: fmt.Sprintf("authorization check failed: %v", err),
+			ShouldContinue:  true,
+		}), nil
+	}
+	if !isAuthorized {
 		s.logger.Warn("RAV signer not authorized",
 			zap.Stringer("signer", signerAddr),
 		)

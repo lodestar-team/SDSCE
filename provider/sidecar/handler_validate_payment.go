@@ -42,7 +42,15 @@ func (s *Sidecar) ValidatePayment(
 	}
 
 	// Check if signer is authorized
-	if !s.isAcceptedSigner(signerAddr) {
+	isAuthorized, err := s.isSignerAuthorized(ctx, signedRAV.Message.Payer, signerAddr)
+	if err != nil {
+		s.logger.Warn("authorization check failed", zap.Error(err))
+		return connect.NewResponse(&providerv1.ValidatePaymentResponse{
+			Valid:           false,
+			RejectionReason: fmt.Sprintf("authorization check failed: %v", err),
+		}), nil
+	}
+	if !isAuthorized {
 		s.logger.Warn("signer not authorized",
 			zap.Stringer("signer", signerAddr),
 		)

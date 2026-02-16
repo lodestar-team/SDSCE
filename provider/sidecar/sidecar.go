@@ -4,6 +4,8 @@ import (
 	"context"
 	"math/big"
 	"net/http"
+	"sync"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/graphprotocol/substreams-data-service/horizon"
@@ -41,12 +43,17 @@ type Sidecar struct {
 
 	// Escrow balance querier
 	escrowQuerier *sidecar.EscrowQuerier
+	// Collector authorization querier
+	collectorQuerier *sidecar.CollectorQuerier
 
 	// Pricing configuration
 	pricingConfig *sidecar.PricingConfig
 
 	// Accepted signer addresses (authorized by payers)
 	acceptedSigners map[string]bool
+
+	authCacheMu sync.Mutex
+	authCache   map[string]authCacheEntry
 }
 
 type Config struct {
@@ -60,6 +67,11 @@ type Config struct {
 	AcceptedSigners []eth.Address
 }
 
+type authCacheEntry struct {
+	ok      bool
+	expires time.Time
+}
+
 func New(config *Config, logger *zap.Logger) *Sidecar {
 	signerMap := make(map[string]bool, len(config.AcceptedSigners))
 	for _, addr := range config.AcceptedSigners {
@@ -71,23 +83,30 @@ func New(config *Config, logger *zap.Logger) *Sidecar {
 		escrowQuerier = sidecar.NewEscrowQuerier(config.RPCEndpoint, config.EscrowAddr)
 	}
 
+	var collectorQuerier *sidecar.CollectorQuerier
+	if config.RPCEndpoint != "" && config.CollectorAddr != nil {
+		collectorQuerier = sidecar.NewCollectorQuerier(config.RPCEndpoint, config.CollectorAddr)
+	}
+
 	pricingConfig := config.PricingConfig
 	if pricingConfig == nil {
 		pricingConfig = sidecar.DefaultPricingConfig()
 	}
 
 	return &Sidecar{
-		Shutter:         shutter.New(),
-		listenAddr:      config.ListenAddr,
-		logger:          logger,
-		sessions:        sidecar.NewSessionManager(),
-		serviceProvider: config.ServiceProvider,
-		domain:          config.Domain,
-		collectorAddr:   config.CollectorAddr,
-		escrowAddr:      config.EscrowAddr,
-		escrowQuerier:   escrowQuerier,
-		pricingConfig:   pricingConfig,
-		acceptedSigners: signerMap,
+		Shutter:          shutter.New(),
+		listenAddr:       config.ListenAddr,
+		logger:           logger,
+		sessions:         sidecar.NewSessionManager(),
+		serviceProvider:  config.ServiceProvider,
+		domain:           config.Domain,
+		collectorAddr:    config.CollectorAddr,
+		escrowAddr:       config.EscrowAddr,
+		escrowQuerier:    escrowQuerier,
+		collectorQuerier: collectorQuerier,
+		pricingConfig:    pricingConfig,
+		acceptedSigners:  signerMap,
+		authCache:        make(map[string]authCacheEntry),
 	}
 }
 
@@ -152,4 +171,40 @@ func (s *Sidecar) verifyRAVSignature(signedRAV *horizon.SignedRAV) (eth.Address,
 // isAcceptedSigner checks if an address is in the accepted signers list
 func (s *Sidecar) isAcceptedSigner(addr eth.Address) bool {
 	return s.acceptedSigners[addr.Pretty()]
+}
+
+func (s *Sidecar) isSignerAuthorized(ctx context.Context, payer, signer eth.Address) (bool, error) {
+	if sidecar.AddressesEqual(payer, signer) {
+		return true, nil
+	}
+
+	// Dev override: if an explicit allowlist is configured, use it.
+	if len(s.acceptedSigners) > 0 {
+		return s.isAcceptedSigner(signer), nil
+	}
+
+	if s.collectorQuerier == nil {
+		return false, nil
+	}
+
+	key := payer.Pretty() + "|" + signer.Pretty()
+	now := time.Now()
+
+	s.authCacheMu.Lock()
+	if entry, ok := s.authCache[key]; ok && now.Before(entry.expires) {
+		s.authCacheMu.Unlock()
+		return entry.ok, nil
+	}
+	s.authCacheMu.Unlock()
+
+	ok, err := s.collectorQuerier.IsAuthorized(ctx, payer, signer)
+	if err != nil {
+		return false, err
+	}
+
+	s.authCacheMu.Lock()
+	s.authCache[key] = authCacheEntry{ok: ok, expires: now.Add(30 * time.Second)}
+	s.authCacheMu.Unlock()
+
+	return ok, nil
 }

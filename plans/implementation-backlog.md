@@ -89,7 +89,7 @@ Update process:
 | SDS-014 | P2 | not_started | Bind `PaymentSession` stream to a specific session |
 | SDS-015 | P2 | not_started | Implement provider-driven RAV request policy |
 | SDS-016 | P2 | not_started | Implement `NeedMoreFunds` loop + Continue/Stop/Pause |
-| SDS-017 | P2 | not_started | Verify signer authorization on-chain (`isAuthorized`) |
+| SDS-017 | P2 | done | Verify signer authorization on-chain (`isAuthorized`) |
 | SDS-018 | P2 | done | Add explicit dev override for allowlist (optional) |
 | SDS-019 | P2 | not_started | Define cost computation trust boundary (`Usage.cost`) |
 | SDS-020 | P2 | not_started | Add signing thresholds (don’t sign every report) |
@@ -274,11 +274,12 @@ The flow diagram in `docs/flowchart.txt` implies:
 
 ## P2 — Dynamic Authorization (Stop Using Static Accepted Signer Lists)
 
-- [ ] SDS-017 Verify authorized signer on-chain in `ValidatePayment` / `StartSession` / `SubmitRAV`.
+- [x] SDS-017 Verify authorized signer on-chain in `ValidatePayment` / `StartSession` / `SubmitRAV`.
   - Today: provider sidecar uses an in-memory allowlist (`provider/sidecar/sidecar.go`).
   - Target:
     - Call collector `isAuthorized(payer, signer)` (see how tests do it: `horizon/devenv/helpers.go` and `test/integration/authorization_test.go`).
     - Add caching with TTL to avoid RPC overload.
+    - Note: there is (or will be) an escrow/authorization subgraph that could be queried via GraphQL in the future; keep the current direct-RPC approach as the source of truth for now.
     - Decide how “payer signs directly” is handled (implicitly authorized or not).
   - Done when:
     - Provider accepts RAVs signed by authorized signers and rejects unauthorized ones without relying on static config.

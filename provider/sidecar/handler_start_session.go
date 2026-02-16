@@ -76,7 +76,15 @@ func (s *Sidecar) StartSession(
 		}
 
 		// Check if signer is authorized
-		if !s.isAcceptedSigner(signerAddr) {
+		isAuthorized, err := s.isSignerAuthorized(ctx, payer, signerAddr)
+		if err != nil {
+			s.logger.Warn("authorization check failed", zap.Error(err))
+			return connect.NewResponse(&providerv1.StartSessionResponse{
+				Accepted:        false,
+				RejectionReason: fmt.Sprintf("authorization check failed: %v", err),
+			}), nil
+		}
+		if !isAuthorized {
 			s.logger.Warn("initial RAV signer not authorized",
 				zap.Stringer("signer", signerAddr),
 			)

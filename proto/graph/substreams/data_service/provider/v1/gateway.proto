@@ -62,6 +62,9 @@ message SubmitRAVResponse {
 
 // Messages from consumer sidecar to provider sidecar in the bidirectional stream
 message PaymentSessionRequest {
+  // The session ID this stream message applies to.
+  // Required: the provider binds a PaymentSession stream to exactly one session.
+  string session_id = 10;
   oneof message {
     // Signed RAV in response to a RAV request
     SignedRAVSubmission rav_submission = 1;

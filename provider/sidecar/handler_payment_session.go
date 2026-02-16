@@ -2,7 +2,10 @@ package sidecar
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"math/big"
+	"strings"
 
 	"connectrpc.com/connect"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
@@ -19,6 +22,9 @@ func (s *Sidecar) PaymentSession(
 ) error {
 	s.logger.Info("PaymentSession stream started")
 
+	var session *sidecar.Session
+	var sessionID string
+
 	for {
 		// Receive message from consumer sidecar
 		msg, err := stream.Receive()
@@ -31,16 +37,66 @@ func (s *Sidecar) PaymentSession(
 			return err
 		}
 
+		if session == nil {
+			sessionID = strings.TrimSpace(msg.GetSessionId())
+			if sessionID == "" {
+				_ = stream.Send(&providerv1.PaymentSessionResponse{
+					Message: &providerv1.PaymentSessionResponse_SessionControl{
+						SessionControl: &providerv1.SessionControl{
+							Action: providerv1.SessionControl_ACTION_STOP,
+							Reason: "<session_id> is required",
+						},
+					},
+				})
+				return nil
+			}
+
+			session, err = s.sessions.Get(sessionID)
+			if err != nil {
+				_ = stream.Send(&providerv1.PaymentSessionResponse{
+					Message: &providerv1.PaymentSessionResponse_SessionControl{
+						SessionControl: &providerv1.SessionControl{
+							Action: providerv1.SessionControl_ACTION_STOP,
+							Reason: "session not found",
+						},
+					},
+				})
+				return nil
+			}
+		} else if got := strings.TrimSpace(msg.GetSessionId()); got != "" && got != sessionID {
+			_ = stream.Send(&providerv1.PaymentSessionResponse{
+				Message: &providerv1.PaymentSessionResponse_SessionControl{
+					SessionControl: &providerv1.SessionControl{
+						Action: providerv1.SessionControl_ACTION_STOP,
+						Reason: fmt.Sprintf("unexpected session_id %q", got),
+					},
+				},
+			})
+			return nil
+		}
+
+		if !session.IsActive() {
+			_ = stream.Send(&providerv1.PaymentSessionResponse{
+				Message: &providerv1.PaymentSessionResponse_SessionControl{
+					SessionControl: &providerv1.SessionControl{
+						Action: providerv1.SessionControl_ACTION_STOP,
+						Reason: "session is not active",
+					},
+				},
+			})
+			return nil
+		}
+
 		// Handle the message based on type
 		switch m := msg.Message.(type) {
 		case *providerv1.PaymentSessionRequest_RavSubmission:
-			s.handleRAVSubmission(ctx, stream, m.RavSubmission)
+			s.handleRAVSubmission(ctx, stream, sessionID, session, m.RavSubmission)
 
 		case *providerv1.PaymentSessionRequest_FundsAck:
-			s.handleFundsAcknowledgment(ctx, stream, m.FundsAck)
+			s.handleFundsAcknowledgment(ctx, stream, sessionID, session, m.FundsAck)
 
 		case *providerv1.PaymentSessionRequest_UsageReport:
-			s.handleUsageReport(ctx, stream, m.UsageReport)
+			s.handleUsageReport(ctx, stream, sessionID, session, m.UsageReport)
 
 		default:
 			s.logger.Warn("unknown message type in PaymentSession")
@@ -51,9 +107,23 @@ func (s *Sidecar) PaymentSession(
 func (s *Sidecar) handleRAVSubmission(
 	ctx context.Context,
 	stream *connect.BidiStream[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse],
+	sessionID string,
+	session *sidecar.Session,
 	submission *providerv1.SignedRAVSubmission,
 ) {
 	s.logger.Debug("received RAV submission in stream")
+
+	if submission == nil {
+		stream.Send(&providerv1.PaymentSessionResponse{
+			Message: &providerv1.PaymentSessionResponse_SessionControl{
+				SessionControl: &providerv1.SessionControl{
+					Action: providerv1.SessionControl_ACTION_STOP,
+					Reason: "missing RAV submission",
+				},
+			},
+		})
+		return
+	}
 
 	// Validate the RAV
 	signedRAV, err := sidecar.ProtoSignedRAVToHorizon(submission.SignedRav)
@@ -98,8 +168,43 @@ func (s *Sidecar) handleRAVSubmission(
 		return
 	}
 
+	// Verify RAV is for the correct session participants
+	if !sidecar.AddressesEqual(signedRAV.Message.Payer, session.Payer) {
+		stream.Send(&providerv1.PaymentSessionResponse{
+			Message: &providerv1.PaymentSessionResponse_SessionControl{
+				SessionControl: &providerv1.SessionControl{
+					Action: providerv1.SessionControl_ACTION_STOP,
+					Reason: "RAV payer does not match session",
+				},
+			},
+		})
+		return
+	}
+	if !sidecar.AddressesEqual(signedRAV.Message.ServiceProvider, s.serviceProvider) {
+		stream.Send(&providerv1.PaymentSessionResponse{
+			Message: &providerv1.PaymentSessionResponse_SessionControl{
+				SessionControl: &providerv1.SessionControl{
+					Action: providerv1.SessionControl_ACTION_STOP,
+					Reason: "RAV service provider does not match",
+				},
+			},
+		})
+		return
+	}
+	if !sidecar.AddressesEqual(signedRAV.Message.DataService, session.DataService) {
+		stream.Send(&providerv1.PaymentSessionResponse{
+			Message: &providerv1.PaymentSessionResponse_SessionControl{
+				SessionControl: &providerv1.SessionControl{
+					Action: providerv1.SessionControl_ACTION_STOP,
+					Reason: "RAV data service does not match session",
+				},
+			},
+		})
+		return
+	}
+
 	// Check if signer is authorized
-	isAuthorized, err := s.isSignerAuthorized(ctx, signedRAV.Message.Payer, signerAddr)
+	isAuthorized, err := s.isSignerAuthorized(ctx, session.Payer, signerAddr)
 	if err != nil {
 		s.logger.Warn("authorization check failed", zap.Error(err))
 		stream.Send(&providerv1.PaymentSessionResponse{
@@ -125,7 +230,39 @@ func (s *Sidecar) handleRAVSubmission(
 		return
 	}
 
+	// Verify RAV value is greater than or equal to previous RAV
+	currentRAV := session.GetRAV()
+	if currentRAV != nil && currentRAV.Message != nil {
+		if signedRAV.Message.ValueAggregate.Cmp(currentRAV.Message.ValueAggregate) < 0 {
+			stream.Send(&providerv1.PaymentSessionResponse{
+				Message: &providerv1.PaymentSessionResponse_SessionControl{
+					SessionControl: &providerv1.SessionControl{
+						Action: providerv1.SessionControl_ACTION_STOP,
+						Reason: "RAV value is less than current RAV",
+					},
+				},
+			})
+			return
+		}
+	}
+
+	// Store the new RAV
+	session.SetRAV(signedRAV)
+	if submission.Usage != nil {
+		var cost *big.Int
+		if submission.Usage.Cost != nil {
+			cost = submission.Usage.Cost.ToNative()
+		}
+		session.AddUsage(
+			submission.Usage.BlocksProcessed,
+			submission.Usage.BytesTransferred,
+			submission.Usage.Requests,
+			cost,
+		)
+	}
+
 	s.logger.Info("RAV accepted via stream",
+		zap.String("session_id", sessionID),
 		zap.Stringer("signer", signerAddr),
 		zap.String("value", signedRAV.Message.ValueAggregate.String()),
 	)
@@ -143,9 +280,12 @@ func (s *Sidecar) handleRAVSubmission(
 func (s *Sidecar) handleFundsAcknowledgment(
 	ctx context.Context,
 	stream *connect.BidiStream[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse],
+	sessionID string,
+	session *sidecar.Session,
 	ack *providerv1.FundsAcknowledgment,
 ) {
 	s.logger.Debug("received funds acknowledgment",
+		zap.String("session_id", sessionID),
 		zap.Bool("will_deposit", ack.WillDeposit),
 	)
 
@@ -174,11 +314,27 @@ func (s *Sidecar) handleFundsAcknowledgment(
 func (s *Sidecar) handleUsageReport(
 	ctx context.Context,
 	stream *connect.BidiStream[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse],
+	sessionID string,
+	session *sidecar.Session,
 	report *providerv1.UsageReport,
 ) {
 	s.logger.Debug("received usage report via stream",
+		zap.String("session_id", sessionID),
 		zap.Uint64("blocks", report.Usage.GetBlocksProcessed()),
 	)
+
+	if report != nil && report.Usage != nil {
+		var cost *big.Int
+		if report.Usage.Cost != nil {
+			cost = report.Usage.Cost.ToNative()
+		}
+		session.AddUsage(
+			report.Usage.BlocksProcessed,
+			report.Usage.BytesTransferred,
+			report.Usage.Requests,
+			cost,
+		)
+	}
 
 	// Acknowledge the usage report
 	stream.Send(&providerv1.PaymentSessionResponse{

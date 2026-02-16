@@ -86,7 +86,7 @@ Update process:
 | SDS-011 | P1 | done | Wire consumer `Init` → gateway `StartSession` |
 | SDS-012 | P1 | done | Decide and implement shared session ID strategy |
 | SDS-013 | P1 | not_started | Implement session resumption end-to-end |
-| SDS-014 | P2 | not_started | Bind `PaymentSession` stream to a specific session |
+| SDS-014 | P2 | done | Bind `PaymentSession` stream to a specific session |
 | SDS-015 | P2 | not_started | Implement provider-driven RAV request policy |
 | SDS-016 | P2 | not_started | Implement `NeedMoreFunds` loop + Continue/Stop/Pause |
 | SDS-017 | P2 | done | Verify signer authorization on-chain (`isAuthorized`) |
@@ -243,7 +243,7 @@ The flow diagram in `docs/flowchart.txt` implies:
 
 ## P2 — PaymentSession Stream (Real-Time Negotiation)
 
-- [ ] SDS-014 Make `PaymentGatewayService.PaymentSession` usable for real sessions.
+- [x] SDS-014 Make `PaymentGatewayService.PaymentSession` usable for real sessions.
   - Today: stream handler ignores session identity and is effectively “stateless” (`provider/sidecar/handler_payment_session.go`).
   - Target:
     - Decide how the stream is bound to a session (proto field vs headers vs first message).
@@ -252,7 +252,7 @@ The flow diagram in `docs/flowchart.txt` implies:
   - Done when:
     - A consumer can open a stream bound to a specific session and the provider can enforce that binding.
   - Verify:
-    - Integration test that opens a `PaymentSession` stream, sends a message tagged with `session_id`, and asserts provider updates that session’s state.
+    - `go test ./test/integration -run TestPaymentSession_BindsToSessionID` passes.
 - [ ] SDS-015 Implement provider-driven RAV requests.
   - Proto has `RAVRequest` + `deadline` (`proto/.../gateway.proto`), but nothing triggers it today.
   - Target:
@@ -265,6 +265,7 @@ The flow diagram in `docs/flowchart.txt` implies:
 - [ ] SDS-016 Implement “NeedMoreFunds” loop.
   - Flowchart calls out periodic escrow checks (`docs/flowchart.txt`).
   - Provider sidecar already has a low-level escrow query (`sidecar/escrow_querier.go`); integrate it into stream control messages.
+  - Note: there is (or will be) an escrow/authorization subgraph that could be queried via GraphQL in the future; keep the current direct-RPC approach as the source of truth for now.
   - Done when:
     - Provider emits `need_more_funds` when escrow is insufficient and transitions the session (Continue/Stop/Pause) accordingly.
   - Verify:

@@ -117,6 +117,7 @@ func (s *Sidecar) SubmitRAV(
 
 	// Store the new RAV
 	session.SetRAV(signedRAV)
+	session.MarkBaseline()
 
 	s.logger.Info("SubmitRAV accepted",
 		zap.String("session_id", sessionID),

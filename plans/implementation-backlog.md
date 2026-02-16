@@ -87,7 +87,7 @@ Update process:
 | SDS-012 | P1 | done | Decide and implement shared session ID strategy |
 | SDS-013 | P1 | not_started | Implement session resumption end-to-end |
 | SDS-014 | P2 | done | Bind `PaymentSession` stream to a specific session |
-| SDS-015 | P2 | not_started | Implement provider-driven RAV request policy |
+| SDS-015 | P2 | done | Implement provider-driven RAV request policy |
 | SDS-016 | P2 | not_started | Implement `NeedMoreFunds` loop + Continue/Stop/Pause |
 | SDS-017 | P2 | done | Verify signer authorization on-chain (`isAuthorized`) |
 | SDS-018 | P2 | done | Add explicit dev override for allowlist (optional) |
@@ -253,7 +253,7 @@ The flow diagram in `docs/flowchart.txt` implies:
     - A consumer can open a stream bound to a specific session and the provider can enforce that binding.
   - Verify:
     - `go test ./test/integration -run TestPaymentSession_BindsToSessionID` passes.
-- [ ] SDS-015 Implement provider-driven RAV requests.
+- [x] SDS-015 Implement provider-driven RAV requests.
   - Proto has `RAVRequest` + `deadline` (`proto/.../gateway.proto`), but nothing triggers it today.
   - Target:
     - Provider sidecar requests a new RAV when usage/cost threshold is reached.
@@ -261,7 +261,7 @@ The flow diagram in `docs/flowchart.txt` implies:
   - Done when:
     - Provider triggers `rav_request` based on a deterministic policy and handles responses.
   - Verify:
-    - Integration test that streams usage until the threshold is exceeded and asserts a `rav_request` is emitted.
+    - `go test ./test/integration -run TestPaymentSession_ProviderRequestsRAVOnUsage` passes.
 - [ ] SDS-016 Implement “NeedMoreFunds” loop.
   - Flowchart calls out periodic escrow checks (`docs/flowchart.txt`).
   - Provider sidecar already has a low-level escrow query (`sidecar/escrow_querier.go`); integrate it into stream control messages.

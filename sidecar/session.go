@@ -46,6 +46,13 @@ type Session struct {
 	Requests         uint64
 	TotalCost        *big.Int
 
+	// Baseline usage snapshot for determining "usage since last RAV".
+	// Provider-side logic uses this to decide when to request a new RAV.
+	baselineBlocks  uint64
+	baselineBytes   uint64
+	baselineReqs    uint64
+	baselineCostWei *big.Int
+
 	// Price configuration (set by provider)
 	PricePerBlock *big.Int
 	PricePerByte  *big.Int
@@ -55,30 +62,32 @@ type Session struct {
 // NewSession creates a new session with a generated ID
 func NewSession(payer, receiver, dataService eth.Address) *Session {
 	return &Session{
-		ID:            uuid.New().String(),
-		State:         SessionStateActive,
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
-		Payer:         payer,
-		Receiver:      receiver,
-		DataService:   dataService,
-		TotalCost:     big.NewInt(0),
-		PricePerBlock: big.NewInt(0),
+		ID:              uuid.New().String(),
+		State:           SessionStateActive,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+		Payer:           payer,
+		Receiver:        receiver,
+		DataService:     dataService,
+		TotalCost:       big.NewInt(0),
+		baselineCostWei: big.NewInt(0),
+		PricePerBlock:   big.NewInt(0),
 	}
 }
 
 // NewSessionWithID creates a new session with a specific ID.
 func NewSessionWithID(id string, payer, receiver, dataService eth.Address) *Session {
 	return &Session{
-		ID:            id,
-		State:         SessionStateActive,
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
-		Payer:         payer,
-		Receiver:      receiver,
-		DataService:   dataService,
-		TotalCost:     big.NewInt(0),
-		PricePerBlock: big.NewInt(0),
+		ID:              id,
+		State:           SessionStateActive,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+		Payer:           payer,
+		Receiver:        receiver,
+		DataService:     dataService,
+		TotalCost:       big.NewInt(0),
+		baselineCostWei: big.NewInt(0),
+		PricePerBlock:   big.NewInt(0),
 	}
 }
 
@@ -94,6 +103,40 @@ func (s *Session) AddUsage(blocks, bytes, requests uint64, cost *big.Int) {
 		s.TotalCost = new(big.Int).Add(s.TotalCost, cost)
 	}
 	s.UpdatedAt = time.Now()
+}
+
+// UsageDeltaSinceBaseline returns the usage accrued since the baseline snapshot.
+func (s *Session) UsageDeltaSinceBaseline() (blocks, bytes, requests uint64, costWei *big.Int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.BlocksProcessed >= s.baselineBlocks {
+		blocks = s.BlocksProcessed - s.baselineBlocks
+	}
+	if s.BytesTransferred >= s.baselineBytes {
+		bytes = s.BytesTransferred - s.baselineBytes
+	}
+	if s.Requests >= s.baselineReqs {
+		requests = s.Requests - s.baselineReqs
+	}
+
+	costWei = new(big.Int).Sub(s.TotalCost, s.baselineCostWei)
+	if costWei.Sign() < 0 {
+		costWei = big.NewInt(0)
+	}
+
+	return
+}
+
+// MarkBaseline sets the baseline snapshot to the current accumulated usage.
+func (s *Session) MarkBaseline() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.baselineBlocks = s.BlocksProcessed
+	s.baselineBytes = s.BytesTransferred
+	s.baselineReqs = s.Requests
+	s.baselineCostWei = new(big.Int).Set(s.TotalCost)
 }
 
 // GetUsage returns a copy of the current usage

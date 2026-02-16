@@ -6,8 +6,10 @@ import (
 	"io"
 	"math/big"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
+	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 	"go.uber.org/zap"
@@ -24,6 +26,7 @@ func (s *Sidecar) PaymentSession(
 
 	var session *sidecar.Session
 	var sessionID string
+	var awaitingRAV bool
 
 	for {
 		// Receive message from consumer sidecar
@@ -91,12 +94,13 @@ func (s *Sidecar) PaymentSession(
 		switch m := msg.Message.(type) {
 		case *providerv1.PaymentSessionRequest_RavSubmission:
 			s.handleRAVSubmission(ctx, stream, sessionID, session, m.RavSubmission)
+			awaitingRAV = false
 
 		case *providerv1.PaymentSessionRequest_FundsAck:
 			s.handleFundsAcknowledgment(ctx, stream, sessionID, session, m.FundsAck)
 
 		case *providerv1.PaymentSessionRequest_UsageReport:
-			s.handleUsageReport(ctx, stream, sessionID, session, m.UsageReport)
+			awaitingRAV = s.handleUsageReport(ctx, stream, sessionID, session, awaitingRAV, m.UsageReport)
 
 		default:
 			s.logger.Warn("unknown message type in PaymentSession")
@@ -248,18 +252,7 @@ func (s *Sidecar) handleRAVSubmission(
 
 	// Store the new RAV
 	session.SetRAV(signedRAV)
-	if submission.Usage != nil {
-		var cost *big.Int
-		if submission.Usage.Cost != nil {
-			cost = submission.Usage.Cost.ToNative()
-		}
-		session.AddUsage(
-			submission.Usage.BlocksProcessed,
-			submission.Usage.BytesTransferred,
-			submission.Usage.Requests,
-			cost,
-		)
-	}
+	session.MarkBaseline()
 
 	s.logger.Info("RAV accepted via stream",
 		zap.String("session_id", sessionID),
@@ -316,8 +309,9 @@ func (s *Sidecar) handleUsageReport(
 	stream *connect.BidiStream[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse],
 	sessionID string,
 	session *sidecar.Session,
+	awaitingRAV bool,
 	report *providerv1.UsageReport,
-) {
+) bool {
 	s.logger.Debug("received usage report via stream",
 		zap.String("session_id", sessionID),
 		zap.Uint64("blocks", report.Usage.GetBlocksProcessed()),
@@ -336,7 +330,32 @@ func (s *Sidecar) handleUsageReport(
 		)
 	}
 
-	// Acknowledge the usage report
+	if !awaitingRAV {
+		blocks, bytes, reqs, deltaCost := session.UsageDeltaSinceBaseline()
+		if deltaCost.Sign() > 0 {
+			currentRAV := session.GetRAV()
+			if currentRAV != nil {
+				usage := &commonv1.Usage{
+					BlocksProcessed:  blocks,
+					BytesTransferred: bytes,
+					Requests:         reqs,
+					Cost:             commonv1.BigIntFromNative(deltaCost),
+				}
+
+				stream.Send(&providerv1.PaymentSessionResponse{
+					Message: &providerv1.PaymentSessionResponse_RavRequest{
+						RavRequest: &providerv1.RAVRequest{
+							CurrentRav: sidecar.HorizonSignedRAVToProto(currentRAV),
+							Usage:      usage,
+							Deadline:   uint64(time.Now().Add(30 * time.Second).Unix()),
+						},
+					},
+				})
+				return true
+			}
+		}
+	}
+
 	stream.Send(&providerv1.PaymentSessionResponse{
 		Message: &providerv1.PaymentSessionResponse_SessionControl{
 			SessionControl: &providerv1.SessionControl{
@@ -344,4 +363,5 @@ func (s *Sidecar) handleUsageReport(
 			},
 		},
 	})
+	return awaitingRAV
 }

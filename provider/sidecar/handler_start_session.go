@@ -114,6 +114,7 @@ func (s *Sidecar) StartSession(
 	if initialRAV != nil {
 		session.SetRAV(initialRAV)
 	}
+	session.MarkBaseline()
 
 	s.logger.Info("StartSession succeeded",
 		zap.String("session_id", session.ID),

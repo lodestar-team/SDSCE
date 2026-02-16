@@ -93,6 +93,7 @@ func (s *Sidecar) ValidatePayment(
 
 	// Store the RAV
 	session.SetRAV(signedRAV)
+	session.MarkBaseline()
 
 	// Set pricing config on session
 	session.SetPricingConfig(s.pricingConfig)

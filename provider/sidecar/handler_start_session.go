@@ -107,6 +107,12 @@ func (s *Sidecar) StartSession(
 				RejectionReason: "RAV service provider does not match",
 			}), nil
 		}
+		if !sidecar.AddressesEqual(initialRAV.Message.DataService, dataService) {
+			return connect.NewResponse(&providerv1.StartSessionResponse{
+				Accepted:        false,
+				RejectionReason: "RAV data service does not match escrow account data service",
+			}), nil
+		}
 	}
 
 	// Create session

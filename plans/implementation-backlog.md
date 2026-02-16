@@ -82,10 +82,10 @@ Update process:
 | SDS-007 | P1 | done | Add explicit `collection_id` to proto `common.v1.RAV` |
 | SDS-008 | P1 | not_started | Define and document `metadata` schema + encoding |
 | SDS-009 | P1 | not_started | Align pricing/service parameters across proto + impl |
-| SDS-010 | P1 | not_started | Define canonical signature encoding for RPC/header |
+| SDS-010 | P1 | done | Define canonical signature encoding for RPC/header |
 | SDS-011 | P1 | done | Wire consumer `Init` → gateway `StartSession` |
 | SDS-012 | P1 | done | Decide and implement shared session ID strategy |
-| SDS-013 | P1 | not_started | Implement session resumption end-to-end |
+| SDS-013 | P1 | done | Implement session resumption end-to-end |
 | SDS-014 | P2 | done | Bind `PaymentSession` stream to a specific session |
 | SDS-015 | P2 | done | Implement provider-driven RAV request policy |
 | SDS-016 | P2 | not_started | Implement `NeedMoreFunds` loop + Continue/Stop/Pause |
@@ -187,7 +187,7 @@ Update process:
     - Sidecars either compute costs server-side or explicitly validate caller-provided cost against pricing.
   - Verify:
     - Add tests that show consistent cost calculation for blocks+bytes across both sides.
-- [ ] SDS-010 Define the canonical **signature byte order** for the proto wire format.
+- [x] SDS-010 Define the canonical **signature byte order** for the proto wire format.
   - Go uses `eth.Signature` (V+R+S); Solidity `ECDSA.recover` expects R+S+V (see `docs/contracts.md` and integration helpers).
   - Target: pick one canonical encoding for RPC/headers (recommended: keep V+R+S internally, convert only at Solidity boundary), and document it clearly.
   - Done when:
@@ -227,7 +227,7 @@ The flow diagram in `docs/flowchart.txt` implies:
     - Run `go test ./test/integration -run TestPaymentFlowBasic` and assert:
       - provider session count remains `1` after `ValidatePayment`, and
       - `ValidatePaymentResponse.session_id == InitResponse.session.session_id`.
-- [ ] SDS-013 Implement session resumption end-to-end.
+- [x] SDS-013 Implement session resumption end-to-end.
   - Protos hint at it (`InitRequest.existing_rav`, `ValidatePaymentRequest.client_session_id`) but sidecars don’t coordinate.
   - Target: if consumer has `existing_rav`, it should attempt to resume with provider (and provider should accept/reject consistently).
   - Done when:

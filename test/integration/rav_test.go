@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/graphprotocol/substreams-data-service/horizon"
+	sidecarlib "github.com/graphprotocol/substreams-data-service/sidecar"
 	"github.com/streamingfast/eth-go"
 	"github.com/stretchr/testify/require"
 )
@@ -93,6 +94,12 @@ func TestSignatureRecoveryCompatibility(t *testing.T) {
 	// Sign in Go
 	signedRAV, err := horizon.Sign(domain, rav, key)
 	require.NoError(t, err)
+
+	// Round-trip through the proto wire representation to assert canonical signature encoding.
+	protoSignedRAV := sidecarlib.HorizonSignedRAVToProto(signedRAV)
+	signedRAV, err = sidecarlib.ProtoSignedRAVToHorizon(protoSignedRAV)
+	require.NoError(t, err)
+	require.NotNil(t, signedRAV)
 
 	// Verify in Go first
 	goRecovered, err := signedRAV.RecoverSigner(domain)
@@ -527,15 +534,27 @@ func createMalleatedSignature(sig eth.Signature) eth.Signature {
 	// secp256k1 curve order
 	n, _ := new(big.Int).SetString("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16)
 
-	s := new(big.Int).SetBytes(sig[32:64])
+	// eth.Signature is V (1 byte) + R (32 bytes) + S (32 bytes).
+	s := new(big.Int).SetBytes(sig[33:])
 	sNew := new(big.Int).Sub(n, s)
 
 	sBytes := sNew.Bytes()
-	for i := 32; i < 64; i++ {
+	for i := 33; i < 65; i++ {
 		result[i] = 0
 	}
-	copy(result[64-len(sBytes):64], sBytes)
-	result[64] ^= 1 // Flip V
+	copy(result[65-len(sBytes):65], sBytes)
+	result[0] = flipSignatureV(result[0])
 
 	return result
+}
+
+func flipSignatureV(v byte) byte {
+	if v < 27 {
+		return v ^ 1
+	}
+
+	header := v - 27
+	recID := header & 1
+	flags := header &^ 1
+	return 27 + (recID ^ 1) + flags
 }

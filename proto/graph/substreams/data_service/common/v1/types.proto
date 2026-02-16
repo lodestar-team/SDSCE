@@ -17,7 +17,13 @@ message BigInt {
 message SignedRAV {
   // The RAV data that was signed
   RAV rav = 1;
-  // The signature over the RAV (EIP-712 typed data signature)
+  // The signature over the RAV (EIP-712 typed data signature), 65 bytes.
+  //
+  // Canonical encoding for RPC/headers: V (1 byte) + R (32 bytes) + S (32 bytes),
+  // matching `eth.Signature` from `github.com/streamingfast/eth-go`.
+  //
+  // Solidity's `ECDSA.recover` expects R (32) + S (32) + V (1) ("R+S+V"); convert
+  // at the Solidity boundary (e.g. on-chain collection calldata encoding).
   bytes signature = 2;
 }
 

@@ -63,6 +63,17 @@ func (s *Sidecar) Init(
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <existing_rav>: %w", err))
 		}
+		if existingRAV != nil && existingRAV.Message != nil {
+			if !sidecar.AddressesEqual(existingRAV.Message.Payer, payer) {
+				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("<existing_rav.rav.payer> %s does not match <escrow_account.payer> %s", existingRAV.Message.Payer.Pretty(), payer.Pretty()))
+			}
+			if !sidecar.AddressesEqual(existingRAV.Message.ServiceProvider, receiver) {
+				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("<existing_rav.rav.service_provider> %s does not match <escrow_account.receiver> %s", existingRAV.Message.ServiceProvider.Pretty(), receiver.Pretty()))
+			}
+			if !sidecar.AddressesEqual(existingRAV.Message.DataService, dataService) {
+				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("<existing_rav.rav.data_service> %s does not match <escrow_account.data_service> %s", existingRAV.Message.DataService.Pretty(), dataService.Pretty()))
+			}
+		}
 	}
 
 	// Create initial RAV (can be zero-value for new sessions)

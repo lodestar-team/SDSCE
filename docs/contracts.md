@@ -155,7 +155,7 @@ Minimal contract for testing EIP-712 signature verification without protocol dep
 |--------|----------------|---------------|
 | EIP-712 Domain Separator | Chain ID + Verifying Contract | `TestDomainSeparatorCompatibility` |
 | RAV Struct Hash | Typehash + ABI-encoded fields | `TestEIP712HashCompatibility` |
-| Signature Format | R+S+V (65 bytes) | `TestSignatureRecoveryCompatibility` |
+| Signature Format | Go: V+R+S, Solidity: R+S+V (65 bytes) | `TestSignatureRecoveryCompatibility` |
 | Signer Authorization | Payer authorizes signer | `TestAuthorizeSignerFlow` |
 | Incremental Collection | tokensCollected delta tracking | `TestCollectRAVIncremental` |
 
@@ -172,7 +172,7 @@ The following production features are not covered by integration tests:
 
 ## Signature Format Note
 
-The Go implementation uses `eth.Signature` which stores signatures as V+R+S (65 bytes), but Solidity's `ECDSA.recover` expects R+S+V format. The `encodeCollectData` function in `collect_test.go` handles this conversion:
+The Go implementation uses `eth.Signature` which stores signatures as V+R+S (65 bytes). Solidity's `ECDSA.recover` expects R+S+V format, so conversion is required at the Solidity boundary. The `encodeCollectData` function in `collect_test.go` handles this conversion:
 
 ```go
 // eth.Signature is V+R+S (65 bytes) but Solidity ECDSA.recover expects R+S+V

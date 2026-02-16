@@ -7,7 +7,7 @@ import (
 )
 
 var zlog, _ = logging.PackageLogger("sds", "github.com/graphprotocol/substreams-data-service/cmd/sds")
-var version = "dev"
+var Version = "dev"
 
 func init() {
 	logging.InstantiateLoggers(logging.WithDefaultLevel(zap.ErrorLevel))
@@ -17,7 +17,7 @@ func main() {
 	Run(
 		"sds",
 		"Substreams Data Service CLI",
-		ConfigureVersion(version),
+		ConfigureVersion(Version),
 		OnCommandErrorLogAndExit(zlog),
 
 		devenvCmd,

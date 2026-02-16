@@ -43,7 +43,10 @@ func (s *Sidecar) SubmitRAV(
 	}
 
 	// Convert and validate the RAV
-	signedRAV := sidecar.ProtoSignedRAVToHorizon(req.Msg.SignedRav)
+	signedRAV, err := sidecar.ProtoSignedRAVToHorizon(req.Msg.SignedRav)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <signed_rav>: %w", err))
+	}
 	if signedRAV == nil || signedRAV.Message == nil {
 		return connect.NewResponse(&providerv1.SubmitRAVResponse{
 			Accepted:        false,

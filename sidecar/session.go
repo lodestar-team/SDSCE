@@ -67,6 +67,21 @@ func NewSession(payer, receiver, dataService eth.Address) *Session {
 	}
 }
 
+// NewSessionWithID creates a new session with a specific ID.
+func NewSessionWithID(id string, payer, receiver, dataService eth.Address) *Session {
+	return &Session{
+		ID:            id,
+		State:         SessionStateActive,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
+		Payer:         payer,
+		Receiver:      receiver,
+		DataService:   dataService,
+		TotalCost:     big.NewInt(0),
+		PricePerBlock: big.NewInt(0),
+	}
+}
+
 // AddUsage adds usage to the session and returns the updated total cost
 func (s *Session) AddUsage(blocks, bytes, requests uint64, cost *big.Int) {
 	s.mu.Lock()
@@ -208,6 +223,24 @@ func (sm *SessionManager) Create(payer, receiver, dataService eth.Address) *Sess
 	sm.mu.Unlock()
 
 	return session
+}
+
+// CreateWithID creates and stores a new session under a specific ID.
+func (sm *SessionManager) CreateWithID(id string, payer, receiver, dataService eth.Address) (*Session, error) {
+	if id == "" {
+		return nil, fmt.Errorf("session id is required")
+	}
+
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if _, exists := sm.sessions[id]; exists {
+		return nil, fmt.Errorf("session already exists: %s", id)
+	}
+
+	session := NewSessionWithID(id, payer, receiver, dataService)
+	sm.sessions[session.ID] = session
+	return session, nil
 }
 
 // Get retrieves a session by ID

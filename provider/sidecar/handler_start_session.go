@@ -2,6 +2,7 @@ package sidecar
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"connectrpc.com/connect"
@@ -21,7 +22,30 @@ func (s *Sidecar) StartSession(
 
 	// Extract escrow account
 	ea := req.Msg.EscrowAccount
-	payer, receiver, dataService := ea.Payer.ToEth(), ea.Receiver.ToEth(), ea.DataService.ToEth()
+	if ea == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("<escrow_account> is required"))
+	}
+	if ea.Payer == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("<escrow_account.payer> is required"))
+	}
+	if ea.Receiver == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("<escrow_account.receiver> is required"))
+	}
+	if ea.DataService == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("<escrow_account.data_service> is required"))
+	}
+	payer, err := ea.Payer.ToEth()
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <escrow_account.payer>: %w", err))
+	}
+	receiver, err := ea.Receiver.ToEth()
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <escrow_account.receiver>: %w", err))
+	}
+	dataService, err := ea.DataService.ToEth()
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <escrow_account.data_service>: %w", err))
+	}
 
 	// Verify receiver matches this service provider
 	if !sidecar.AddressesEqual(receiver, s.serviceProvider) {
@@ -36,7 +60,10 @@ func (s *Sidecar) StartSession(
 	}
 
 	// Validate initial RAV if provided
-	initialRAV := sidecar.ProtoSignedRAVToHorizon(req.Msg.InitialRav)
+	initialRAV, err := sidecar.ProtoSignedRAVToHorizon(req.Msg.InitialRav)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <initial_rav>: %w", err))
+	}
 	if initialRAV != nil && initialRAV.Message != nil {
 		// Verify signature
 		signerAddr, err := s.verifyRAVSignature(initialRAV)

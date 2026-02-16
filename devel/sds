@@ -7,9 +7,9 @@ active_pid=
 main() {
   set -e
 
-  version="unknown"
-  if [[ -f .version ]]; then
-    version=`cat .version`
+  version="dev"
+  if [[ -f "$ROOT/.version" ]]; then
+    version="$(tr -d '\n' < "$ROOT/.version")"
   fi
 
   binary_name="sds"

@@ -104,6 +104,10 @@ func (s *Sidecar) AddAcceptedSigner(addr eth.Address) {
 	s.acceptedSigners[addr.Pretty()] = true
 }
 
+func (s *Sidecar) SessionCount() int {
+	return s.sessions.Count()
+}
+
 func (s *Sidecar) Run() {
 	handlerGetters := []connectrpc.HandlerGetter{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {

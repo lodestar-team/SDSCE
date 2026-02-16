@@ -2,6 +2,7 @@ package sidecar
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
@@ -9,9 +10,9 @@ import (
 )
 
 // ProtoRAVToHorizon converts a proto RAV to a horizon RAV
-func ProtoRAVToHorizon(pr *commonv1.RAV) *horizon.RAV {
+func ProtoRAVToHorizon(pr *commonv1.RAV) (*horizon.RAV, error) {
 	if pr == nil {
-		return nil
+		return nil, nil
 	}
 
 	var collectionID horizon.CollectionID
@@ -19,15 +20,31 @@ func ProtoRAVToHorizon(pr *commonv1.RAV) *horizon.RAV {
 		copy(collectionID[:], pr.Metadata[:32])
 	}
 
+	payer, err := pr.Payer.ToEth()
+	if err != nil {
+		return nil, fmt.Errorf("payer: %w", err)
+	}
+	dataService, err := pr.DataService.ToEth()
+	if err != nil {
+		return nil, fmt.Errorf("data_service: %w", err)
+	}
+	serviceProvider, err := pr.ServiceProvider.ToEth()
+	if err != nil {
+		return nil, fmt.Errorf("service_provider: %w", err)
+	}
+	if pr.ValueAggregate == nil {
+		return nil, fmt.Errorf("value_aggregate is required")
+	}
+
 	return &horizon.RAV{
 		CollectionID:    collectionID,
-		Payer:           pr.Payer.ToEth(),
-		DataService:     pr.DataService.ToEth(),
-		ServiceProvider: pr.ServiceProvider.ToEth(),
+		Payer:           payer,
+		DataService:     dataService,
+		ServiceProvider: serviceProvider,
 		TimestampNs:     pr.TimestampNs,
 		ValueAggregate:  pr.ValueAggregate.ToNative(),
 		Metadata:        pr.Metadata,
-	}
+	}, nil
 }
 
 // HorizonRAVToProto converts a horizon RAV to a proto RAV
@@ -47,23 +64,28 @@ func HorizonRAVToProto(hr *horizon.RAV) *commonv1.RAV {
 }
 
 // ProtoSignedRAVToHorizon converts a proto SignedRAV to a horizon SignedRAV
-func ProtoSignedRAVToHorizon(psr *commonv1.SignedRAV) *horizon.SignedRAV {
+func ProtoSignedRAVToHorizon(psr *commonv1.SignedRAV) (*horizon.SignedRAV, error) {
 	if psr == nil {
-		return nil
+		return nil, nil
 	}
 
-	rav := ProtoRAVToHorizon(psr.Rav)
+	rav, err := ProtoRAVToHorizon(psr.Rav)
+	if err != nil {
+		return nil, err
+	}
 	if rav == nil {
-		return nil
+		return nil, fmt.Errorf("rav is required")
 	}
 
-	var sig eth.Signature
-	copy(sig[:], psr.Signature)
+	sig, err := eth.NewSignatureFromBytes(psr.Signature)
+	if err != nil {
+		return nil, fmt.Errorf("signature: %w", err)
+	}
 
 	return &horizon.SignedRAV{
 		Message:   rav,
 		Signature: sig,
-	}
+	}, nil
 }
 
 // HorizonSignedRAVToProto converts a horizon SignedRAV to a proto SignedRAV

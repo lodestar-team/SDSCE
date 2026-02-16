@@ -2,12 +2,18 @@ package sidecar
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math/big"
+	"net/http"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	consumerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1"
+	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
+	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 	"go.uber.org/zap"
 )
@@ -25,28 +31,42 @@ func (s *Sidecar) Init(
 
 	// Extract escrow account details
 	ea := req.Msg.EscrowAccount
-	payer, receiver, dataService := ea.Payer.ToEth(), ea.Receiver.ToEth(), ea.DataService.ToEth()
-
-	// Create a new session
-	session := s.sessions.Create(payer, receiver, dataService)
-
-	s.logger.Debug("created session",
-		zap.String("session_id", session.ID),
-		zap.Stringer("payer", payer),
-		zap.Stringer("receiver", receiver),
-		zap.Stringer("data_service", dataService),
-	)
+	if ea == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("<escrow_account> is required"))
+	}
+	if ea.Payer == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("<escrow_account.payer> is required"))
+	}
+	if ea.Receiver == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("<escrow_account.receiver> is required"))
+	}
+	if ea.DataService == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("<escrow_account.data_service> is required"))
+	}
+	payer, err := ea.Payer.ToEth()
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <escrow_account.payer>: %w", err))
+	}
+	receiver, err := ea.Receiver.ToEth()
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <escrow_account.receiver>: %w", err))
+	}
+	dataService, err := ea.DataService.ToEth()
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <escrow_account.data_service>: %w", err))
+	}
 
 	// Check if we have an existing RAV to continue from
 	var existingRAV *horizon.SignedRAV
 	if req.Msg.ExistingRav != nil {
-		existingRAV = sidecar.ProtoSignedRAVToHorizon(req.Msg.ExistingRav)
-		session.SetRAV(existingRAV)
+		existingRAV, err = sidecar.ProtoSignedRAVToHorizon(req.Msg.ExistingRav)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <existing_rav>: %w", err))
+		}
 	}
 
 	// Create initial RAV (can be zero-value for new sessions)
 	var initialRAV *horizon.SignedRAV
-	var err error
 
 	if existingRAV != nil {
 		// Use the existing RAV
@@ -70,12 +90,72 @@ func (s *Sidecar) Init(
 			s.logger.Error("failed to sign initial RAV", zap.Error(err))
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
-
-		session.SetRAV(initialRAV)
 	}
 
-	// In a full implementation, we would call the provider's PaymentGateway.StartSession
-	// to register this session. For now, we return the signed RAV for the client to use.
+	providerEndpoint := strings.TrimSpace(req.Msg.ProviderEndpoint)
+	var sessionID string
+	if providerEndpoint != "" {
+		if !strings.Contains(providerEndpoint, "://") {
+			providerEndpoint = "http://" + providerEndpoint
+		}
+
+		gatewayClient := providerv1connect.NewPaymentGatewayServiceClient(http.DefaultClient, providerEndpoint)
+		gatewayResp, err := gatewayClient.StartSession(ctx, connect.NewRequest(&providerv1.StartSessionRequest{
+			EscrowAccount: ea,
+			InitialRav:    sidecar.HorizonSignedRAVToProto(initialRAV),
+		}))
+		if err != nil {
+			return nil, connect.NewError(connect.CodeUnavailable, err)
+		}
+
+		if !gatewayResp.Msg.Accepted {
+			reason := strings.TrimSpace(gatewayResp.Msg.RejectionReason)
+			if reason == "" {
+				reason = "provider rejected session"
+			}
+			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New(reason))
+		}
+
+		sessionID = strings.TrimSpace(gatewayResp.Msg.SessionId)
+		if sessionID == "" {
+			return nil, connect.NewError(connect.CodeInternal, errors.New("provider returned an empty session id"))
+		}
+
+		s.logger.Info("provider session started",
+			zap.String("provider_endpoint", providerEndpoint),
+			zap.String("provider_session_id", sessionID),
+		)
+
+		if gatewayResp.Msg.UseRav != nil {
+			useRAV, err := sidecar.ProtoSignedRAVToHorizon(gatewayResp.Msg.UseRav)
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("invalid <use_rav> received from provider gateway: %w", err))
+			}
+			if useRAV != nil {
+				initialRAV = useRAV
+			}
+		}
+	}
+
+	var session *sidecar.Session
+	if sessionID != "" {
+		session, err = s.sessions.CreateWithID(sessionID, payer, receiver, dataService)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unable to create session: %w", err))
+		}
+	} else {
+		session = s.sessions.Create(payer, receiver, dataService)
+		sessionID = session.ID
+	}
+
+	session.SetRAV(initialRAV)
+
+	s.logger.Debug("created session",
+		zap.String("session_id", session.ID),
+		zap.Stringer("payer", payer),
+		zap.Stringer("receiver", receiver),
+		zap.Stringer("data_service", dataService),
+	)
 
 	response := &consumerv1.InitResponse{
 		Session:    session.ToSessionInfo(),

@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"net/http"
 	"testing"
@@ -99,10 +100,14 @@ func TestPaymentFlowBasic(t *testing.T) {
 	paymentRAV := initResp.Msg.PaymentRav
 	t.Logf("Consumer session created: %s", consumerSessionID)
 
+	// Consumer Init should have started a provider gateway session
+	require.Equal(t, 1, providerSidecar.SessionCount(), "expected provider sidecar session to be created via StartSession during Init")
+
 	// Step 2: Provider validates the RAV
 	t.Log("Step 2: Provider validates RAV")
 	validateReq := &providerv1.ValidatePaymentRequest{
-		PaymentRav: paymentRAV,
+		PaymentRav:      paymentRAV,
+		ClientSessionId: consumerSessionID,
 		ServiceParams: &commonv1.ServiceParameters{
 			RequiredBlocksPreproc: 1000,
 			PricePerBlock:         commonv1.BigIntFromNative(big.NewInt(1000000)), // 0.001 GRT per block
@@ -112,6 +117,8 @@ func TestPaymentFlowBasic(t *testing.T) {
 	require.NoError(t, err, "provider ValidatePayment failed")
 	assert.True(t, validateResp.Msg.Valid, "RAV should be valid: %s", validateResp.Msg.RejectionReason)
 	require.NotEmpty(t, validateResp.Msg.SessionId, "expected provider session ID")
+	require.Equal(t, consumerSessionID, validateResp.Msg.SessionId, "expected provider to reuse the shared session id")
+	require.Equal(t, 1, providerSidecar.SessionCount(), "expected provider to reuse the StartSession-created session")
 
 	providerSessionID := validateResp.Msg.SessionId
 	t.Logf("Provider validated RAV, session: %s", providerSessionID)
@@ -231,4 +238,56 @@ func TestRAVSignatureVerification(t *testing.T) {
 	assert.Contains(t, validateResp2.Msg.RejectionReason, "not authorized")
 
 	t.Log("Signature verification test completed successfully!")
+}
+
+func TestValidatePayment_InvalidSignatureLength_ReturnsInvalidArgument(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+
+	env := devenv.Get()
+	require.NotNil(t, env, "devenv not started")
+
+	setup, err := env.SetupTestWithSigner(nil)
+	require.NoError(t, err, "failed to setup test")
+
+	domain := env.Domain()
+
+	providerConfig := &providersidecar.Config{
+		ListenAddr:      ":19004",
+		ServiceProvider: env.ServiceProvider.Address,
+		Domain:          domain,
+		AcceptedSigners: []eth.Address{setup.SignerAddr},
+	}
+	providerSidecar := providersidecar.New(providerConfig, zlog.Named("provider"))
+	go providerSidecar.Run()
+	defer providerSidecar.Shutdown(nil)
+	time.Sleep(100 * time.Millisecond)
+
+	providerClient := providerv1connect.NewProviderSidecarServiceClient(
+		http.DefaultClient,
+		"http://localhost:19004",
+	)
+
+	invalidProtoRAV := &commonv1.SignedRAV{
+		Rav: &commonv1.RAV{
+			Payer:           commonv1.AddressFromEth(env.Payer.Address),
+			DataService:     commonv1.AddressFromEth(env.DataService.Address),
+			ServiceProvider: commonv1.AddressFromEth(env.ServiceProvider.Address),
+			TimestampNs:     uint64(time.Now().UnixNano()),
+			ValueAggregate:  commonv1.BigIntFromNative(big.NewInt(0)),
+		},
+		Signature: []byte{0x01, 0x02}, // invalid length (must be 65 bytes)
+	}
+
+	_, err = providerClient.ValidatePayment(ctx, connect.NewRequest(&providerv1.ValidatePaymentRequest{
+		PaymentRav: invalidProtoRAV,
+	}))
+	require.Error(t, err)
+
+	var cerr *connect.Error
+	require.True(t, errors.As(err, &cerr), "expected connect.Error")
+	require.Equal(t, connect.CodeInvalidArgument, cerr.Code())
 }

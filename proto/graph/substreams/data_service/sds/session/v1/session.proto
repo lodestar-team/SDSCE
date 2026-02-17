@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package graph.substreams.data_service.sds.session.v1;
+
+import "google/protobuf/duration.proto";
+
+// SessionService implements the worker-pool / dsession protocol for firehose-core.
+// The dsession tgm:// plugin calls BorrowWorker before handling a request and
+// ReturnWorker when done. KeepAlive is called periodically to maintain session state.
+service SessionService {
+  // BorrowWorker acquires a worker slot for a new streaming request.
+  // Returns resource_exhausted if quota is exceeded.
+  rpc BorrowWorker(BorrowWorkerRequest) returns (BorrowWorkerResponse);
+
+  // ReturnWorker releases a previously borrowed worker slot.
+  rpc ReturnWorker(ReturnWorkerRequest) returns (ReturnWorkerResponse);
+
+  // KeepAlive refreshes the session's last-seen timestamp.
+  rpc KeepAlive(KeepAliveRequest) returns (KeepAliveResponse);
+}
+
+// BorrowWorkerRequest acquires a worker slot for a request.
+message BorrowWorkerRequest {
+  // Service identifier, e.g., "substreams"
+  string service = 1;
+  // Payer Ethereum address (from auth context)
+  string organization_id = 2;
+  // Optional sub-key or signer identifier; empty for now
+  string api_key_id = 3;
+  // Trace ID of the incoming request for deduplication
+  string trace_id = 4;
+  // Maximum concurrent workers allowed for this trace ID
+  int64 max_worker_for_trace_id = 5;
+}
+
+message BorrowWorkerResponse {
+  // Unique key identifying this worker slot; returned in ReturnWorker
+  string worker_key = 1;
+  // Outcome of the borrow attempt
+  BorrowStatus status = 2;
+  // Capacity information about the worker pool
+  WorkerState worker_state = 3;
+}
+
+// BorrowStatus indicates the outcome of a BorrowWorker call.
+enum BorrowStatus {
+  BORROW_STATUS_UNSPECIFIED = 0;
+  // Worker slot acquired successfully
+  BORROW_STATUS_BORROWED = 1;
+  // Quota exceeded; caller should return an unavailable error to the client
+  BORROW_STATUS_RESOURCE_EXHAUSTED = 2;
+}
+
+// WorkerState describes the current capacity of the worker pool.
+message WorkerState {
+  // Maximum number of workers available in the pool
+  int64 max_workers = 1;
+  // Number of workers currently in use
+  int64 active_workers = 2;
+}
+
+// ReturnWorkerRequest releases a previously borrowed worker slot.
+message ReturnWorkerRequest {
+  // Worker key returned from BorrowWorker
+  string worker_key = 1;
+  // Minimum duration the worker should have been active before being released.
+  // Used to enforce minimum billing windows.
+  google.protobuf.Duration minimal_worker_life_duration = 2;
+}
+
+message ReturnWorkerResponse {}
+
+// KeepAliveRequest refreshes the session's last-seen timestamp.
+message KeepAliveRequest {
+  // Worker key identifying the session to keep alive
+  string worker_key = 1;
+  // Optional sub-key or signer identifier
+  string api_key_id = 2;
+}
+
+message KeepAliveResponse {}

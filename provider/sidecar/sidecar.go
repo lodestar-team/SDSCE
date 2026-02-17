@@ -10,6 +10,13 @@ import (
 	"connectrpc.com/connect"
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
+	authv1connect "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/auth/v1/authv1connect"
+	sessionv1connect "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/session/v1/sessionv1connect"
+	usagev1connect "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/usage/v1/usagev1connect"
+	providerauth "github.com/graphprotocol/substreams-data-service/provider/auth"
+	"github.com/graphprotocol/substreams-data-service/provider/repository"
+	providersession "github.com/graphprotocol/substreams-data-service/provider/session"
+	providerusage "github.com/graphprotocol/substreams-data-service/provider/usage"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 	"github.com/streamingfast/dgrpc/server"
 	"github.com/streamingfast/dgrpc/server/connectrpc"
@@ -28,7 +35,7 @@ type Sidecar struct {
 	logger     *zap.Logger
 	server     *connectrpc.ConnectWebServer
 
-	// Session management
+	// Session management (legacy payment sessions)
 	sessions *sidecar.SessionManager
 
 	// Service provider identity
@@ -51,6 +58,12 @@ type Sidecar struct {
 
 	authCacheMu sync.RWMutex
 	authCache   map[string]authCacheEntry
+
+	// Plugin services (serve firehose-core sds:// / tgm:// plugins)
+	authService    *providerauth.AuthService
+	usageService   *providerusage.UsageService
+	sessionService *providersession.SessionService
+	repo           repository.GlobalRepository
 }
 
 type Config struct {
@@ -61,6 +74,10 @@ type Config struct {
 	EscrowAddr      eth.Address
 	RPCEndpoint     string
 	PricingConfig   *sidecar.PricingConfig
+
+	// QuotaConfig configures per-payer worker quota limits for the session service.
+	// If nil, DefaultQuotaConfig() is used.
+	QuotaConfig *providersession.QuotaConfig
 }
 
 type authCacheEntry struct {
@@ -84,6 +101,24 @@ func New(config *Config, logger *zap.Logger) *Sidecar {
 		pricingConfig = sidecar.DefaultPricingConfig()
 	}
 
+	// Build the global repository and plugin services.
+	repo := repository.NewInMemoryRepository()
+
+	// The auth service needs to call IsAuthorized on the collector; reuse
+	// the collectorQuerier from the existing sidecar if available.
+	var authCollectorQuerier providerauth.CollectorAuthorizer
+	if collectorQuerier != nil {
+		authCollectorQuerier = collectorQuerier
+	}
+
+	authSvc := providerauth.NewAuthService(
+		config.ServiceProvider,
+		config.Domain,
+		authCollectorQuerier,
+	)
+	usageSvc := providerusage.NewUsageService(repo)
+	sessionSvc := providersession.NewSessionService(repo, config.QuotaConfig)
+
 	return &Sidecar{
 		Shutter:          shutter.New(),
 		listenAddr:       config.ListenAddr,
@@ -97,6 +132,10 @@ func New(config *Config, logger *zap.Logger) *Sidecar {
 		collectorQuerier: collectorQuerier,
 		pricingConfig:    pricingConfig,
 		authCache:        make(map[string]authCacheEntry),
+		repo:             repo,
+		authService:      authSvc,
+		usageService:     usageSvc,
+		sessionService:   sessionSvc,
 	}
 }
 
@@ -120,6 +159,16 @@ func (s *Sidecar) Run() {
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return providerv1connect.NewPaymentGatewayServiceHandler(s, opts...)
 		},
+		// Plugin services for sds:// / tgm:// firehose-core plugins
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return authv1connect.NewAuthServiceHandler(s.authService, opts...)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return usagev1connect.NewUsageServiceHandler(s.usageService, opts...)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return sessionv1connect.NewSessionServiceHandler(s.sessionService, opts...)
+		},
 	}
 
 	s.server = connectrpc.New(
@@ -130,6 +179,9 @@ func (s *Sidecar) Run() {
 		server.WithConnectPermissiveCORS(),
 		server.WithConnectReflection(providerv1connect.ProviderSidecarServiceName),
 		server.WithConnectReflection(providerv1connect.PaymentGatewayServiceName),
+		server.WithConnectReflection(authv1connect.AuthServiceName),
+		server.WithConnectReflection(usagev1connect.UsageServiceName),
+		server.WithConnectReflection(sessionv1connect.SessionServiceName),
 	)
 
 	s.server.OnTerminated(func(err error) {

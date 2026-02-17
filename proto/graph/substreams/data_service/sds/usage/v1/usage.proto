@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package graph.substreams.data_service.sds.usage.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// UsageService receives batched metering events from the dmetering tgm:// plugin.
+// The plugin batches events with a configurable flush interval (default 100ms).
+service UsageService {
+  // Report receives a batch of metering events from the firehose-core dmetering plugin.
+  rpc Report(ReportRequest) returns (ReportResponse);
+}
+
+message ReportRequest {
+  // Batched metering events
+  repeated Event events = 1;
+}
+
+message ReportResponse {
+  // Whether the session/key has been revoked
+  bool revoked = 1;
+  // If revoked, the reason for revocation
+  string revocation_reason = 2;
+}
+
+// Event represents a single metered usage event as reported by the dmetering plugin.
+message Event {
+  // Payer Ethereum address (from auth context)
+  string organization_id = 1;
+  // Optional sub-key or signer identifier
+  string api_key_id = 2;
+  // Client IP address
+  string ip_address = 3;
+  // Endpoint called, e.g., "sf.substreams.rpc.v2/Blocks"
+  string endpoint = 4;
+  // Network identifier, e.g., "eth-mainnet"
+  string network = 5;
+  // Arbitrary metadata
+  string meta = 7;
+  // Provider Ethereum address
+  string provider = 8;
+  // Output module hash (for Substreams)
+  string output_module_hash = 9;
+  // Individual metrics (blocks_count, bytes_sent, etc.)
+  repeated Metric metrics = 20;
+  // Event timestamp
+  google.protobuf.Timestamp timestamp = 30;
+}
+
+// Metric is a single named counter value within a usage event.
+message Metric {
+  string name = 1;
+  int64 value = 2;
+}

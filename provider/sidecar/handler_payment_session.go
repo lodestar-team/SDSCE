@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math/big"
 	"strings"
 	"time"
 
@@ -100,7 +99,11 @@ func (s *Sidecar) PaymentSession(
 			s.handleFundsAcknowledgment(ctx, stream, sessionID, session, m.FundsAck)
 
 		case *providerv1.PaymentSessionRequest_UsageReport:
-			awaitingRAV = s.handleUsageReport(ctx, stream, sessionID, session, awaitingRAV, m.UsageReport)
+			var terminate bool
+			awaitingRAV, terminate = s.handleUsageReport(ctx, stream, sessionID, session, awaitingRAV, m.UsageReport)
+			if terminate {
+				return nil
+			}
 
 		default:
 			s.logger.Warn("unknown message type in PaymentSession")
@@ -311,24 +314,45 @@ func (s *Sidecar) handleUsageReport(
 	session *sidecar.Session,
 	awaitingRAV bool,
 	report *providerv1.UsageReport,
-) bool {
+) (newAwaitingRAV bool, terminate bool) {
 	s.logger.Debug("received usage report via stream",
 		zap.String("session_id", sessionID),
-		zap.Uint64("blocks", report.Usage.GetBlocksProcessed()),
+		zap.Uint64("blocks", report.GetUsage().GetBlocksProcessed()),
 	)
 
-	if report != nil && report.Usage != nil {
-		var cost *big.Int
-		if report.Usage.Cost != nil {
-			cost = report.Usage.Cost.ToNative()
-		}
-		session.AddUsage(
-			report.Usage.BlocksProcessed,
-			report.Usage.BytesTransferred,
-			report.Usage.Requests,
-			cost,
-		)
+	if report == nil || report.Usage == nil {
+		_ = stream.Send(&providerv1.PaymentSessionResponse{
+			Message: &providerv1.PaymentSessionResponse_SessionControl{
+				SessionControl: &providerv1.SessionControl{
+					Action: providerv1.SessionControl_ACTION_STOP,
+					Reason: "<usage> is required",
+				},
+			},
+		})
+		return awaitingRAV, true
 	}
+
+	// Provider sidecar is cost-authoritative: compute cost from raw metering inputs.
+	computedCost := session.CalculateUsageCost(report.Usage.BlocksProcessed, report.Usage.BytesTransferred)
+	if report.Usage.Cost != nil {
+		providedCost := report.Usage.Cost.ToNative()
+		if providedCost.Cmp(computedCost) != 0 {
+			s.logger.Warn("usage.cost mismatch in stream; overriding with computed cost",
+				zap.String("session_id", sessionID),
+				zap.String("provided_cost_wei", providedCost.String()),
+				zap.String("computed_cost_wei", computedCost.String()),
+				zap.Uint64("blocks", report.Usage.BlocksProcessed),
+				zap.Uint64("bytes", report.Usage.BytesTransferred),
+			)
+		}
+	}
+
+	session.AddUsage(
+		report.Usage.BlocksProcessed,
+		report.Usage.BytesTransferred,
+		report.Usage.Requests,
+		computedCost,
+	)
 
 	if !awaitingRAV {
 		blocks, bytes, reqs, deltaCost := session.UsageDeltaSinceBaseline()
@@ -351,7 +375,7 @@ func (s *Sidecar) handleUsageReport(
 						},
 					},
 				})
-				return true
+				return true, false
 			}
 		}
 	}
@@ -363,5 +387,5 @@ func (s *Sidecar) handleUsageReport(
 			},
 		},
 	})
-	return awaitingRAV
+	return awaitingRAV, false
 }

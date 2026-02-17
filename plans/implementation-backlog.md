@@ -81,7 +81,7 @@ Update process:
 | SDS-006 | P0 | done | Validate address/signature byte lengths in conversions |
 | SDS-007 | P1 | done | Add explicit `collection_id` to proto `common.v1.RAV` |
 | SDS-008 | P1 | not_started | Define and document `metadata` schema + encoding |
-| SDS-009 | P1 | not_started | Align pricing/service parameters across proto + impl |
+| SDS-009 | P1 | done | Align pricing/service parameters across proto + impl |
 | SDS-010 | P1 | done | Define canonical signature encoding for RPC/header |
 | SDS-011 | P1 | done | Wire consumer `Init` → gateway `StartSession` |
 | SDS-012 | P1 | done | Decide and implement shared session ID strategy |
@@ -91,7 +91,7 @@ Update process:
 | SDS-016 | P2 | not_started | Implement `NeedMoreFunds` loop + Continue/Stop/Pause |
 | SDS-017 | P2 | done | Verify signer authorization on-chain (`isAuthorized`) |
 | SDS-018 | P2 | done | Add explicit dev override for allowlist (optional) |
-| SDS-019 | P2 | not_started | Define cost computation trust boundary (`Usage.cost`) |
+| SDS-019 | P2 | done | Define cost computation trust boundary (`Usage.cost`) |
 | SDS-020 | P2 | not_started | Add signing thresholds (don’t sign every report) |
 | SDS-021 | P2 | not_started | Decide/implement on-chain collection workflow |
 | SDS-022 | P2 | not_started | Track outstanding RAVs across concurrent streams |
@@ -179,9 +179,10 @@ Update process:
     - `README.md` (or a doc under `docs/`) defines the schema, encoding, and versioning strategy.
   - Verify:
     - Add tests that encode/decode metadata and assert stable canonical bytes.
-- [ ] SDS-009 Align `ServiceParameters`/pricing across proto and implementation.
+- [x] SDS-009 Align `ServiceParameters`/pricing across proto and implementation.
   - Provider sidecar supports `price_per_block` and `price_per_byte` via YAML (`sidecar/pricing.go`), but proto `ServiceParameters` only carries `price_per_block` (`proto/.../types.proto`).
   - Target: include both (and any additional required params like “price per request”, min prepaid, etc.).
+  - Decision (2026-02-17): the **provider sidecar is authoritative** for pricing knobs (at least per-byte), and will compute costs from raw metering inputs; consumer-side verification against provider-reported usage/cost is a potential future hardening item.
   - Done when:
     - Proto carries all pricing inputs that the provider uses to compute cost.
     - Sidecars either compute costs server-side or explicitly validate caller-provided cost against pricing.
@@ -297,13 +298,14 @@ The flow diagram in `docs/flowchart.txt` implies:
 
 ## P2 — Usage Metering + Cost Calculation (Trust Boundaries)
 
-- [ ] SDS-019 Decide who computes `Usage.cost` and enforce it consistently.
+- [x] SDS-019 Decide who computes `Usage.cost` and enforce it consistently.
   - Current scaffolding trusts `Usage.cost` provided by callers:
     - Consumer sidecar increments RAV by `usage.cost` (`consumer/sidecar/handler_report_usage.go`).
     - Provider sidecar tracks session totals from `usage.cost` (`provider/sidecar/handler_report_usage.go`).
   - Target:
     - Either compute cost server-side from raw usage using pricing config (preferred for provider sidecar), or
     - Define `Usage.cost` as consumer-authoritative and verify/compare it on provider side.
+  - Decision (2026-02-17): treat **provider sidecar as cost-authoritative**. Provider sidecar computes `Usage.cost` from raw usage + pricing config, and rejects/overrides mismatches. Consumer-side “anti-overcharge” checks are deferred until pricing/usage semantics with tier1 are finalized.
   - Done when:
     - The trust boundary is documented and enforced in code (no silent mismatches).
   - Verify:

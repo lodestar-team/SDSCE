@@ -181,7 +181,13 @@ type SignedRAV struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The RAV data that was signed
 	Rav *RAV `protobuf:"bytes,1,opt,name=rav,proto3" json:"rav,omitempty"`
-	// The signature over the RAV (EIP-712 typed data signature)
+	// The signature over the RAV (EIP-712 typed data signature), 65 bytes.
+	//
+	// Canonical encoding for RPC/headers: V (1 byte) + R (32 bytes) + S (32 bytes),
+	// matching `eth.Signature` from `github.com/streamingfast/eth-go`.
+	//
+	// Solidity's `ECDSA.recover` expects R (32) + S (32) + V (1) ("R+S+V"); convert
+	// at the Solidity boundary (e.g. on-chain collection calldata encoding).
 	Signature     []byte `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -552,6 +558,8 @@ type ServiceParameters struct {
 	EstimatedBytesPerBlock uint64 `protobuf:"varint,2,opt,name=estimated_bytes_per_block,json=estimatedBytesPerBlock,proto3" json:"estimated_bytes_per_block,omitempty"`
 	// Price per block in GRT (wei)
 	PricePerBlock *BigInt `protobuf:"bytes,3,opt,name=price_per_block,json=pricePerBlock,proto3" json:"price_per_block,omitempty"`
+	// Price per byte in GRT (wei)
+	PricePerByte  *BigInt `protobuf:"bytes,4,opt,name=price_per_byte,json=pricePerByte,proto3" json:"price_per_byte,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -603,6 +611,13 @@ func (x *ServiceParameters) GetEstimatedBytesPerBlock() uint64 {
 func (x *ServiceParameters) GetPricePerBlock() *BigInt {
 	if x != nil {
 		return x.PricePerBlock
+	}
+	return nil
+}
+
+func (x *ServiceParameters) GetPricePerByte() *BigInt {
+	if x != nil {
+		return x.PricePerByte
 	}
 	return nil
 }
@@ -724,11 +739,12 @@ const file_graph_substreams_data_service_common_v1_types_proto_rawDesc = "" +
 	"\x0eescrow_account\x18\x02 \x01(\v26.graph.substreams.data_service.common.v1.EscrowAccountR\rescrowAccount\x12S\n" +
 	"\vcurrent_rav\x18\x03 \x01(\v22.graph.substreams.data_service.common.v1.SignedRAVR\n" +
 	"currentRav\x12[\n" +
-	"\x11accumulated_usage\x18\x04 \x01(\v2..graph.substreams.data_service.common.v1.UsageR\x10accumulatedUsage\"\xdf\x01\n" +
+	"\x11accumulated_usage\x18\x04 \x01(\v2..graph.substreams.data_service.common.v1.UsageR\x10accumulatedUsage\"\xb6\x02\n" +
 	"\x11ServiceParameters\x126\n" +
 	"\x17required_blocks_preproc\x18\x01 \x01(\x04R\x15requiredBlocksPreproc\x129\n" +
 	"\x19estimated_bytes_per_block\x18\x02 \x01(\x04R\x16estimatedBytesPerBlock\x12W\n" +
-	"\x0fprice_per_block\x18\x03 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\rpricePerBlock\"\x96\x03\n" +
+	"\x0fprice_per_block\x18\x03 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\rpricePerBlock\x12U\n" +
+	"\x0eprice_per_byte\x18\x04 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\fpricePerByte\"\x96\x03\n" +
 	"\rPaymentStatus\x12[\n" +
 	"\x11current_rav_value\x18\x01 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\x0fcurrentRavValue\x12g\n" +
 	"\x17accumulated_usage_value\x18\x02 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\x15accumulatedUsageValue\x12V\n" +
@@ -785,14 +801,15 @@ var file_graph_substreams_data_service_common_v1_types_proto_depIdxs = []int32{
 	3,  // 10: graph.substreams.data_service.common.v1.SessionInfo.current_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
 	5,  // 11: graph.substreams.data_service.common.v1.SessionInfo.accumulated_usage:type_name -> graph.substreams.data_service.common.v1.Usage
 	2,  // 12: graph.substreams.data_service.common.v1.ServiceParameters.price_per_block:type_name -> graph.substreams.data_service.common.v1.BigInt
-	2,  // 13: graph.substreams.data_service.common.v1.PaymentStatus.current_rav_value:type_name -> graph.substreams.data_service.common.v1.BigInt
-	2,  // 14: graph.substreams.data_service.common.v1.PaymentStatus.accumulated_usage_value:type_name -> graph.substreams.data_service.common.v1.BigInt
-	2,  // 15: graph.substreams.data_service.common.v1.PaymentStatus.escrow_balance:type_name -> graph.substreams.data_service.common.v1.BigInt
-	16, // [16:16] is the sub-list for method output_type
-	16, // [16:16] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	2,  // 13: graph.substreams.data_service.common.v1.ServiceParameters.price_per_byte:type_name -> graph.substreams.data_service.common.v1.BigInt
+	2,  // 14: graph.substreams.data_service.common.v1.PaymentStatus.current_rav_value:type_name -> graph.substreams.data_service.common.v1.BigInt
+	2,  // 15: graph.substreams.data_service.common.v1.PaymentStatus.accumulated_usage_value:type_name -> graph.substreams.data_service.common.v1.BigInt
+	2,  // 16: graph.substreams.data_service.common.v1.PaymentStatus.escrow_balance:type_name -> graph.substreams.data_service.common.v1.BigInt
+	17, // [17:17] is the sub-list for method output_type
+	17, // [17:17] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_graph_substreams_data_service_common_v1_types_proto_init() }

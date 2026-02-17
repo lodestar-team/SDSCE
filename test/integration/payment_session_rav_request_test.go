@@ -37,6 +37,12 @@ func TestPaymentSession_ProviderRequestsRAVOnUsage(t *testing.T) {
 
 	domain := env.Domain()
 
+	// Make pricing deterministic: 1 wei per block, 0 per byte.
+	pricingConfig := &sidecar.PricingConfig{
+		PricePerBlock: sidecar.NewPriceFromWei(big.NewInt(1)),
+		PricePerByte:  sidecar.NewPriceFromWei(big.NewInt(0)),
+	}
+
 	providerConfig := &providersidecar.Config{
 		ListenAddr:      ":19007",
 		ServiceProvider: env.ServiceProvider.Address,
@@ -44,6 +50,7 @@ func TestPaymentSession_ProviderRequestsRAVOnUsage(t *testing.T) {
 		CollectorAddr:   env.Collector.Address,
 		EscrowAddr:      env.Escrow.Address,
 		RPCEndpoint:     env.RPCURL,
+		PricingConfig:   pricingConfig,
 		AcceptedSigners: nil,
 	}
 	providerSidecar := providersidecar.New(providerConfig, zlog.Named("provider"))
@@ -88,7 +95,7 @@ func TestPaymentSession_ProviderRequestsRAVOnUsage(t *testing.T) {
 
 	stream := gatewayClient.PaymentSession(ctx)
 
-	// Send a usage report with non-zero cost; provider should request a new RAV.
+	// Send a usage report; provider should compute cost from pricing config and request a new RAV.
 	require.NoError(t, stream.Send(&providerv1.PaymentSessionRequest{
 		SessionId: startResp.Msg.SessionId,
 		Message: &providerv1.PaymentSessionRequest_UsageReport{
@@ -97,7 +104,7 @@ func TestPaymentSession_ProviderRequestsRAVOnUsage(t *testing.T) {
 					BlocksProcessed:  1,
 					BytesTransferred: 1,
 					Requests:         1,
-					Cost:             commonv1.BigIntFromNative(big.NewInt(1)),
+					Cost:             commonv1.BigIntFromNative(big.NewInt(123)), // intentionally wrong; provider overrides
 				},
 			},
 		},

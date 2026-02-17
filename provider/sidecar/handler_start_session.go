@@ -117,6 +117,7 @@ func (s *Sidecar) StartSession(
 
 	// Create session
 	session := s.sessions.Create(payer, s.serviceProvider, dataService)
+	session.SetPricingConfig(s.pricingConfig)
 	if initialRAV != nil {
 		session.SetRAV(initialRAV)
 	}

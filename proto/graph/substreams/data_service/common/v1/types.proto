@@ -89,6 +89,8 @@ message ServiceParameters {
   uint64 estimated_bytes_per_block = 2;
   // Price per block in GRT (wei)
   BigInt price_per_block = 3;
+  // Price per byte in GRT (wei)
+  BigInt price_per_byte = 4;
 }
 
 // PaymentStatus represents the current payment state of a session.

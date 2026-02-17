@@ -11,6 +11,11 @@ import (
 )
 
 // CollectorQuerier provides methods to query the GraphTallyCollector contract.
+type CollectorAuthorizer interface {
+	IsAuthorized(ctx context.Context, authorizer, signer eth.Address) (bool, error)
+}
+
+// CollectorQuerier provides methods to query the GraphTallyCollector contract.
 type CollectorQuerier struct {
 	rpcClient     *rpc.Client
 	collectorAddr eth.Address

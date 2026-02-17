@@ -42,7 +42,6 @@ func TestProviderSidecar_OnChainAuthorization(t *testing.T) {
 		CollectorAddr:   env.Collector.Address,
 		EscrowAddr:      env.Escrow.Address,
 		RPCEndpoint:     env.RPCURL,
-		AcceptedSigners: nil, // must use on-chain isAuthorized
 	}
 	providerSidecar := providersidecar.New(providerConfig, zlog.Named("provider"))
 	go providerSidecar.Run()

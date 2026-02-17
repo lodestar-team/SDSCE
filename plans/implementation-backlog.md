@@ -90,7 +90,7 @@ Update process:
 | SDS-015 | P2 | done | Implement provider-driven RAV request policy |
 | SDS-016 | P2 | not_started | Implement `NeedMoreFunds` loop + Continue/Stop/Pause |
 | SDS-017 | P2 | done | Verify signer authorization on-chain (`isAuthorized`) |
-| SDS-018 | P2 | done | Add explicit dev override for allowlist (optional) |
+| SDS-018 | P2 | done | Remove CLI/env allowlist override (rely on on-chain auth) |
 | SDS-019 | P2 | done | Define cost computation trust boundary (`Usage.cost`) |
 | SDS-020 | P2 | not_started | Add signing thresholds (don’t sign every report) |
 | SDS-021 | P2 | not_started | Decide/implement on-chain collection workflow |
@@ -101,6 +101,8 @@ Update process:
 | SDS-026 | P3 | not_started | Add observability (metrics/tracing/log correlation) |
 | SDS-027 | P3 | not_started | Add rate limiting / abuse protection |
 | SDS-031 | P3 | deferred | Add `sds demo flow` manual harness (optional) |
+| SDS-032 | P3 | not_started | Explore `protovalidate` for request validation |
+| SDS-033 | P3 | not_started | Reuse/caching for provider gateway clients |
 | SDS-028 | X | not_started | Define payment header format (client ↔ provider) |
 | SDS-029 | X | not_started | Integrate provider sidecar into tier1 provider |
 | SDS-030 | X | not_started | Integrate consumer sidecar into substreams client |
@@ -287,12 +289,14 @@ The flow diagram in `docs/flowchart.txt` implies:
     - Provider accepts RAVs signed by authorized signers and rejects unauthorized ones without relying on static config.
   - Verify:
     - Extend integration suite to run provider sidecar against devenv and validate both authorized and unauthorized signer cases.
-- [x] SDS-018 Optionally keep a CLI/dev override (explicit allowlist) behind a clearly-scoped env var.
-  - Useful for local testing when on-chain auth is unavailable.
+- [x] SDS-018 Remove CLI/env allowlist override (rely on on-chain auth).
+  - Context:
+    - Now that on-chain signer authorization is implemented and covered by integration tests, we avoid shipping a CLI/env escape hatch that bypasses authorization checks.
   - Done when:
-    - Override is explicitly opt-in and cannot be enabled accidentally in production configs.
+    - Provider sidecar CLI does not accept an allowlist override via env/flags (e.g. no `SDS_DEV_ACCEPTED_SIGNERS`).
+    - Devenv/integration flows authorize signers on-chain instead.
   - Verify:
-    - Unit test verifies parsing of `SDS_DEV_ACCEPTED_SIGNERS` only takes effect when explicitly set.
+    - Integration tests that rely on on-chain `isAuthorized` pass (`go test ./test/integration -run TestProviderSidecar_OnChainAuthorization`).
 
 ---
 
@@ -394,6 +398,28 @@ The flow diagram in `docs/flowchart.txt` implies:
   - Verify:
     - Manual: start `./devel/sds devenv`, start both sidecars, run the demo harness, and confirm it exercises both sidecars and prints session IDs + final RAV value.
     - Automated (preferred): add a lightweight integration test asserting the harness completes successfully.
+
+---
+
+## P3 — Future Improvements (Non-Blocking)
+
+- [ ] SDS-032 Explore `protovalidate` for request validation.
+  - Context:
+    - Today we do explicit nil/required-field validation in handlers (good error messages, but repetitive).
+  - Target:
+    - Evaluate adding `protovalidate` rules to protos and a validation layer that maps violations to consistent ConnectRPC `InvalidArgument` errors.
+    - Decide validation boundaries (proto validation vs `.ToEth()` conversions vs handler checks) and avoid duplicative work where possible.
+  - Done when:
+    - A minimal proof-of-concept validates at least one RPC request type end-to-end with clear error messages.
+    - We have a documented approach (and follow-up tasks) for adopting it incrementally or rejecting it.
+
+- [ ] SDS-033 Reuse/caching for provider gateway clients.
+  - Context:
+    - Consumer sidecar currently constructs a provider gateway client per `Init` call.
+  - Target:
+    - Add a small client cache keyed by provider endpoint if/when it improves performance or enables per-provider configuration (TLS/auth).
+  - Done when:
+    - There is a clear design decision and, if implemented, tests cover the caching behavior and it does not change semantics.
 
 ---
 

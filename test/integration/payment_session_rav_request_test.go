@@ -51,7 +51,6 @@ func TestPaymentSession_ProviderRequestsRAVOnUsage(t *testing.T) {
 		EscrowAddr:      env.Escrow.Address,
 		RPCEndpoint:     env.RPCURL,
 		PricingConfig:   pricingConfig,
-		AcceptedSigners: nil,
 	}
 	providerSidecar := providersidecar.New(providerConfig, zlog.Named("provider"))
 	go providerSidecar.Run()

@@ -44,15 +44,12 @@ type Sidecar struct {
 	// Escrow balance querier
 	escrowQuerier *sidecar.EscrowQuerier
 	// Collector authorization querier
-	collectorQuerier *sidecar.CollectorQuerier
+	collectorQuerier sidecar.CollectorAuthorizer
 
 	// Pricing configuration
 	pricingConfig *sidecar.PricingConfig
 
-	// Accepted signer addresses (authorized by payers)
-	acceptedSigners map[string]bool
-
-	authCacheMu sync.Mutex
+	authCacheMu sync.RWMutex
 	authCache   map[string]authCacheEntry
 }
 
@@ -64,7 +61,6 @@ type Config struct {
 	EscrowAddr      eth.Address
 	RPCEndpoint     string
 	PricingConfig   *sidecar.PricingConfig
-	AcceptedSigners []eth.Address
 }
 
 type authCacheEntry struct {
@@ -73,11 +69,6 @@ type authCacheEntry struct {
 }
 
 func New(config *Config, logger *zap.Logger) *Sidecar {
-	signerMap := make(map[string]bool, len(config.AcceptedSigners))
-	for _, addr := range config.AcceptedSigners {
-		signerMap[addr.Pretty()] = true
-	}
-
 	var escrowQuerier *sidecar.EscrowQuerier
 	if config.RPCEndpoint != "" && config.EscrowAddr != nil {
 		escrowQuerier = sidecar.NewEscrowQuerier(config.RPCEndpoint, config.EscrowAddr)
@@ -105,7 +96,6 @@ func New(config *Config, logger *zap.Logger) *Sidecar {
 		escrowQuerier:    escrowQuerier,
 		collectorQuerier: collectorQuerier,
 		pricingConfig:    pricingConfig,
-		acceptedSigners:  signerMap,
 		authCache:        make(map[string]authCacheEntry),
 	}
 }
@@ -116,11 +106,6 @@ func (s *Sidecar) GetEscrowBalance(ctx context.Context, payer eth.Address) (*big
 		return nil, nil // No RPC configured
 	}
 	return s.escrowQuerier.GetBalance(ctx, payer, s.collectorAddr, s.serviceProvider)
-}
-
-// AddAcceptedSigner adds a signer to the accepted list
-func (s *Sidecar) AddAcceptedSigner(addr eth.Address) {
-	s.acceptedSigners[addr.Pretty()] = true
 }
 
 func (s *Sidecar) SessionCount() int {
@@ -168,34 +153,24 @@ func (s *Sidecar) verifyRAVSignature(signedRAV *horizon.SignedRAV) (eth.Address,
 	return signedRAV.RecoverSigner(s.domain)
 }
 
-// isAcceptedSigner checks if an address is in the accepted signers list
-func (s *Sidecar) isAcceptedSigner(addr eth.Address) bool {
-	return s.acceptedSigners[addr.Pretty()]
-}
-
 func (s *Sidecar) isSignerAuthorized(ctx context.Context, payer, signer eth.Address) (bool, error) {
 	if sidecar.AddressesEqual(payer, signer) {
 		return true, nil
-	}
-
-	// Dev override: if an explicit allowlist is configured, use it.
-	if len(s.acceptedSigners) > 0 {
-		return s.isAcceptedSigner(signer), nil
 	}
 
 	if s.collectorQuerier == nil {
 		return false, nil
 	}
 
-	key := payer.Pretty() + "|" + signer.Pretty()
+	key := payer.String() + "|" + signer.String()
 	now := time.Now()
 
-	s.authCacheMu.Lock()
+	s.authCacheMu.RLock()
 	if entry, ok := s.authCache[key]; ok && now.Before(entry.expires) {
-		s.authCacheMu.Unlock()
+		s.authCacheMu.RUnlock()
 		return entry.ok, nil
 	}
-	s.authCacheMu.Unlock()
+	s.authCacheMu.RUnlock()
 
 	ok, err := s.collectorQuerier.IsAuthorized(ctx, payer, signer)
 	if err != nil {
@@ -203,7 +178,7 @@ func (s *Sidecar) isSignerAuthorized(ctx context.Context, payer, signer eth.Addr
 	}
 
 	s.authCacheMu.Lock()
-	s.authCache[key] = authCacheEntry{ok: ok, expires: now.Add(30 * time.Second)}
+	s.authCache[key] = authCacheEntry{ok: ok, expires: time.Now().Add(30 * time.Second)}
 	s.authCacheMu.Unlock()
 
 	return ok, nil

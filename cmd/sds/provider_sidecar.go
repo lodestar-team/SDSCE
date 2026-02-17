@@ -1,8 +1,6 @@
 package main
 
 import (
-	"os"
-	"strings"
 	"time"
 
 	"github.com/graphprotocol/substreams-data-service/horizon"
@@ -15,32 +13,9 @@ import (
 	"github.com/streamingfast/cli/sflags"
 	"github.com/streamingfast/eth-go"
 	"github.com/streamingfast/logging"
-	"go.uber.org/zap"
 )
 
 var providerLog, _ = logging.PackageLogger("provider", "github.com/graphprotocol/substreams-data-service/cmd/sds@provider")
-
-func parseDevAcceptedSigners(raw string) ([]eth.Address, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil, nil
-	}
-
-	var out []eth.Address
-	for _, hexAddr := range strings.Split(raw, ",") {
-		hexAddr = strings.TrimSpace(hexAddr)
-		if hexAddr == "" {
-			continue
-		}
-		addr, err := eth.NewAddress(hexAddr)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, addr)
-	}
-
-	return out, nil
-}
 
 var providerSidecarCmd = Command(
 	runProviderSidecar,
@@ -101,16 +76,6 @@ func runProviderSidecar(cmd *cobra.Command, args []string) error {
 		pricingConfig = sidecarlib.DefaultPricingConfig()
 	}
 
-	var acceptedSigners []eth.Address
-	if raw, ok := os.LookupEnv("SDS_DEV_ACCEPTED_SIGNERS"); ok && strings.TrimSpace(raw) != "" {
-		acceptedSigners, err = parseDevAcceptedSigners(raw)
-		cli.NoError(err, "invalid SDS_DEV_ACCEPTED_SIGNERS %q", raw)
-
-		providerLog.Warn("dev accepted signers override enabled via SDS_DEV_ACCEPTED_SIGNERS",
-			zap.Int("signers", len(acceptedSigners)),
-		)
-	}
-
 	config := &sidecar.Config{
 		ListenAddr:      listenAddr,
 		ServiceProvider: serviceProviderAddr,
@@ -119,7 +84,6 @@ func runProviderSidecar(cmd *cobra.Command, args []string) error {
 		EscrowAddr:      escrowAddr,
 		RPCEndpoint:     rpcEndpoint,
 		PricingConfig:   pricingConfig,
-		AcceptedSigners: acceptedSigners,
 	}
 
 	app := NewApplication(cmd.Context())

@@ -19,16 +19,17 @@ func (s *Sidecar) ValidatePayment(
 ) (*connect.Response[providerv1.ValidatePaymentResponse], error) {
 	s.logger.Info("ValidatePayment called")
 
-	// Convert proto RAV to horizon RAV for verification
-	signedRAV, err := sidecar.ProtoSignedRAVToHorizon(req.Msg.PaymentRav)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <payment_rav>: %w", err))
-	}
-	if signedRAV == nil || signedRAV.Message == nil {
+	if req.Msg.PaymentRav == nil {
 		return connect.NewResponse(&providerv1.ValidatePaymentResponse{
 			Valid:           false,
 			RejectionReason: "invalid or missing RAV",
 		}), nil
+	}
+
+	// Convert proto RAV to horizon RAV for verification
+	signedRAV, err := sidecar.ProtoSignedRAVToHorizon(req.Msg.PaymentRav)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <payment_rav>: %w", err))
 	}
 
 	// Verify the signature

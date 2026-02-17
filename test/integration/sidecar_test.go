@@ -64,7 +64,9 @@ func TestPaymentFlowBasic(t *testing.T) {
 		ListenAddr:      ":19001",
 		ServiceProvider: env.ServiceProvider.Address,
 		Domain:          domain,
-		AcceptedSigners: []eth.Address{setup.SignerAddr},
+		CollectorAddr:   env.Collector.Address,
+		EscrowAddr:      env.Escrow.Address,
+		RPCEndpoint:     env.RPCURL,
 	}
 	providerSidecar := providersidecar.New(providerConfig, zlog.Named("provider"))
 	go providerSidecar.Run()
@@ -191,7 +193,9 @@ func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
 		ListenAddr:      ":19009",
 		ServiceProvider: env.ServiceProvider.Address,
 		Domain:          domain,
-		AcceptedSigners: []eth.Address{setup.SignerAddr},
+		CollectorAddr:   env.Collector.Address,
+		EscrowAddr:      env.Escrow.Address,
+		RPCEndpoint:     env.RPCURL,
 	}, zlog.Named("provider"))
 	go providerSidecar.Run()
 	defer providerSidecar.Shutdown(nil)
@@ -291,7 +295,9 @@ func TestRAVSignatureVerification(t *testing.T) {
 		ListenAddr:      ":19003",
 		ServiceProvider: env.ServiceProvider.Address,
 		Domain:          domain,
-		AcceptedSigners: []eth.Address{setup.SignerAddr},
+		CollectorAddr:   env.Collector.Address,
+		EscrowAddr:      env.Escrow.Address,
+		RPCEndpoint:     env.RPCURL,
 	}
 	providerSidecar := providersidecar.New(providerConfig, zlog.Named("provider"))
 	go providerSidecar.Run()
@@ -354,16 +360,15 @@ func TestValidatePayment_InvalidSignatureLength_ReturnsInvalidArgument(t *testin
 	env := devenv.Get()
 	require.NotNil(t, env, "devenv not started")
 
-	setup, err := env.SetupTestWithSigner(nil)
-	require.NoError(t, err, "failed to setup test")
-
 	domain := env.Domain()
 
 	providerConfig := &providersidecar.Config{
 		ListenAddr:      ":19004",
 		ServiceProvider: env.ServiceProvider.Address,
 		Domain:          domain,
-		AcceptedSigners: []eth.Address{setup.SignerAddr},
+		CollectorAddr:   env.Collector.Address,
+		EscrowAddr:      env.Escrow.Address,
+		RPCEndpoint:     env.RPCURL,
 	}
 	providerSidecar := providersidecar.New(providerConfig, zlog.Named("provider"))
 	go providerSidecar.Run()
@@ -387,7 +392,7 @@ func TestValidatePayment_InvalidSignatureLength_ReturnsInvalidArgument(t *testin
 		Signature: []byte{0x01, 0x02}, // invalid length (must be 65 bytes)
 	}
 
-	_, err = providerClient.ValidatePayment(ctx, connect.NewRequest(&providerv1.ValidatePaymentRequest{
+	_, err := providerClient.ValidatePayment(ctx, connect.NewRequest(&providerv1.ValidatePaymentRequest{
 		PaymentRav: invalidProtoRAV,
 	}))
 	require.Error(t, err)

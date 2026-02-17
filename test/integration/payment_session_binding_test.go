@@ -44,7 +44,6 @@ func TestPaymentSession_BindsToSessionID(t *testing.T) {
 		CollectorAddr:   env.Collector.Address,
 		EscrowAddr:      env.Escrow.Address,
 		RPCEndpoint:     env.RPCURL,
-		AcceptedSigners: nil,
 	}
 	providerSidecar := providersidecar.New(providerConfig, zlog.Named("provider"))
 	go providerSidecar.Run()

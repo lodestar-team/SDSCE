@@ -131,24 +131,22 @@ func (s *Sidecar) handleRAVSubmission(
 		})
 		return
 	}
-
-	// Validate the RAV
-	signedRAV, err := sidecar.ProtoSignedRAVToHorizon(submission.SignedRav)
-	if err != nil {
-		s.logger.Warn("invalid RAV submission", zap.Error(err))
+	if submission.SignedRav == nil {
 		stream.Send(&providerv1.PaymentSessionResponse{
 			Message: &providerv1.PaymentSessionResponse_SessionControl{
 				SessionControl: &providerv1.SessionControl{
 					Action: providerv1.SessionControl_ACTION_STOP,
-					Reason: "invalid RAV",
+					Reason: "missing signed_rav",
 				},
 			},
 		})
 		return
 	}
-	if signedRAV == nil || signedRAV.Message == nil {
-		s.logger.Warn("invalid RAV submission")
-		// Send stop message
+
+	// Validate the RAV
+	signedRAV, err := sidecar.ProtoSignedRAVToHorizon(submission.SignedRav)
+	if err != nil {
+		s.logger.Warn("invalid RAV submission", zap.Error(err))
 		stream.Send(&providerv1.PaymentSessionResponse{
 			Message: &providerv1.PaymentSessionResponse_SessionControl{
 				SessionControl: &providerv1.SessionControl{

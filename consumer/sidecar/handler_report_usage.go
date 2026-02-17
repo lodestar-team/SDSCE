@@ -58,7 +58,7 @@ func (s *Sidecar) ReportUsage(
 	if currentRAV != nil && currentRAV.Message != nil {
 		newValue = new(big.Int).Add(currentRAV.Message.ValueAggregate, cost)
 	} else {
-		newValue = new(big.Int).Set(cost)
+		newValue = cost
 	}
 
 	// Create updated RAV with new value

@@ -43,16 +43,16 @@ func (s *Sidecar) SubmitRAV(
 	}
 
 	// Convert and validate the RAV
-	signedRAV, err := sidecar.ProtoSignedRAVToHorizon(req.Msg.SignedRav)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <signed_rav>: %w", err))
-	}
-	if signedRAV == nil || signedRAV.Message == nil {
+	if req.Msg.SignedRav == nil {
 		return connect.NewResponse(&providerv1.SubmitRAVResponse{
 			Accepted:        false,
 			RejectionReason: "invalid or missing RAV",
 			ShouldContinue:  true,
 		}), nil
+	}
+	signedRAV, err := sidecar.ProtoSignedRAVToHorizon(req.Msg.SignedRav)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <signed_rav>: %w", err))
 	}
 
 	// Verify signature
@@ -73,7 +73,7 @@ func (s *Sidecar) SubmitRAV(
 		return connect.NewResponse(&providerv1.SubmitRAVResponse{
 			Accepted:        false,
 			RejectionReason: fmt.Sprintf("authorization check failed: %v", err),
-			ShouldContinue:  true,
+			ShouldContinue:  false,
 		}), nil
 	}
 	if !isAuthorized {
@@ -83,7 +83,7 @@ func (s *Sidecar) SubmitRAV(
 		return connect.NewResponse(&providerv1.SubmitRAVResponse{
 			Accepted:        false,
 			RejectionReason: fmt.Sprintf("signer %s is not authorized", signerAddr.Pretty()),
-			ShouldContinue:  true,
+			ShouldContinue:  false,
 		}), nil
 	}
 

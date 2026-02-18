@@ -1,0 +1,35 @@
+start:
+  args:
+    - reader-node
+    - merger
+    - relayer
+    - firehose
+    - substreams-tier1
+    - substreams-tier2
+  flags:
+    advertise-block-id-encoding: "hex"
+    advertise-chain-name: "acme-dummy-blockchain"
+
+    # SDS Provider Sidecar plugin configuration
+    # The provider sidecar runs on :9001 (Connect) and serves all SDS services
+    # Dev API key allows bypassing RAV authentication for local testing
+    common-auth-plugin: "sds://localhost:9001?plaintext=true&dev-api-key=dev-test-key"
+    common-session-plugin: "sds://localhost:9001?plaintext=true"
+    common-metering-plugin: "sds://localhost:9001?plaintext=true&network=sds-dummy-blockchain"
+
+    # Install dummy-blockchain with: go install github.com/streamingfast/dummy-blockchain@latest
+    reader-node-path: "dummy-blockchain"
+    reader-node-data-dir: "{data-dir}/reader-node"
+    reader-node-arguments: start
+      --log-level=error
+      --tracer=firehose
+      --store-dir="{node-data-dir}"
+      --block-rate=15
+      --genesis-block-burst=2
+      --genesis-height=0
+      --server-addr=:9777
+
+    # The * suffix make the server listen in TLS with a self-signed certificate, required
+    # for server-side to be able to correctly fetch the Authorization header from the client
+    substreams-tier1-grpc-listen-addr: ":10016*"
+    firehose-grpc-listen-addr: ":10015*"

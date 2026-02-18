@@ -104,14 +104,14 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 	collector := mustLoadContract("GraphTallyCollector")
 	dataService := mustLoadContract("SubstreamsDataService")
 
-	// Start Anvil container
+	// Start Anvil container with fixed port binding
 	report("Starting Anvil container...")
 	anvilReq := testcontainers.ContainerRequest{
 		Image: "ghcr.io/foundry-rs/foundry:latest",
 		Cmd: []string{
 			fmt.Sprintf("anvil --host 0.0.0.0 --port 8545 --chain-id %d", config.ChainID),
 		},
-		ExposedPorts: []string{"8545/tcp"},
+		ExposedPorts: []string{fmt.Sprintf("%d:8545/tcp", config.RPCPort)},
 		WaitingFor: wait.ForListeningPort("8545/tcp").
 			WithStartupTimeout(60 * time.Second),
 	}
@@ -126,17 +126,8 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 		return nil, fmt.Errorf("starting anvil container: %w", err)
 	}
 
-	mappedPort, err := anvilContainer.MappedPort(ctx, "8545/tcp")
-	if err != nil {
-		zlog.Error("failed to get mapped port", zap.Error(err))
-		anvilContainer.Terminate(ctx)
-		cancel()
-		return nil, fmt.Errorf("getting mapped port: %w", err)
-	}
-
-	// Use localhost for Docker published ports - using container.Host() may return
-	// an IP that goes through a proxy and gets blocked
-	rpcURL := fmt.Sprintf("http://localhost:%s", mappedPort.Port())
+	// Use the fixed port from config for the RPC URL
+	rpcURL := fmt.Sprintf("http://localhost:%d", config.RPCPort)
 	zlog.Info("Anvil RPC endpoint ready", zap.String("rpc_url", rpcURL))
 
 	// Create RPC client

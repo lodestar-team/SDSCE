@@ -34,7 +34,7 @@ var providerSidecarCmd = Command(
 		  price_per_byte: "0.0000000001" # Price per byte transferred in GRT
 	`),
 	Flags(func(flags *pflag.FlagSet) {
-		flags.String("grpc-listen-addr", ":9001", "gRPC server listen address")
+		flags.String("grpc-listen-addr", ":9001", "gRPC server listen address for Connect/HTTP services")
 		flags.String("service-provider", "", "Service provider address (required)")
 		flags.Uint64("chain-id", 1337, "Chain ID for EIP-712 domain")
 		flags.String("collector-address", "", "Collector contract address for EIP-712 domain (required)")

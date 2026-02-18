@@ -4,10 +4,10 @@ import (
 	"context"
 	"math/big"
 	"net/http"
-	"sync"
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/alphadose/haxmap"
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
 	authv1connect "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/auth/v1/authv1connect"
@@ -56,10 +56,9 @@ type Sidecar struct {
 	// Pricing configuration
 	pricingConfig *sidecar.PricingConfig
 
-	authCacheMu sync.RWMutex
-	authCache   map[string]authCacheEntry
+	authCache *haxmap.Map[string, authCacheEntry]
 
-	// Plugin services (serve firehose-core sds:// / tgm:// plugins)
+	// Plugin services (serve firehose-core sds:// plugins via Connect)
 	authService    *providerauth.AuthService
 	usageService   *providerusage.UsageService
 	sessionService *providersession.SessionService
@@ -131,7 +130,7 @@ func New(config *Config, logger *zap.Logger) *Sidecar {
 		escrowQuerier:    escrowQuerier,
 		collectorQuerier: collectorQuerier,
 		pricingConfig:    pricingConfig,
-		authCache:        make(map[string]authCacheEntry),
+		authCache:        haxmap.New[string, authCacheEntry](),
 		repo:             repo,
 		authService:      authSvc,
 		usageService:     usageSvc,
@@ -152,6 +151,7 @@ func (s *Sidecar) SessionCount() int {
 }
 
 func (s *Sidecar) Run() {
+	// Connect/HTTP server for SDS services
 	handlerGetters := []connectrpc.HandlerGetter{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return providerv1connect.NewProviderSidecarServiceHandler(s, opts...)
@@ -159,7 +159,7 @@ func (s *Sidecar) Run() {
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return providerv1connect.NewPaymentGatewayServiceHandler(s, opts...)
 		},
-		// Plugin services for sds:// / tgm:// firehose-core plugins
+		// Plugin services for sds:// firehose-core plugins
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return authv1connect.NewAuthServiceHandler(s.authService, opts...)
 		},
@@ -200,11 +200,6 @@ func (s *Sidecar) healthCheck(ctx context.Context) (isReady bool, out interface{
 	return true, nil, nil
 }
 
-// verifyRAVSignature verifies a RAV signature and returns the signer address
-func (s *Sidecar) verifyRAVSignature(signedRAV *horizon.SignedRAV) (eth.Address, error) {
-	return signedRAV.RecoverSigner(s.domain)
-}
-
 func (s *Sidecar) isSignerAuthorized(ctx context.Context, payer, signer eth.Address) (bool, error) {
 	if sidecar.AddressesEqual(payer, signer) {
 		return true, nil
@@ -217,21 +212,16 @@ func (s *Sidecar) isSignerAuthorized(ctx context.Context, payer, signer eth.Addr
 	key := payer.String() + "|" + signer.String()
 	now := time.Now()
 
-	s.authCacheMu.RLock()
-	if entry, ok := s.authCache[key]; ok && now.Before(entry.expires) {
-		s.authCacheMu.RUnlock()
+	if entry, ok := s.authCache.Get(key); ok && now.Before(entry.expires) {
 		return entry.ok, nil
 	}
-	s.authCacheMu.RUnlock()
 
 	ok, err := s.collectorQuerier.IsAuthorized(ctx, payer, signer)
 	if err != nil {
 		return false, err
 	}
 
-	s.authCacheMu.Lock()
-	s.authCache[key] = authCacheEntry{ok: ok, expires: time.Now().Add(30 * time.Second)}
-	s.authCacheMu.Unlock()
+	s.authCache.Set(key, authCacheEntry{ok: ok, expires: time.Now().Add(30 * time.Second)})
 
 	return ok, nil
 }

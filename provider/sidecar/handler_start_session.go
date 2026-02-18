@@ -66,7 +66,7 @@ func (s *Sidecar) StartSession(
 	}
 	if initialRAV != nil && initialRAV.Message != nil {
 		// Verify signature
-		signerAddr, err := s.verifyRAVSignature(initialRAV)
+		signerAddr, err := initialRAV.RecoverSigner(s.domain)
 		if err != nil {
 			s.logger.Warn("failed to verify initial RAV signature", zap.Error(err))
 			return connect.NewResponse(&providerv1.StartSessionResponse{

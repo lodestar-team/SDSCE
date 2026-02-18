@@ -5,10 +5,10 @@ package auth
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/alphadose/haxmap"
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	authv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/auth/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/auth/v1/authv1connect"
@@ -34,8 +34,7 @@ type AuthService struct {
 	domain           *horizon.Domain
 	collectorQuerier CollectorAuthorizer
 
-	authCacheMu sync.RWMutex
-	authCache   map[string]authCacheEntry
+	authCache *haxmap.Map[string, authCacheEntry]
 }
 
 type authCacheEntry struct {
@@ -56,7 +55,7 @@ func NewAuthService(
 		serviceProvider:  serviceProvider,
 		domain:           domain,
 		collectorQuerier: collectorQuerier,
-		authCache:        make(map[string]authCacheEntry),
+		authCache:        haxmap.New[string, authCacheEntry](),
 	}
 }
 
@@ -81,11 +80,45 @@ func (s *AuthService) ValidateAuth(
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid payment_rav: %w", err))
 	}
 
+	result, err := s.validateRAV(ctx, signedRAV, req.Msg.IpAddress, req.Msg.Path)
+	if err != nil {
+		if authErr, ok := err.(*AuthError); ok {
+			return nil, connect.NewError(authErr.Code, err)
+		}
+		return nil, connect.NewError(connect.CodeUnauthenticated, err)
+	}
+
+	return connect.NewResponse(&authv1.ValidateAuthResponse{
+		OrganizationId: result.OrganizationId,
+		ApiKeyId:       result.ApiKeyId,
+		Metadata:       result.Metadata,
+	}), nil
+}
+
+// AuthResult holds the result of a successful authentication.
+type AuthResult struct {
+	OrganizationId string
+	ApiKeyId       string
+	Metadata       map[string]string
+}
+
+// AuthError represents an authentication error with an associated connect code.
+type AuthError struct {
+	Code connect.Code
+	Msg  string
+}
+
+func (e *AuthError) Error() string { return e.Msg }
+
+// validateRAV is the internal implementation used by both ValidateAuth and the SF adapter.
+// It validates the SignedRAV and returns the authentication result.
+// Errors returned are *AuthError with the appropriate connect code set.
+func (s *AuthService) validateRAV(ctx context.Context, signedRAV *horizon.SignedRAV, ipAddress, path string) (*AuthResult, error) {
 	// Recover the signer from the EIP-712 signature.
 	signerAddr, err := signedRAV.RecoverSigner(s.domain)
 	if err != nil {
 		zlog.Warn("RAV signature verification failed", zap.Error(err))
-		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("invalid signature: %w", err))
+		return nil, &AuthError{Code: connect.CodeUnauthenticated, Msg: fmt.Sprintf("invalid signature: %v", err)}
 	}
 
 	payer := signedRAV.Message.Payer
@@ -98,14 +131,14 @@ func (s *AuthService) ValidateAuth(
 			zap.Stringer("signer", signerAddr),
 			zap.Error(err),
 		)
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("authorization check failed: %w", err))
+		return nil, &AuthError{Code: connect.CodeInternal, Msg: fmt.Sprintf("authorization check failed: %v", err)}
 	}
 	if !authorized {
 		zlog.Warn("signer not authorized for payer",
 			zap.Stringer("payer", payer),
 			zap.Stringer("signer", signerAddr),
 		)
-		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("signer %s is not authorized for payer %s", signerAddr.Pretty(), payer.Pretty()))
+		return nil, &AuthError{Code: connect.CodePermissionDenied, Msg: fmt.Sprintf("signer %s is not authorized for payer %s", signerAddr.Pretty(), payer.Pretty())}
 	}
 
 	// Verify that the RAV targets this service provider.
@@ -114,21 +147,21 @@ func (s *AuthService) ValidateAuth(
 			zap.Stringer("expected", s.serviceProvider),
 			zap.Stringer("got", signedRAV.Message.ServiceProvider),
 		)
-		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("RAV targets service provider %s, not %s", signedRAV.Message.ServiceProvider.Pretty(), s.serviceProvider.Pretty()))
+		return nil, &AuthError{Code: connect.CodePermissionDenied, Msg: fmt.Sprintf("RAV targets service provider %s, not %s", signedRAV.Message.ServiceProvider.Pretty(), s.serviceProvider.Pretty())}
 	}
 
-	zlog.Debug("ValidateAuth succeeded",
+	zlog.Debug("validateRAV succeeded",
 		zap.Stringer("payer", payer),
 		zap.Stringer("signer", signerAddr),
 	)
 
-	return connect.NewResponse(&authv1.ValidateAuthResponse{
+	return &AuthResult{
 		OrganizationId: payer.Pretty(),
 		ApiKeyId:       "",
 		Metadata: map[string]string{
 			"signer": signerAddr.Pretty(),
 		},
-	}), nil
+	}, nil
 }
 
 // isSignerAuthorized checks whether signer may act on behalf of payer.
@@ -145,21 +178,16 @@ func (s *AuthService) isSignerAuthorized(ctx context.Context, payer, signer eth.
 	key := payer.String() + "|" + signer.String()
 	now := time.Now()
 
-	s.authCacheMu.RLock()
-	if entry, ok := s.authCache[key]; ok && now.Before(entry.expires) {
-		s.authCacheMu.RUnlock()
+	if entry, ok := s.authCache.Get(key); ok && now.Before(entry.expires) {
 		return entry.ok, nil
 	}
-	s.authCacheMu.RUnlock()
 
 	ok, err := s.collectorQuerier.IsAuthorized(ctx, payer, signer)
 	if err != nil {
 		return false, err
 	}
 
-	s.authCacheMu.Lock()
-	s.authCache[key] = authCacheEntry{ok: ok, expires: now.Add(30 * time.Second)}
-	s.authCacheMu.Unlock()
+	s.authCache.Set(key, authCacheEntry{ok: ok, expires: now.Add(30 * time.Second)})
 
 	return ok, nil
 }

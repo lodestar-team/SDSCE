@@ -35,5 +35,7 @@ func main() {
 			consumerSidecarCmd,
 			consumerFakeClientCmd,
 		),
+
+		toolsCmd,
 	)
 }

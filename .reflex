@@ -1,8 +1,23 @@
+-r "^$" -s -R "devel/.*" -- sh -c \
+    'echo "Starting Devenv..." && \
+    DLOG="${DLOG:-warn}" ./devel/sds devenv'
 
--r "\.(go|sql)$" -s -R "devel/.*" -- sh -c \
-    'echo "Starting Consumer Sidecar ..." && \
-    DLOG=".*=debug" ./devel/sds consumer sidecar'
+# -r "\.(go|sql)$" -s -R "devel/.*" -- sh -c \
+#    'echo "Starting Consumer Sidecar ..." && \
+#    DLOG=".*=debug" ./devel/sds consumer sidecar'
 
 -r "\.(go|sql)$" -s -R "devel/.*" -- sh -c \
     'echo "Starting Provider Sidecar ..." && \
-    DLOG=".*=debug" ./devel/sds provider sidecar'
+    touch ./devel/.provider-sidecar && \
+    DLOG=".*=debug" ./devel/sds provider sidecar \
+        --grpc-listen-addr=:9001 \
+        --service-provider=0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
+        --collector-address=0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9 \
+        --escrow-address=0xfc7487a37ca8eac2e64cba61277aa109e9b8631e \
+        --rpc-endpoint=http://localhost:58545'
+
+-r "(\.provider-sidecar|firecore\.config\.yaml)$" -s -R "devel/.*" -- sh -c \
+    'echo "Restarting firehose-core instance (5s delay for sidecar startup)..." && \
+    sleep 5 && \
+    rm -rf ./devel/.firehose && \
+    DLOG="${DLOG:-error}" firecore -c devel/firecore.config.yaml -d ./devel/.firehose start'

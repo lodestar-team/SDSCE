@@ -33,7 +33,7 @@ func (s *Sidecar) ValidatePayment(
 	}
 
 	// Verify the signature
-	signerAddr, err := s.verifyRAVSignature(signedRAV)
+	signerAddr, err := signedRAV.RecoverSigner(s.domain)
 	if err != nil {
 		s.logger.Warn("failed to verify RAV signature", zap.Error(err))
 		return connect.NewResponse(&providerv1.ValidatePaymentResponse{

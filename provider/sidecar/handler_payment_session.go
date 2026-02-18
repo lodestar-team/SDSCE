@@ -159,7 +159,7 @@ func (s *Sidecar) handleRAVSubmission(
 	}
 
 	// Verify signature
-	signerAddr, err := s.verifyRAVSignature(signedRAV)
+	signerAddr, err := signedRAV.RecoverSigner(s.domain)
 	if err != nil {
 		s.logger.Warn("RAV signature verification failed", zap.Error(err))
 		stream.Send(&providerv1.PaymentSessionResponse{

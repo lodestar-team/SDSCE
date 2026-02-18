@@ -102,58 +102,57 @@ func TestNormalizeSignature(t *testing.T) {
 	// Create a signature with high-S value
 	var highSSig eth.Signature
 
+	// V (recovery ID header)
+	highSSig[0] = 27
+
 	// R (can be anything)
 	r := big.NewInt(12345)
 	rBytes := r.Bytes()
-	copy(highSSig[32-len(rBytes):32], rBytes)
+	copy(highSSig[33-len(rBytes):33], rBytes)
 
 	// S (high value > N/2)
 	// Use a value slightly higher than N/2
 	s := new(big.Int).Add(secp256k1HalfN, big.NewInt(100))
 	sBytes := s.Bytes()
-	copy(highSSig[64-len(sBytes):64], sBytes)
-
-	// V (recovery ID)
-	highSSig[64] = 0
+	copy(highSSig[65-len(sBytes):65], sBytes)
 
 	// Normalize
 	normalized := normalizeSignature(highSSig)
 
 	// S should be flipped to N-S
 	expectedS := new(big.Int).Sub(secp256k1N, s)
-	normalizedS := new(big.Int).SetBytes(normalized[32:64])
+	normalizedS := new(big.Int).SetBytes(normalized[33:])
 	require.Equal(t, 0, expectedS.Cmp(normalizedS))
 
 	// V should be flipped
-	require.Equal(t, byte(1), normalized[64])
+	require.Equal(t, byte(28), normalized[0])
 
 	// R should remain the same
-	require.Equal(t, highSSig[:32], normalized[:32])
+	require.Equal(t, highSSig[1:33], normalized[1:33])
 }
 
 func TestSignaturesEqual(t *testing.T) {
 	// Create two signatures that are equivalent but one has high-S
 	var sig1, sig2 eth.Signature
 
+	sig1[0] = 27
+	sig2[0] = 28
+
 	// Same R
 	r := big.NewInt(12345)
 	rBytes := r.Bytes()
-	copy(sig1[32-len(rBytes):32], rBytes)
-	copy(sig2[32-len(rBytes):32], rBytes)
+	copy(sig1[33-len(rBytes):33], rBytes)
+	copy(sig2[33-len(rBytes):33], rBytes)
 
 	// S values that are complements (high and low form of same signature)
 	s := new(big.Int).Add(secp256k1HalfN, big.NewInt(100))
 	sBytes := s.Bytes()
-	copy(sig1[64-len(sBytes):64], sBytes)
+	copy(sig1[65-len(sBytes):65], sBytes)
 
 	// sig2 has the normalized (low-S) form
 	sLow := new(big.Int).Sub(secp256k1N, s)
 	sLowBytes := sLow.Bytes()
-	copy(sig2[64-len(sLowBytes):64], sLowBytes)
-
-	// V values are flipped
-	sig1[64] = 0
-	sig2[64] = 1
+	copy(sig2[65-len(sLowBytes):65], sLowBytes)
 
 	// They should be considered equal
 	require.True(t, SignaturesEqual(sig1, sig2))

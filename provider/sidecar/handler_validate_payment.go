@@ -19,13 +19,17 @@ func (s *Sidecar) ValidatePayment(
 ) (*connect.Response[providerv1.ValidatePaymentResponse], error) {
 	s.logger.Info("ValidatePayment called")
 
-	// Convert proto RAV to horizon RAV for verification
-	signedRAV := sidecar.ProtoSignedRAVToHorizon(req.Msg.PaymentRav)
-	if signedRAV == nil || signedRAV.Message == nil {
+	if req.Msg.PaymentRav == nil {
 		return connect.NewResponse(&providerv1.ValidatePaymentResponse{
 			Valid:           false,
 			RejectionReason: "invalid or missing RAV",
 		}), nil
+	}
+
+	// Convert proto RAV to horizon RAV for verification
+	signedRAV, err := sidecar.ProtoSignedRAVToHorizon(req.Msg.PaymentRav)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <payment_rav>: %w", err))
 	}
 
 	// Verify the signature
@@ -39,7 +43,15 @@ func (s *Sidecar) ValidatePayment(
 	}
 
 	// Check if signer is authorized
-	if !s.isAcceptedSigner(signerAddr) {
+	isAuthorized, err := s.isSignerAuthorized(ctx, signedRAV.Message.Payer, signerAddr)
+	if err != nil {
+		s.logger.Warn("authorization check failed", zap.Error(err))
+		return connect.NewResponse(&providerv1.ValidatePaymentResponse{
+			Valid:           false,
+			RejectionReason: fmt.Sprintf("authorization check failed: %v", err),
+		}), nil
+	}
+	if !isAuthorized {
 		s.logger.Warn("signer not authorized",
 			zap.Stringer("signer", signerAddr),
 		)
@@ -68,11 +80,13 @@ func (s *Sidecar) ValidatePayment(
 	// Look for existing session or create new one
 	var session *sidecar.Session
 	if req.Msg.ClientSessionId != "" {
-		var err error
 		session, err = s.sessions.Get(req.Msg.ClientSessionId)
 		if err != nil {
-			// Create new session if not found
-			session = s.sessions.Create(payer, s.serviceProvider, dataService)
+			// Create new session if not found, using the client-provided ID.
+			session, err = s.sessions.CreateWithID(req.Msg.ClientSessionId, payer, s.serviceProvider, dataService)
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unable to create session: %w", err))
+			}
 		}
 	} else {
 		session = s.sessions.Create(payer, s.serviceProvider, dataService)
@@ -80,6 +94,7 @@ func (s *Sidecar) ValidatePayment(
 
 	// Store the RAV
 	session.SetRAV(signedRAV)
+	session.MarkBaseline()
 
 	// Set pricing config on session
 	session.SetPricingConfig(s.pricingConfig)

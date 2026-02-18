@@ -84,7 +84,6 @@ func runProviderSidecar(cmd *cobra.Command, args []string) error {
 		EscrowAddr:      escrowAddr,
 		RPCEndpoint:     rpcEndpoint,
 		PricingConfig:   pricingConfig,
-		AcceptedSigners: nil, // Will be configured dynamically
 	}
 
 	app := NewApplication(cmd.Context())

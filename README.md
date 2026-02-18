@@ -109,13 +109,15 @@ Runs alongside the data provider (substreams-tier1) and handles:
 - Escrow balance queries
 - Payment status monitoring
 
+**Usage metering note:** the provider sidecar does **not** currently meter bytes/blocks directly from the Substreams/Firehose stream. Usage must be **pushed to it** by the provider process (e.g. via `ProviderSidecarService.ReportUsage` or `PaymentGatewayService.PaymentSession` `usage_report`). A production integration will require a **metering plugin** in the provider stack (substreams-tier1 / firehose / substreams) to measure usage and emit those reports.
+
 ```bash
-# Using devenv addresses (User1 as accepted signer)
+# Using devenv addresses
 sds provider sidecar \
-  --service-provider-address 0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
+  --service-provider 0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
   --collector-address 0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9 \
   --escrow-address 0xfc7487a37ca8eac2e64cba61277aa109e9b8631e \
-  --accepted-signers 0x90353af8461a969e755ef1e1dbadb9415ae5cb6e
+  --rpc-endpoint <RPC_URL_FROM_DEVENV>
 ```
 
 #### Horizon Package (`horizon/`)

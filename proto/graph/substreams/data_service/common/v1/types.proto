@@ -17,7 +17,13 @@ message BigInt {
 message SignedRAV {
   // The RAV data that was signed
   RAV rav = 1;
-  // The signature over the RAV (EIP-712 typed data signature)
+  // The signature over the RAV (EIP-712 typed data signature), 65 bytes.
+  //
+  // Canonical encoding for RPC/headers: V (1 byte) + R (32 bytes) + S (32 bytes),
+  // matching `eth.Signature` from `github.com/streamingfast/eth-go`.
+  //
+  // Solidity's `ECDSA.recover` expects R (32) + S (32) + V (1) ("R+S+V"); convert
+  // at the Solidity boundary (e.g. on-chain collection calldata encoding).
   bytes signature = 2;
 }
 
@@ -25,6 +31,8 @@ message SignedRAV {
 // commits to pay. RAVs are aggregated over time and only the latest RAV
 // needs to be submitted on-chain for payment collection.
 message RAV {
+  // The collection identifier (32 bytes). This is part of the EIP-712 signed payload.
+  bytes collection_id = 7;
   // The payer's address (who is paying for the service)
   Address payer = 1;
   // The data service contract address
@@ -35,7 +43,7 @@ message RAV {
   uint64 timestamp_ns = 4;
   // Total value in GRT (wei) accumulated in this RAV
   BigInt value_aggregate = 5;
-  // Arbitrary metadata (e.g., request CID, collection ID)
+  // Arbitrary metadata (e.g., request CID)
   bytes metadata = 6;
 }
 
@@ -81,6 +89,8 @@ message ServiceParameters {
   uint64 estimated_bytes_per_block = 2;
   // Price per block in GRT (wei)
   BigInt price_per_block = 3;
+  // Price per byte in GRT (wei)
+  BigInt price_per_byte = 4;
 }
 
 // PaymentStatus represents the current payment state of a session.

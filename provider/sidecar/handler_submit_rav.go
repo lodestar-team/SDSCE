@@ -43,13 +43,16 @@ func (s *Sidecar) SubmitRAV(
 	}
 
 	// Convert and validate the RAV
-	signedRAV := sidecar.ProtoSignedRAVToHorizon(req.Msg.SignedRav)
-	if signedRAV == nil || signedRAV.Message == nil {
+	if req.Msg.SignedRav == nil {
 		return connect.NewResponse(&providerv1.SubmitRAVResponse{
 			Accepted:        false,
 			RejectionReason: "invalid or missing RAV",
 			ShouldContinue:  true,
 		}), nil
+	}
+	signedRAV, err := sidecar.ProtoSignedRAVToHorizon(req.Msg.SignedRav)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <signed_rav>: %w", err))
 	}
 
 	// Verify signature
@@ -64,14 +67,23 @@ func (s *Sidecar) SubmitRAV(
 	}
 
 	// Check if signer is authorized
-	if !s.isAcceptedSigner(signerAddr) {
+	isAuthorized, err := s.isSignerAuthorized(ctx, session.Payer, signerAddr)
+	if err != nil {
+		s.logger.Warn("authorization check failed", zap.Error(err))
+		return connect.NewResponse(&providerv1.SubmitRAVResponse{
+			Accepted:        false,
+			RejectionReason: fmt.Sprintf("authorization check failed: %v", err),
+			ShouldContinue:  false,
+		}), nil
+	}
+	if !isAuthorized {
 		s.logger.Warn("RAV signer not authorized",
 			zap.Stringer("signer", signerAddr),
 		)
 		return connect.NewResponse(&providerv1.SubmitRAVResponse{
 			Accepted:        false,
 			RejectionReason: fmt.Sprintf("signer %s is not authorized", signerAddr.Pretty()),
-			ShouldContinue:  true,
+			ShouldContinue:  false,
 		}), nil
 	}
 
@@ -105,6 +117,7 @@ func (s *Sidecar) SubmitRAV(
 
 	// Store the new RAV
 	session.SetRAV(signedRAV)
+	session.MarkBaseline()
 
 	s.logger.Info("SubmitRAV accepted",
 		zap.String("session_id", sessionID),

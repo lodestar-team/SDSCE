@@ -333,6 +333,9 @@ func (x *SubmitRAVResponse) GetShouldContinue() bool {
 // Messages from consumer sidecar to provider sidecar in the bidirectional stream
 type PaymentSessionRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// The session ID this stream message applies to.
+	// Required: the provider binds a PaymentSession stream to exactly one session.
+	SessionId string `protobuf:"bytes,10,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	// Types that are valid to be assigned to Message:
 	//
 	//	*PaymentSessionRequest_RavSubmission
@@ -371,6 +374,13 @@ func (x *PaymentSessionRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use PaymentSessionRequest.ProtoReflect.Descriptor instead.
 func (*PaymentSessionRequest) Descriptor() ([]byte, []int) {
 	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *PaymentSessionRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
 }
 
 func (x *PaymentSessionRequest) GetMessage() isPaymentSessionRequest_Message {
@@ -899,8 +909,11 @@ const file_graph_substreams_data_service_provider_v1_gateway_proto_rawDesc = "" 
 	"\x11SubmitRAVResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12)\n" +
 	"\x10rejection_reason\x18\x02 \x01(\tR\x0frejectionReason\x12'\n" +
-	"\x0fshould_continue\x18\x03 \x01(\bR\x0eshouldContinue\"\xc7\x02\n" +
-	"\x15PaymentSessionRequest\x12g\n" +
+	"\x0fshould_continue\x18\x03 \x01(\bR\x0eshouldContinue\"\xe6\x02\n" +
+	"\x15PaymentSessionRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\n" +
+	" \x01(\tR\tsessionId\x12g\n" +
 	"\x0erav_submission\x18\x01 \x01(\v2>.graph.substreams.data_service.provider.v1.SignedRAVSubmissionH\x00R\rravSubmission\x12]\n" +
 	"\tfunds_ack\x18\x02 \x01(\v2>.graph.substreams.data_service.provider.v1.FundsAcknowledgmentH\x00R\bfundsAck\x12[\n" +
 	"\fusage_report\x18\x03 \x01(\v26.graph.substreams.data_service.provider.v1.UsageReportH\x00R\vusageReportB\t\n" +

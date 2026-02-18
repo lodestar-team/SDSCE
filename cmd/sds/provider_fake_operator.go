@@ -66,7 +66,7 @@ func runProviderFakeOperator(cmd *cobra.Command, args []string) error {
 
 	cli.Ensure(signerKeyHex != "", "<signer-private-key> is required")
 	signerKey, err := eth.NewPrivateKey(signerKeyHex)
-	cli.NoError(err, "invalid <signer-private-key> %q", signerKeyHex)
+	cli.NoError(err, "invalid <signer-private-key> %q (expected 32-byte hex, with or without 0x prefix)", signerKeyHex)
 
 	cli.Ensure(collectorHex != "", "<collector-address> is required")
 	collectorAddr, err := eth.NewAddress(collectorHex)

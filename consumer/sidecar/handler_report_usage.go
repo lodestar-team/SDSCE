@@ -2,6 +2,8 @@ package sidecar
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -20,6 +22,15 @@ func (s *Sidecar) ReportUsage(
 ) (*connect.Response[consumerv1.ReportUsageResponse], error) {
 	sessionID := req.Msg.SessionId
 
+	usage := req.Msg.Usage
+	if usage == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("<usage> is required"))
+	}
+	if usage.Cost == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("<usage.cost> is required"))
+	}
+	cost := usage.Cost.ToNative()
+
 	s.logger.Debug("ReportUsage called",
 		zap.String("session_id", sessionID),
 	)
@@ -33,15 +44,11 @@ func (s *Sidecar) ReportUsage(
 
 	// Check session is active
 	if !session.IsActive() {
-		return nil, connect.NewError(connect.CodeFailedPrecondition,
-			connect.NewError(connect.CodeFailedPrecondition, nil))
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("session %q is not active", sessionID))
 	}
 
 	// Add usage to session
-	usage := req.Msg.Usage
-	if usage != nil {
-		session.AddUsage(usage.BlocksProcessed, usage.BytesTransferred, usage.Requests, usage.Cost.ToNative())
-	}
+	session.AddUsage(usage.BlocksProcessed, usage.BytesTransferred, usage.Requests, cost)
 
 	// Get current RAV for value calculation
 	currentRAV := session.GetRAV()
@@ -49,9 +56,9 @@ func (s *Sidecar) ReportUsage(
 	// Calculate new value aggregate
 	var newValue *big.Int
 	if currentRAV != nil && currentRAV.Message != nil {
-		newValue = new(big.Int).Add(currentRAV.Message.ValueAggregate, usage.Cost.ToNative())
+		newValue = new(big.Int).Add(currentRAV.Message.ValueAggregate, cost)
 	} else {
-		newValue = usage.Cost.ToNative()
+		newValue = cost
 	}
 
 	// Create updated RAV with new value

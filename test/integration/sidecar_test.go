@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"net/http"
 	"testing"
@@ -63,7 +64,9 @@ func TestPaymentFlowBasic(t *testing.T) {
 		ListenAddr:      ":19001",
 		ServiceProvider: env.ServiceProvider.Address,
 		Domain:          domain,
-		AcceptedSigners: []eth.Address{setup.SignerAddr},
+		CollectorAddr:   env.Collector.Address,
+		EscrowAddr:      env.Escrow.Address,
+		RPCEndpoint:     env.RPCURL,
 	}
 	providerSidecar := providersidecar.New(providerConfig, zlog.Named("provider"))
 	go providerSidecar.Run()
@@ -99,10 +102,14 @@ func TestPaymentFlowBasic(t *testing.T) {
 	paymentRAV := initResp.Msg.PaymentRav
 	t.Logf("Consumer session created: %s", consumerSessionID)
 
+	// Consumer Init should have started a provider gateway session
+	require.Equal(t, 1, providerSidecar.SessionCount(), "expected provider sidecar session to be created via StartSession during Init")
+
 	// Step 2: Provider validates the RAV
 	t.Log("Step 2: Provider validates RAV")
 	validateReq := &providerv1.ValidatePaymentRequest{
-		PaymentRav: paymentRAV,
+		PaymentRav:      paymentRAV,
+		ClientSessionId: consumerSessionID,
 		ServiceParams: &commonv1.ServiceParameters{
 			RequiredBlocksPreproc: 1000,
 			PricePerBlock:         commonv1.BigIntFromNative(big.NewInt(1000000)), // 0.001 GRT per block
@@ -112,6 +119,8 @@ func TestPaymentFlowBasic(t *testing.T) {
 	require.NoError(t, err, "provider ValidatePayment failed")
 	assert.True(t, validateResp.Msg.Valid, "RAV should be valid: %s", validateResp.Msg.RejectionReason)
 	require.NotEmpty(t, validateResp.Msg.SessionId, "expected provider session ID")
+	require.Equal(t, consumerSessionID, validateResp.Msg.SessionId, "expected provider to reuse the shared session id")
+	require.Equal(t, 1, providerSidecar.SessionCount(), "expected provider to reuse the StartSession-created session")
 
 	providerSessionID := validateResp.Msg.SessionId
 	t.Logf("Provider validated RAV, session: %s", providerSessionID)
@@ -156,6 +165,112 @@ func TestPaymentFlowBasic(t *testing.T) {
 	t.Log("Payment flow test completed successfully!")
 }
 
+func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+
+	env := devenv.Get()
+	require.NotNil(t, env, "devenv not started")
+
+	setup, err := env.SetupTestWithSigner(nil)
+	require.NoError(t, err, "failed to setup test")
+
+	domain := env.Domain()
+
+	consumerSidecar := consumersidecar.New(&consumersidecar.Config{
+		ListenAddr: ":19008",
+		SignerKey:  setup.SignerKey,
+		Domain:     domain,
+	}, zlog.Named("consumer"))
+	go consumerSidecar.Run()
+	defer consumerSidecar.Shutdown(nil)
+	time.Sleep(100 * time.Millisecond) // Wait for server to start
+
+	providerSidecar := providersidecar.New(&providersidecar.Config{
+		ListenAddr:      ":19009",
+		ServiceProvider: env.ServiceProvider.Address,
+		Domain:          domain,
+		CollectorAddr:   env.Collector.Address,
+		EscrowAddr:      env.Escrow.Address,
+		RPCEndpoint:     env.RPCURL,
+	}, zlog.Named("provider"))
+	go providerSidecar.Run()
+	defer providerSidecar.Shutdown(nil)
+	time.Sleep(100 * time.Millisecond) // Wait for server to start
+
+	consumerClient := consumerv1connect.NewConsumerSidecarServiceClient(http.DefaultClient, "http://localhost:19008")
+	providerClient := providerv1connect.NewProviderSidecarServiceClient(http.DefaultClient, "http://localhost:19009")
+
+	escrowAccount := &commonv1.EscrowAccount{
+		Payer:       commonv1.AddressFromEth(env.Payer.Address),
+		Receiver:    commonv1.AddressFromEth(env.ServiceProvider.Address),
+		DataService: commonv1.AddressFromEth(env.DataService.Address),
+	}
+
+	initResp, err := consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{
+		EscrowAccount:    escrowAccount,
+		ProviderEndpoint: "http://localhost:19009",
+	}))
+	require.NoError(t, err, "consumer Init failed")
+	require.NotNil(t, initResp.Msg.PaymentRav)
+	require.NotEmpty(t, initResp.Msg.Session.GetSessionId())
+
+	existingRAVCost := big.NewInt(42)
+	reportResp, err := consumerClient.ReportUsage(ctx, connect.NewRequest(&consumerv1.ReportUsageRequest{
+		SessionId: initResp.Msg.Session.GetSessionId(),
+		Usage: &commonv1.Usage{
+			BlocksProcessed:  1,
+			BytesTransferred: 1,
+			Requests:         1,
+			Cost:             commonv1.BigIntFromNative(existingRAVCost),
+		},
+	}))
+	require.NoError(t, err, "consumer ReportUsage failed")
+	require.NotNil(t, reportResp.Msg.GetUpdatedRav())
+	require.NotNil(t, reportResp.Msg.GetUpdatedRav().GetRav())
+
+	existingRAV := reportResp.Msg.GetUpdatedRav()
+	existingValue := existingRAV.GetRav().GetValueAggregate().ToNative()
+	require.Equal(t, 0, existingValue.Cmp(existingRAVCost))
+
+	// Resume by calling Init(existing_rav=...) and assert the returned payment_rav matches the existing state.
+	initResp2, err := consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{
+		EscrowAccount:    escrowAccount,
+		ProviderEndpoint: "http://localhost:19009",
+		ExistingRav:      existingRAV,
+	}))
+	require.NoError(t, err, "consumer Init(existing_rav) failed")
+	require.NotNil(t, initResp2.Msg.GetPaymentRav())
+	require.NotNil(t, initResp2.Msg.GetPaymentRav().GetRav())
+
+	resumedValue := initResp2.Msg.GetPaymentRav().GetRav().GetValueAggregate().ToNative()
+	require.Equal(t, 0, resumedValue.Cmp(existingValue))
+
+	statusResp, err := providerClient.GetSessionStatus(ctx, connect.NewRequest(&providerv1.GetSessionStatusRequest{
+		SessionId: initResp2.Msg.Session.GetSessionId(),
+	}))
+	require.NoError(t, err)
+	require.NotNil(t, statusResp.Msg.GetSession())
+	require.NotNil(t, statusResp.Msg.GetSession().GetCurrentRav())
+	require.NotNil(t, statusResp.Msg.GetSession().GetCurrentRav().GetRav())
+	require.Equal(t, 0, statusResp.Msg.GetSession().GetCurrentRav().GetRav().GetValueAggregate().ToNative().Cmp(existingValue))
+
+	// Invalid resumption should fail clearly.
+	_, err = consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{
+		EscrowAccount: &commonv1.EscrowAccount{
+			Payer:       commonv1.AddressFromEth(eth.MustNewAddress("0x9999999999999999999999999999999999999999")),
+			Receiver:    escrowAccount.GetReceiver(),
+			DataService: escrowAccount.GetDataService(),
+		},
+		ExistingRav: existingRAV,
+	}))
+	require.Error(t, err)
+	require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
 // TestRAVSignatureVerification tests that the provider sidecar correctly
 // verifies RAV signatures and rejects invalid ones
 func TestRAVSignatureVerification(t *testing.T) {
@@ -180,7 +295,9 @@ func TestRAVSignatureVerification(t *testing.T) {
 		ListenAddr:      ":19003",
 		ServiceProvider: env.ServiceProvider.Address,
 		Domain:          domain,
-		AcceptedSigners: []eth.Address{setup.SignerAddr},
+		CollectorAddr:   env.Collector.Address,
+		EscrowAddr:      env.Escrow.Address,
+		RPCEndpoint:     env.RPCURL,
 	}
 	providerSidecar := providersidecar.New(providerConfig, zlog.Named("provider"))
 	go providerSidecar.Run()
@@ -231,4 +348,56 @@ func TestRAVSignatureVerification(t *testing.T) {
 	assert.Contains(t, validateResp2.Msg.RejectionReason, "not authorized")
 
 	t.Log("Signature verification test completed successfully!")
+}
+
+func TestValidatePayment_InvalidSignatureLength_ReturnsInvalidArgument(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+
+	env := devenv.Get()
+	require.NotNil(t, env, "devenv not started")
+
+	domain := env.Domain()
+
+	providerConfig := &providersidecar.Config{
+		ListenAddr:      ":19004",
+		ServiceProvider: env.ServiceProvider.Address,
+		Domain:          domain,
+		CollectorAddr:   env.Collector.Address,
+		EscrowAddr:      env.Escrow.Address,
+		RPCEndpoint:     env.RPCURL,
+	}
+	providerSidecar := providersidecar.New(providerConfig, zlog.Named("provider"))
+	go providerSidecar.Run()
+	defer providerSidecar.Shutdown(nil)
+	time.Sleep(100 * time.Millisecond)
+
+	providerClient := providerv1connect.NewProviderSidecarServiceClient(
+		http.DefaultClient,
+		"http://localhost:19004",
+	)
+
+	invalidProtoRAV := &commonv1.SignedRAV{
+		Rav: &commonv1.RAV{
+			CollectionId:    make([]byte, 32),
+			Payer:           commonv1.AddressFromEth(env.Payer.Address),
+			DataService:     commonv1.AddressFromEth(env.DataService.Address),
+			ServiceProvider: commonv1.AddressFromEth(env.ServiceProvider.Address),
+			TimestampNs:     uint64(time.Now().UnixNano()),
+			ValueAggregate:  commonv1.BigIntFromNative(big.NewInt(0)),
+		},
+		Signature: []byte{0x01, 0x02}, // invalid length (must be 65 bytes)
+	}
+
+	_, err := providerClient.ValidatePayment(ctx, connect.NewRequest(&providerv1.ValidatePaymentRequest{
+		PaymentRav: invalidProtoRAV,
+	}))
+	require.Error(t, err)
+
+	var cerr *connect.Error
+	require.True(t, errors.As(err, &cerr), "expected connect.Error")
+	require.Equal(t, connect.CodeInvalidArgument, cerr.Code())
 }

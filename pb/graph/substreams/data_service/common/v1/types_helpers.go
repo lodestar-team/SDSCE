@@ -1,14 +1,21 @@
 package commonv1
 
 import (
+	"fmt"
 	"math/big"
 
 	"github.com/streamingfast/eth-go"
 )
 
 // ToEth converts the Address to an eth.Address.
-func (a *Address) ToEth() eth.Address {
-	return eth.Address(a.Bytes)
+func (a *Address) ToEth() (eth.Address, error) {
+	if a == nil {
+		return nil, fmt.Errorf("address is required")
+	}
+	if len(a.Bytes) != 20 {
+		return nil, fmt.Errorf("invalid address length: got %d bytes, want 20", len(a.Bytes))
+	}
+	return eth.Address(a.Bytes), nil
 }
 
 // AddressFromEth creates an Address from an eth.Address.

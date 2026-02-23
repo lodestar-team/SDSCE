@@ -28,6 +28,8 @@ type Sidecar struct {
 	// Session management
 	sessions *sidecar.SessionManager
 
+	paymentSessions *paymentSessionManager
+
 	// Signing configuration
 	signerKey *eth.PrivateKey
 	domain    *horizon.Domain
@@ -44,12 +46,13 @@ type Config struct {
 
 func New(config *Config, logger *zap.Logger) *Sidecar {
 	return &Sidecar{
-		Shutter:    shutter.New(),
-		listenAddr: config.ListenAddr,
-		logger:     logger,
-		sessions:   sidecar.NewSessionManager(),
-		signerKey:  config.SignerKey,
-		domain:     config.Domain,
+		Shutter:         shutter.New(),
+		listenAddr:      config.ListenAddr,
+		logger:          logger,
+		sessions:        sidecar.NewSessionManager(),
+		paymentSessions: newPaymentSessionManager(),
+		signerKey:       config.SignerKey,
+		domain:          config.Domain,
 	}
 }
 

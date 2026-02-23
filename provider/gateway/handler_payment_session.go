@@ -2,8 +2,10 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"strings"
 	"time"
 
@@ -34,9 +36,25 @@ func (s *Gateway) PaymentSession(
 		msg, err := stream.Receive()
 		if err == io.EOF {
 			s.logger.Info("PaymentSession stream closed by client")
+			if session != nil && session.IsActive() {
+				session.End(commonv1.EndReason_END_REASON_CLIENT_DISCONNECT)
+			}
 			return nil
 		}
 		if err != nil {
+			if session != nil && session.IsActive() {
+				if errors.Is(err, context.Canceled) || connect.CodeOf(err) == connect.CodeCanceled {
+					session.End(commonv1.EndReason_END_REASON_CLIENT_DISCONNECT)
+				} else {
+					session.End(commonv1.EndReason_END_REASON_ERROR)
+				}
+			}
+
+			if errors.Is(err, context.Canceled) || connect.CodeOf(err) == connect.CodeCanceled {
+				s.logger.Info("PaymentSession stream closed by client", zap.Error(err))
+				return nil
+			}
+
 			s.logger.Error("PaymentSession receive error", zap.Error(err))
 			return err
 		}
@@ -251,6 +269,26 @@ func (s *Gateway) handleRAVSubmission(
 			})
 			return
 		}
+	}
+
+	// Enforce that the submitted RAV covers the server-computed usage since baseline.
+	// Do not trust caller-provided Usage.cost.
+	currentValue := big.NewInt(0)
+	if currentRAV != nil && currentRAV.Message != nil && currentRAV.Message.ValueAggregate != nil {
+		currentValue = currentRAV.Message.ValueAggregate
+	}
+	_, _, _, deltaCost := session.UsageDeltaSinceBaseline()
+	minValue := new(big.Int).Add(currentValue, deltaCost)
+	if signedRAV.Message.ValueAggregate.Cmp(minValue) < 0 {
+		stream.Send(&providerv1.PaymentSessionResponse{
+			Message: &providerv1.PaymentSessionResponse_SessionControl{
+				SessionControl: &providerv1.SessionControl{
+					Action: providerv1.SessionControl_ACTION_STOP,
+					Reason: fmt.Sprintf("RAV underpays usage: want >= %s (current %s + delta %s)", minValue.String(), currentValue.String(), deltaCost.String()),
+				},
+			},
+		})
+		return
 	}
 
 	// Store the new RAV

@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"math/big"
 
 	"connectrpc.com/connect"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
@@ -113,6 +114,22 @@ func (s *Gateway) SubmitRAV(
 				ShouldContinue:  true,
 			}), nil
 		}
+	}
+
+	// Enforce that the submitted RAV covers the server-computed usage since baseline.
+	// Do not trust caller-provided Usage.cost.
+	currentValue := big.NewInt(0)
+	if currentRAV != nil && currentRAV.Message != nil && currentRAV.Message.ValueAggregate != nil {
+		currentValue = currentRAV.Message.ValueAggregate
+	}
+	_, _, _, deltaCost := session.UsageDeltaSinceBaseline()
+	minValue := new(big.Int).Add(currentValue, deltaCost)
+	if signedRAV.Message.ValueAggregate.Cmp(minValue) < 0 {
+		return connect.NewResponse(&providerv1.SubmitRAVResponse{
+			Accepted:        false,
+			RejectionReason: fmt.Sprintf("RAV underpays usage: want >= %s (current %s + delta %s)", minValue.String(), currentValue.String(), deltaCost.String()),
+			ShouldContinue:  false,
+		}), nil
 	}
 
 	// Store the new RAV

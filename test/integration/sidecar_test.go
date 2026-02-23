@@ -167,6 +167,10 @@ func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
 		CollectorAddr:   env.Collector.Address,
 		EscrowAddr:      env.Escrow.Address,
 		RPCEndpoint:     env.RPCURL,
+		PricingConfig: &sidecar.PricingConfig{
+			PricePerBlock: sidecar.NewPriceFromWei(big.NewInt(1)),
+			PricePerByte:  sidecar.NewPriceFromWei(big.NewInt(0)),
+		},
 	}, zlog.Named("provider"))
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
@@ -188,17 +192,13 @@ func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
 	require.NotNil(t, initResp.Msg.PaymentRav)
 	require.NotEmpty(t, initResp.Msg.Session.GetSessionId())
 
-	// Consumer sidecar calculates cost from pricing config, so we need to use the expected calculated cost
-	defaultPricing := sidecar.DefaultPricingConfig()
-	expectedCost := defaultPricing.CalculateUsageCost(1, 1).BigInt() // 1 block, 1 byte
-
 	reportResp, err := consumerClient.ReportUsage(ctx, connect.NewRequest(&consumerv1.ReportUsageRequest{
 		SessionId: initResp.Msg.Session.GetSessionId(),
 		Usage: &commonv1.Usage{
 			BlocksProcessed:  1,
-			BytesTransferred: 1,
+			BytesTransferred: 0,
 			Requests:         1,
-			Cost:             commonv1.GRTFromBigInt(expectedCost), // Cost is ignored; sidecar calculates from pricing
+			Cost:             nil, // provider is cost-authoritative in PaymentSession loop
 		},
 	}))
 	require.NoError(t, err, "consumer ReportUsage failed")
@@ -207,7 +207,7 @@ func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
 
 	existingRAV := reportResp.Msg.GetUpdatedRav()
 	existingValue := existingRAV.GetRav().GetValueAggregate().ToNative()
-	require.Equal(t, 0, existingValue.BigInt().Cmp(expectedCost))
+	require.Equal(t, 0, existingValue.Cmp(big.NewInt(1)))
 
 	// Resume by calling Init(existing_rav=...) and assert the returned payment_rav matches the existing state.
 	initResp2, err := consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{

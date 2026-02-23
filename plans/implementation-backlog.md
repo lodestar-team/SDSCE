@@ -1,6 +1,6 @@
 # Substreams Data Service — Implementation Backlog
 
-_Last updated: 2026-02-16_
+_Last updated: 2026-02-23_
 
 This repo already contains a working **Horizon V2 (TAP) signing/verification core** (`horizon/`) and a **development environment + integration tests** (`horizon/devenv/`, `test/integration/`).
 
@@ -46,6 +46,7 @@ See also: `docs/agent-workflow.md` for the step-by-step implementation/verificat
 - **RPC surfaces exist**
   - Consumer sidecar exposes `ConsumerSidecarService` (`consumer/sidecar/sidecar.go`, `proto/.../consumer.proto`).
   - Provider sidecar exposes `ProviderSidecarService` and `PaymentGatewayService` (`provider/sidecar/sidecar.go`, `proto/.../provider.proto`, `proto/.../gateway.proto`).
+  - Provider sidecar also exposes firehose-core-facing `sds://` plugin services (`AuthService`, `UsageService`, `SessionService`) (`provider/auth`, `provider/usage`, `provider/session`, `proto/.../sds/*`).
 
 ---
 
@@ -53,7 +54,7 @@ See also: `docs/agent-workflow.md` for the step-by-step implementation/verificat
 
 1. **Sidecar↔Sidecar handshake + shared session ID**
 2. **Dynamic signer authorization (on-chain) + escrow enforcement**
-3. **RAV request policy + streaming loop (Continue/Stop)**
+3. **RAV request policy + streaming loop (Continue/Stop/Pause)**
 4. **Production hardening (authn/z, persistence, metrics, rate limits, etc.)**
 
 ---
@@ -88,6 +89,9 @@ Update process:
 | SDS-013 | P1 | done | Implement session resumption end-to-end |
 | SDS-014 | P2 | done | Bind `PaymentSession` stream to a specific session |
 | SDS-015 | P2 | done | Implement provider-driven RAV request policy |
+| SDS-034 | P2 | done | Wire consumer sidecar to provider `PaymentSession` loop |
+| SDS-035 | P2 | done | Enforce RAV submissions cover requested usage |
+| SDS-036 | P2 | done | Propagate session close across sidecars |
 | SDS-016 | P2 | not_started | Implement `NeedMoreFunds` loop + Continue/Stop/Pause |
 | SDS-017 | P2 | done | Verify signer authorization on-chain (`isAuthorized`) |
 | SDS-018 | P2 | done | Remove CLI/env allowlist override (rely on on-chain auth) |
@@ -100,7 +104,8 @@ Update process:
 | SDS-025 | P3 | not_started | Add transport security + authn/authz |
 | SDS-026 | P3 | not_started | Add observability (metrics/tracing/log correlation) |
 | SDS-027 | P3 | not_started | Add rate limiting / abuse protection |
-| SDS-031 | P3 | deferred | Add `sds demo flow` manual harness (optional) |
+| SDS-037 | P2 | not_started | Add CLI helper to prepare on-chain demo state (devenv) |
+| SDS-031 | P3 | not_started | Add `sds demo flow` manual harness (optional) |
 | SDS-032 | P3 | not_started | Explore `protovalidate` for request validation |
 | SDS-033 | P3 | not_started | Reuse/caching for provider gateway clients |
 | SDS-028 | X | not_started | Define payment header format (client ↔ provider) |
@@ -260,11 +265,50 @@ The flow diagram in `docs/flowchart.txt` implies:
   - Proto has `RAVRequest` + `deadline` (`proto/.../gateway.proto`), but nothing triggers it today.
   - Target:
     - Provider sidecar requests a new RAV when usage/cost threshold is reached.
-    - Consumer sidecar responds with `SignedRAVSubmission`.
+    - A consumer client responds with `SignedRAVSubmission` (consumer-sidecar wiring is tracked separately).
   - Done when:
     - Provider triggers `rav_request` based on a deterministic policy and handles responses.
   - Verify:
     - `go test ./test/integration -run TestPaymentSession_ProviderRequestsRAVOnUsage` passes.
+- [x] SDS-034 Wire consumer sidecar to provider `PaymentSession` loop.
+  - Context:
+    - Provider sidecar implements `PaymentSession` and emits `rav_request`, but consumer sidecar does not open/manage the stream, so the sidecar↔sidecar negotiation loop is not demoable via `cmd/sds/*` today.
+  - Target:
+    - Maintain one `PaymentSession` stream per session (create at `Init` or lazily on first `ReportUsage`).
+    - On `ConsumerSidecarService.ReportUsage`, forward usage (blocks/bytes/requests) to provider via `PaymentSessionRequest{usage_report}`.
+    - Handle provider responses:
+      - `rav_request` → sign an updated RAV and send `PaymentSessionRequest{rav_submission}` (including the provider-provided `usage`).
+      - `session_control` / `need_more_funds` → propagate to `ReportUsageResponse.should_continue/stop_reason` and transition local session state (pause/stop) accordingly.
+    - Close the stream on `ConsumerSidecarService.EndSession`.
+  - Done when:
+    - Consumer `ReportUsage` causes provider `GetSessionStatus.payment_status.current_rav_value` to advance.
+  - Verify:
+    - Add/extend an integration test that starts both sidecars, calls consumer `ReportUsage`, and asserts provider `current_rav_value` increases.
+    - Manual: start `sds devenv`, start both sidecars, run `sds consumer fake-client`, and observe provider logs showing `rav_request` + `RAV accepted via stream`.
+- [x] SDS-035 Enforce that RAV submissions cover the requested usage.
+  - Context:
+    - Provider currently accepts any submission where `new_value >= current_value`, which allows “no payment” updates and makes `rav_request` ineffective.
+  - Target:
+    - For both `PaymentSession` (`handleRAVSubmission`) and unary `SubmitRAV`, enforce:
+      - `submitted_value >= current_value + expected_delta_cost`.
+    - Compute `expected_delta_cost` server-side (from usage tracked since baseline + pricing config), not from caller-provided `Usage.cost`.
+    - On violation, STOP/reject with a clear reason.
+  - Done when:
+    - Underpaying submissions are rejected/stopped and covered by tests.
+  - Verify:
+    - Extend `TestPaymentSession_ProviderRequestsRAVOnUsage` to submit an underpaying RAV and assert STOP/rejection.
+- [x] SDS-036 Propagate “session close” across sidecars.
+  - Context:
+    - Consumer `EndSession` ends local state, but provider sessions can remain active even if the `PaymentSession` stream is closed.
+  - Target:
+    - Define minimal close behavior for demo:
+      - Consumer closes `PaymentSession` on `EndSession`.
+      - Provider marks the session ended when the stream closes (EOF) and/or when it emits `SessionControl{STOP}`.
+    - Ensure final RAV is consistent on both sides.
+  - Done when:
+    - Ending the session on consumer results in provider `GetSessionStatus.active=false`.
+  - Verify:
+    - Integration test that runs `Init` + `ReportUsage` + `EndSession` and asserts provider becomes inactive.
 - [ ] SDS-016 Implement “NeedMoreFunds” loop.
   - Flowchart calls out periodic escrow checks (`docs/flowchart.txt`).
   - Provider sidecar already has a low-level escrow query (`sidecar/escrow_querier.go`); integrate it into stream control messages.
@@ -380,8 +424,22 @@ The flow diagram in `docs/flowchart.txt` implies:
 
 ---
 
-## P3 — Dev Tooling (Optional)
+## P3 — Dev Tooling (Demo Prereqs)
 
+- [ ] SDS-037 Add a CLI helper to prepare on-chain demo state for devenv.
+  - Context:
+    - Integration tests call `Env.SetupTestWithSigner(...)` (mint/approve/deposit escrow, register service provider, authorize signer), but there is no CLI workflow for humans to do it when running sidecars manually.
+  - Target:
+    - Add a command (e.g. `sds devenv setup-test-state` or `sds demo setup`) that:
+      - connects to a running devenv RPC endpoint,
+      - funds payer escrow with a configurable amount,
+      - registers the service provider,
+      - authorizes a signer key (generate + print it, or accept `--signer-private-key`),
+      - prints the exact flags/env needed to start consumer/provider sidecars for a demo run.
+  - Done when:
+    - A user can run `sds devenv`, run the setup helper, then start both sidecars and observe on-chain `isAuthorized(payer, signer)=true`.
+  - Verify:
+    - Manual: run `sds devenv`, then the setup helper, then `go test ./test/integration -run TestProviderSidecar_OnChainAuthorization`.
 - [ ] SDS-031 Add `sds demo flow` manual harness (optional).
   - Context:
     - We currently have good coverage in `test/integration/sidecar_test.go`, but it’s not a friendly “demo” entrypoint when iterating.
@@ -390,7 +448,8 @@ The flow diagram in `docs/flowchart.txt` implies:
     - Provide a single command that:
       - calls consumer `Init`,
       - calls provider `ValidatePayment`,
-      - sends usage updates, and
+      - opens `PaymentSession`, exercises `rav_request`/`rav_submission`, and
+      - sends usage updates (blocks/bytes),
       - ends the session, printing key IDs and RAV values.
     - Prefer to reuse the already-running `sds devenv` and the running sidecars, rather than spinning up containers itself.
   - Done when:
@@ -428,12 +487,12 @@ The flow diagram in `docs/flowchart.txt` implies:
 These can’t be completed solely in this repo, but should be tracked here because they drive protocol decisions:
 
 - [ ] SDS-028 Define and implement the **payment header** format used by substreams client ↔ provider (RAV serialization, signature encoding, session ID).
+  - Current direction (tier1 + firehose-core plugins): use `x-sds-rav` containing a protobuf `common.v1.SignedRAV` (raw bytes in gRPC; base64 for manual/operator tooling like `sds tools rav create`).
 - [ ] SDS-029 Integrate provider sidecar into the actual provider service (tier1):
-  - Call `ValidatePayment` on connect.
-  - Call `ReportUsage` during streaming.
-  - Note: the provider sidecar does **not** meter bytes/blocks itself; this integration will require a **metering plugin** (substreams-tier1 / firehose / substreams) that measures usage from the live stream and pushes usage reports into the sidecar (either via `ReportUsage` or via `PaymentSession` `usage_report` messages).
-  - Act on Continue/Stop decisions from sidecar.
+  - Option A (legacy RPC): call `ValidatePayment` on connect and `ReportUsage` during streaming.
+  - Option B (firehose-core plugins): use `sds://` dauth/dmetering/dsession plugins (this repo contains both the plugin clients and the provider sidecar endpoints).
+  - Act on Continue/Stop decisions from sidecar (and ensure metering feeds the RAV request loop).
 - [ ] SDS-030 Integrate consumer sidecar into the actual substreams client:
   - Call `Init` before connecting to provider.
   - Call `ReportUsage` / `EndSession`.
-  - Handle provider negotiation responses (RAV updates, funding requests).
+  - Handle provider negotiation responses (RAV updates, funding requests) and keep `x-sds-rav` up-to-date during long streams.

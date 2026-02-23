@@ -160,6 +160,9 @@ func (s *Sidecar) Init(
 	}
 
 	session.SetRAV(initialRAV)
+	if providerEndpoint != "" {
+		s.paymentSessions.SetEndpoint(sessionID, providerEndpoint)
+	}
 
 	s.logger.Debug("created session",
 		zap.String("session_id", session.ID),

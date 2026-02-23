@@ -23,6 +23,13 @@ func main() {
 		devenvCmd,
 
 		Group(
+			"demo",
+			"Demo helpers (local/dev only)",
+			demoSetupCmd,
+			demoFlowCmd,
+		),
+
+		Group(
 			"provider",
 			"Provider-side commands",
 			providerSidecarCmd,

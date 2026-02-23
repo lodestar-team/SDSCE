@@ -104,8 +104,8 @@ Update process:
 | SDS-025 | P3 | not_started | Add transport security + authn/authz |
 | SDS-026 | P3 | not_started | Add observability (metrics/tracing/log correlation) |
 | SDS-027 | P3 | not_started | Add rate limiting / abuse protection |
-| SDS-037 | P2 | not_started | Add CLI helper to prepare on-chain demo state (devenv) |
-| SDS-031 | P3 | not_started | Add `sds demo flow` manual harness (optional) |
+| SDS-037 | P2 | done | Add CLI helper to prepare on-chain demo state (devenv) |
+| SDS-031 | P3 | done | Add `sds demo flow` manual harness (optional) |
 | SDS-032 | P3 | not_started | Explore `protovalidate` for request validation |
 | SDS-033 | P3 | not_started | Reuse/caching for provider gateway clients |
 | SDS-028 | X | not_started | Define payment header format (client ↔ provider) |
@@ -426,7 +426,7 @@ The flow diagram in `docs/flowchart.txt` implies:
 
 ## P3 — Dev Tooling (Demo Prereqs)
 
-- [ ] SDS-037 Add a CLI helper to prepare on-chain demo state for devenv.
+- [x] SDS-037 Add a CLI helper to prepare on-chain demo state for devenv.
   - Context:
     - Integration tests call `Env.SetupTestWithSigner(...)` (mint/approve/deposit escrow, register service provider, authorize signer), but there is no CLI workflow for humans to do it when running sidecars manually.
   - Target:
@@ -440,7 +440,7 @@ The flow diagram in `docs/flowchart.txt` implies:
     - A user can run `sds devenv`, run the setup helper, then start both sidecars and observe on-chain `isAuthorized(payer, signer)=true`.
   - Verify:
     - Manual: run `sds devenv`, then the setup helper, then `go test ./test/integration -run TestProviderSidecar_OnChainAuthorization`.
-- [ ] SDS-031 Add `sds demo flow` manual harness (optional).
+- [x] SDS-031 Add `sds demo flow` manual harness (optional).
   - Context:
     - We currently have good coverage in `test/integration/sidecar_test.go`, but it’s not a friendly “demo” entrypoint when iterating.
     - A CLI subcommand (or small binary under `examples/`) that runs the same flow makes it easy to manually validate behavior while implementing production wiring.

@@ -10,8 +10,8 @@ start:
     advertise-block-id-encoding: "hex"
     advertise-chain-name: "acme-dummy-blockchain"
 
-    # SDS Provider Sidecar plugin configuration
-    # The provider sidecar runs on :9001 (Connect) and serves all SDS services
+    # SDS Provider Gateway plugin configuration
+    # The provider gateway runs on :9001 (Connect) and serves all SDS services
     # Dev API key allows bypassing RAV authentication for local testing
     common-auth-plugin: "sds://localhost:9001?plaintext=true&dev-api-key=dev-test-key"
     common-session-plugin: "sds://localhost:9001?plaintext=true"

@@ -74,7 +74,7 @@ func (s *Sidecar) Run() {
 	})
 
 	s.OnTerminating(func(_ error) {
-		s.server.Shutdown(nil)
+		s.server.Shutdown(0)
 	})
 
 	s.logger.Info("starting consumer sidecar", zap.String("listen_addr", s.listenAddr))

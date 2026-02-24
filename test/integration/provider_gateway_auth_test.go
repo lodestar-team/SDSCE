@@ -16,11 +16,13 @@ import (
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
-	providersidecar "github.com/graphprotocol/substreams-data-service/provider/sidecar"
+	providergateway "github.com/graphprotocol/substreams-data-service/provider/gateway"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
-func TestProviderSidecar_OnChainAuthorization(t *testing.T) {
+// TestPaymentGateway_OnChainAuthorization validates that the gateway StartSession
+// path enforces on-chain authorization for signers.
+func TestPaymentGateway_OnChainAuthorization(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -30,12 +32,12 @@ func TestProviderSidecar_OnChainAuthorization(t *testing.T) {
 	env := devenv.Get()
 	require.NotNil(t, env, "devenv not started")
 
-	setup, err := env.SetupTestWithSigner(nil)
+	_, err := env.SetupTestWithSigner(nil)
 	require.NoError(t, err)
 
 	domain := env.Domain()
 
-	providerConfig := &providersidecar.Config{
+	providerConfig := &providergateway.Config{
 		ListenAddr:      ":19005",
 		ServiceProvider: env.ServiceProvider.Address,
 		Domain:          domain,
@@ -43,12 +45,14 @@ func TestProviderSidecar_OnChainAuthorization(t *testing.T) {
 		EscrowAddr:      env.Escrow.Address,
 		RPCEndpoint:     env.RPCURL,
 	}
-	providerSidecar := providersidecar.New(providerConfig, zlog.Named("provider"))
-	go providerSidecar.Run()
-	defer providerSidecar.Shutdown(nil)
+	providerGateway := providergateway.New(providerConfig, zlog.Named("provider"))
+	go providerGateway.Run()
+	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)
 
-	providerClient := providerv1connect.NewProviderSidecarServiceClient(http.DefaultClient, "http://localhost:19005")
+	// Create a RAV signed by an unauthorized signer
+	unauthorizedKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
 
 	rav := &horizon.RAV{
 		Payer:           env.Payer.Address,
@@ -58,28 +62,10 @@ func TestProviderSidecar_OnChainAuthorization(t *testing.T) {
 		ValueAggregate:  big.NewInt(0),
 		Metadata:        nil,
 	}
-	signedRAV, err := horizon.Sign(domain, rav, setup.SignerKey)
-	require.NoError(t, err)
-
-	validateResp, err := providerClient.ValidatePayment(ctx, connect.NewRequest(&providerv1.ValidatePaymentRequest{
-		PaymentRav: sidecar.HorizonSignedRAVToProto(signedRAV),
-	}))
-	require.NoError(t, err)
-	require.True(t, validateResp.Msg.Valid, "expected authorized signer to be accepted: %s", validateResp.Msg.RejectionReason)
-
-	unauthorizedKey, err := eth.NewRandomPrivateKey()
-	require.NoError(t, err)
 	unauthorizedSignedRAV, err := horizon.Sign(domain, rav, unauthorizedKey)
 	require.NoError(t, err)
 
-	validateResp2, err := providerClient.ValidatePayment(ctx, connect.NewRequest(&providerv1.ValidatePaymentRequest{
-		PaymentRav: sidecar.HorizonSignedRAVToProto(unauthorizedSignedRAV),
-	}))
-	require.NoError(t, err)
-	require.False(t, validateResp2.Msg.Valid)
-	require.Contains(t, validateResp2.Msg.RejectionReason, "not authorized")
-
-	// Also validate the gateway StartSession path enforces on-chain authorization.
+	// Validate the gateway StartSession path enforces on-chain authorization
 	gatewayClient := providerv1connect.NewPaymentGatewayServiceClient(http.DefaultClient, "http://localhost:19005")
 	startResp, err := gatewayClient.StartSession(ctx, connect.NewRequest(&providerv1.StartSessionRequest{
 		EscrowAccount: &commonv1.EscrowAccount{

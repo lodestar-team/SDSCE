@@ -64,7 +64,7 @@ func TestSession_GetUsage(t *testing.T) {
 	assert.Equal(t, uint64(100), usage.BlocksProcessed)
 	assert.Equal(t, uint64(5000), usage.BytesTransferred)
 	assert.Equal(t, uint64(3), usage.Requests)
-	assert.Equal(t, int64(1000), usage.Cost.ToNative().Int64())
+	assert.Equal(t, int64(1000), usage.Cost.ToInt64())
 }
 
 func TestSession_End(t *testing.T) {

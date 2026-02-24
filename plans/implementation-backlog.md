@@ -4,7 +4,7 @@ _Last updated: 2026-02-16_
 
 This repo already contains a working **Horizon V2 (TAP) signing/verification core** (`horizon/`) and a **development environment + integration tests** (`horizon/devenv/`, `test/integration/`).
 
-The two sidecars (`consumer/sidecar/`, `provider/sidecar/`) are currently a **scaffold**: they start servers, manage in-memory sessions, and implement the RPC surfaces, but most of the “real protocol” glue (sidecar↔sidecar negotiation, dynamic authorization, funding enforcement, RAV request policy, etc.) is not wired up yet.
+The two sidecars (`consumer/sidecar/`, `provider/gateway/`) are currently a **scaffold**: they start servers, manage in-memory sessions, and implement the RPC surfaces, but most of the “real protocol” glue (sidecar↔sidecar negotiation, dynamic authorization, funding enforcement, RAV request policy, etc.) is not wired up yet.
 
 This document is meant to be a practical tracking/backlog list of what still needs to be implemented, with pointers to the current code.
 
@@ -45,7 +45,7 @@ See also: `docs/agent-workflow.md` for the step-by-step implementation/verificat
   - On-chain flows for signer authorization and `collect()` are covered by integration tests (`test/integration/authorization_test.go`, `test/integration/collect_test.go`).
 - **RPC surfaces exist**
   - Consumer sidecar exposes `ConsumerSidecarService` (`consumer/sidecar/sidecar.go`, `proto/.../consumer.proto`).
-  - Provider sidecar exposes `ProviderSidecarService` and `PaymentGatewayService` (`provider/sidecar/sidecar.go`, `proto/.../provider.proto`, `proto/.../gateway.proto`).
+  - Provider gateway exposes `PaymentGatewayService` and Firehose plugin services (`provider/gateway/sidecar.go`, `proto/.../gateway.proto`).
 
 ---
 
@@ -76,7 +76,7 @@ Update process:
 | SDS-001 | P0 | done | Fix consumer `ReportUsage` nil-usage crash |
 | SDS-002 | P0 | done | Fix consumer inactive-session error construction |
 | SDS-003 | P0 | done | Add required-field validation across handlers |
-| SDS-004 | P0 | done | Fix README vs CLI flag drift (provider sidecar) |
+| SDS-004 | P0 | done | Fix README vs CLI flag drift (provider gateway) |
 | SDS-005 | P0 | done | Fix `devel/sds` version ldflags mismatch |
 | SDS-006 | P0 | done | Validate address/signature byte lengths in conversions |
 | SDS-007 | P1 | done | Add explicit `collection_id` to proto `common.v1.RAV` |
@@ -104,7 +104,7 @@ Update process:
 | SDS-032 | P3 | not_started | Explore `protovalidate` for request validation |
 | SDS-033 | P3 | not_started | Reuse/caching for provider gateway clients |
 | SDS-028 | X | not_started | Define payment header format (client ↔ provider) |
-| SDS-029 | X | not_started | Integrate provider sidecar into tier1 provider |
+| SDS-029 | X | not_started | Integrate provider gateway into tier1 provider |
 | SDS-030 | X | not_started | Integrate consumer sidecar into substreams client |
 
 ## P0 — Correctness, Crashers, Repo Consistency
@@ -127,20 +127,20 @@ Update process:
     - Add a test that ends a session then calls `ReportUsage` and asserts error code/message.
 - [x] SDS-003 Add required-field validation across handlers (avoid panics on nil nested messages).
   - Consumer `Init`: `req.Msg.EscrowAccount` is assumed non-nil (`consumer/sidecar/handler_init.go`).
-  - Provider `StartSession`: `req.Msg.EscrowAccount` is assumed non-nil (`provider/sidecar/handler_start_session.go`).
+  - Provider `StartSession`: `req.Msg.EscrowAccount` is assumed non-nil (`provider/gateway/handler_start_session.go`).
   - Target: return `InvalidArgument` with precise messages.
   - Done when:
     - Each handler returns `InvalidArgument` when required nested messages are missing.
   - Verify:
     - Add tests for each handler with missing nested messages.
     - `go test ./...` passes.
-- [x] SDS-004 Fix README/CLI drift for provider sidecar flags.
-  - README currently mentions `--accepted-signers`, but `cmd/sds/provider_sidecar.go` does not define it.
+- [x] SDS-004 Fix README/CLI drift for provider gateway flags.
+  - README currently mentions `--accepted-signers`, but `cmd/sds/provider_gateway.go` does not define it.
   - Decide: either remove that flag from README or implement it in CLI (as a temporary dev override) while on-chain auth is implemented.
   - Done when:
-    - `README.md` examples match `sds provider sidecar --help`.
+    - `README.md` examples match `sds provider gateway --help`.
   - Verify:
-    - Run `./devel/sds provider sidecar --help` and compare flags to README examples.
+    - Run `./devel/sds provider gateway --help` and compare flags to README examples.
 - [x] SDS-005 Fix `devel/sds` version ldflags mismatch.
   - Script sets `-X main.Version=...` but CLI uses `var version = "dev"` (`devel/sds`, `cmd/sds/main.go`).
   - Target: align names so `sds --version` reflects `.version` when present.
@@ -184,7 +184,7 @@ Update process:
 - [x] SDS-009 Align `ServiceParameters`/pricing across proto and implementation.
   - Provider sidecar supports `price_per_block` and `price_per_byte` via YAML (`sidecar/pricing.go`), but proto `ServiceParameters` only carries `price_per_block` (`proto/.../types.proto`).
   - Target: include both (and any additional required params like “price per request”, min prepaid, etc.).
-  - Decision (2026-02-17): the **provider sidecar is authoritative** for pricing knobs (at least per-byte), and will compute costs from raw metering inputs; consumer-side verification against provider-reported usage/cost is a potential future hardening item.
+  - Decision (2026-02-17): the **provider gateway is authoritative** for pricing knobs (at least per-byte), and will compute costs from raw metering inputs; consumer-side verification against provider-reported usage/cost is a potential future hardening item.
   - Done when:
     - Proto carries all pricing inputs that the provider uses to compute cost.
     - Sidecars either compute costs server-side or explicitly validate caller-provided cost against pricing.
@@ -203,7 +203,7 @@ Update process:
 ## P1 — Sidecar↔Sidecar Session Negotiation (Core Missing Piece)
 
 The flow diagram in `docs/flowchart.txt` implies:
-`substreams -> consumer sidecar (Init)` then `consumer sidecar -> provider sidecar (StartSession)` *before* the client connects to the provider.
+`substreams -> consumer sidecar (Init)` then `consumer sidecar -> provider gateway (StartSession)` *before* the client connects to the provider.
 
 - [x] SDS-011 Implement `consumer/sidecar.Init` to call `PaymentGatewayService.StartSession`.
   - Today: comment explicitly says this is not done (`consumer/sidecar/handler_init.go`).
@@ -215,10 +215,10 @@ The flow diagram in `docs/flowchart.txt` implies:
     - Consumer `Init` performs a real `StartSession` call and returns `payment_rav` equal to `use_rav`.
     - Failures propagate as sensible RPC errors (`Unavailable`, `InvalidArgument`, etc.).
   - Verify:
-    - Extend `test/integration/sidecar_test.go` to run consumer+provider sidecars and assert `Init` triggers `StartSession`.
+    - Extend `test/integration/sidecar_test.go` to run consumer+provider gateways and assert `Init` triggers `StartSession`.
     - Optionally add a manual smoke test: start both sidecars + run `sds consumer fake-client` and confirm provider logs show `StartSession called`.
 - [x] SDS-012 Decide a **shared session ID story** across components.
-  - Today: consumer and provider sidecars each generate their own UUID session IDs (`sidecar/session.go`), and there is no mapping.
+  - Today: consumer and provider gateways each generate their own UUID session IDs (`sidecar/session.go`), and there is no mapping.
   - Chosen strategy:
     - The **provider-assigned `StartSessionResponse.session_id` is canonical**.
     - Consumer sidecar uses that ID for its local session and returns it in `InitResponse.session.session_id`.
@@ -247,7 +247,7 @@ The flow diagram in `docs/flowchart.txt` implies:
 ## P2 — PaymentSession Stream (Real-Time Negotiation)
 
 - [x] SDS-014 Make `PaymentGatewayService.PaymentSession` usable for real sessions.
-  - Today: stream handler ignores session identity and is effectively “stateless” (`provider/sidecar/handler_payment_session.go`).
+  - Today: stream handler ignores session identity and is effectively “stateless” (`provider/gateway/handler_payment_session.go`).
   - Target:
     - Decide how the stream is bound to a session (proto field vs headers vs first message).
     - Update protos if needed (likely add `session_id`).
@@ -279,7 +279,7 @@ The flow diagram in `docs/flowchart.txt` implies:
 ## P2 — Dynamic Authorization (Stop Using Static Accepted Signer Lists)
 
 - [x] SDS-017 Verify authorized signer on-chain in `ValidatePayment` / `StartSession` / `SubmitRAV`.
-  - Today: provider sidecar uses an in-memory allowlist (`provider/sidecar/sidecar.go`).
+  - Today: provider gateway uses an in-memory allowlist (`provider/gateway/sidecar.go`).
   - Target:
     - Call collector `isAuthorized(payer, signer)` (see how tests do it: `horizon/devenv/helpers.go` and `test/integration/authorization_test.go`).
     - Add caching with TTL to avoid RPC overload.
@@ -288,7 +288,7 @@ The flow diagram in `docs/flowchart.txt` implies:
   - Done when:
     - Provider accepts RAVs signed by authorized signers and rejects unauthorized ones without relying on static config.
   - Verify:
-    - Extend integration suite to run provider sidecar against devenv and validate both authorized and unauthorized signer cases.
+    - Extend integration suite to run provider gateway against devenv and validate both authorized and unauthorized signer cases.
 - [x] SDS-018 Remove CLI/env allowlist override (rely on on-chain auth).
   - Context:
     - Now that on-chain signer authorization is implemented and covered by integration tests, we avoid shipping a CLI/env escape hatch that bypasses authorization checks.
@@ -305,11 +305,11 @@ The flow diagram in `docs/flowchart.txt` implies:
 - [x] SDS-019 Decide who computes `Usage.cost` and enforce it consistently.
   - Current scaffolding trusts `Usage.cost` provided by callers:
     - Consumer sidecar increments RAV by `usage.cost` (`consumer/sidecar/handler_report_usage.go`).
-    - Provider sidecar tracks session totals from `usage.cost` (`provider/sidecar/handler_report_usage.go`).
+    - Provider sidecar tracks session totals from `usage.cost` (`provider/gateway/handler_report_usage.go`).
   - Target:
-    - Either compute cost server-side from raw usage using pricing config (preferred for provider sidecar), or
+    - Either compute cost server-side from raw usage using pricing config (preferred for provider gateway), or
     - Define `Usage.cost` as consumer-authoritative and verify/compare it on provider side.
-  - Decision (2026-02-17): treat **provider sidecar as cost-authoritative**. Provider sidecar computes `Usage.cost` from raw usage + pricing config, and rejects/overrides mismatches. Consumer-side “anti-overcharge” checks are deferred until pricing/usage semantics with tier1 are finalized.
+  - Decision (2026-02-17): treat **provider gateway as cost-authoritative**. Provider sidecar computes `Usage.cost` from raw usage + pricing config, and rejects/overrides mismatches. Consumer-side “anti-overcharge” checks are deferred until pricing/usage semantics with tier1 are finalized.
   - Done when:
     - The trust boundary is documented and enforced in code (no silent mismatches).
   - Verify:
@@ -326,11 +326,11 @@ The flow diagram in `docs/flowchart.txt` implies:
 ## P2 — On-Chain Collection / Settlement Integration (Provider Operator Workflows)
 
 - [ ] SDS-021 Decide what component triggers on-chain collection and when.
-  - Integration tests call `collect()` directly (`test/integration/collect_test.go`), but provider sidecar does not.
+  - Integration tests call `collect()` directly (`test/integration/collect_test.go`), but provider gateway does not.
   - Target options:
     - Provider sidecar exposes an operator/admin RPC to collect the latest RAV.
     - Separate “collector” daemon watches sessions and collects periodically.
-    - Provider (tier1) calls collect itself using provider sidecar as a library.
+    - Provider (tier1) calls collect itself using provider gateway as a library.
   - Done when:
     - There is a documented, implemented operator workflow for collection (manual and/or automated).
   - Verify:
@@ -428,10 +428,10 @@ The flow diagram in `docs/flowchart.txt` implies:
 These can’t be completed solely in this repo, but should be tracked here because they drive protocol decisions:
 
 - [ ] SDS-028 Define and implement the **payment header** format used by substreams client ↔ provider (RAV serialization, signature encoding, session ID).
-- [ ] SDS-029 Integrate provider sidecar into the actual provider service (tier1):
+- [ ] SDS-029 Integrate provider gateway into the actual provider service (tier1):
   - Call `ValidatePayment` on connect.
   - Call `ReportUsage` during streaming.
-  - Note: the provider sidecar does **not** meter bytes/blocks itself; this integration will require a **metering plugin** (substreams-tier1 / firehose / substreams) that measures usage from the live stream and pushes usage reports into the sidecar (either via `ReportUsage` or via `PaymentSession` `usage_report` messages).
+  - Note: the provider gateway does **not** meter bytes/blocks itself; this integration will require a **metering plugin** (substreams-tier1 / firehose / substreams) that measures usage from the live stream and pushes usage reports into the sidecar (either via `ReportUsage` or via `PaymentSession` `usage_report` messages).
   - Act on Continue/Stop decisions from sidecar.
 - [ ] SDS-030 Integrate consumer sidecar into the actual substreams client:
   - Call `Init` before connecting to provider.

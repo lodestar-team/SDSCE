@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package graph.substreams.data_service.common.v1;
 
+// Note: All GRT values in this package are expressed in base units (18 decimals).
+// 1 GRT = 10^18 base units.
+
 // Address represents an Ethereum address (20 bytes).
 message Address {
   bytes bytes = 1;
@@ -10,6 +13,22 @@ message Address {
 // BigInt represents an arbitrary precision integer as big-endian bytes.
 message BigInt {
   bytes bytes = 1;
+}
+
+// GRT represents a GRT token amount in base units (18 decimals).
+// 1 GRT = 10^18 base units.
+// Stored as big-endian bytes, same encoding as BigInt.
+message GRT {
+  bytes bytes = 1;
+}
+
+// PricingConfig defines the pricing for a data service.
+// Used to communicate pricing from provider to consumer at session start.
+message PricingConfig {
+  // Price per block processed in GRT
+  GRT price_per_block = 1;
+  // Price per byte transferred in GRT
+  GRT price_per_byte = 2;
 }
 
 // SignedRAV represents a signed Receipt Aggregate Voucher.
@@ -41,8 +60,8 @@ message RAV {
   Address service_provider = 3;
   // Timestamp when this RAV was created (Unix nanoseconds)
   uint64 timestamp_ns = 4;
-  // Total value in GRT (wei) accumulated in this RAV
-  BigInt value_aggregate = 5;
+  // Total value in GRT accumulated in this RAV
+  GRT value_aggregate = 5;
   // Arbitrary metadata (e.g., request CID)
   bytes metadata = 6;
 }
@@ -55,8 +74,8 @@ message Usage {
   uint64 bytes_transferred = 2;
   // Number of requests made
   uint64 requests = 3;
-  // Computed cost in GRT (wei) for this usage
-  BigInt cost = 4;
+  // Computed cost in GRT for this usage
+  GRT cost = 4;
 }
 
 // EscrowAccount identifies an escrow deposit that funds payments.
@@ -79,6 +98,8 @@ message SessionInfo {
   SignedRAV current_rav = 3;
   // Accumulated usage in this session
   Usage accumulated_usage = 4;
+  // Pricing configuration for this session (set by provider)
+  PricingConfig pricing_config = 5;
 }
 
 // ServiceParameters defines pricing and requirements for a service.
@@ -87,20 +108,20 @@ message ServiceParameters {
   uint64 required_blocks_preproc = 1;
   // Estimated bytes per block
   uint64 estimated_bytes_per_block = 2;
-  // Price per block in GRT (wei)
-  BigInt price_per_block = 3;
-  // Price per byte in GRT (wei)
-  BigInt price_per_byte = 4;
+  // Price per block in GRT
+  GRT price_per_block = 3;
+  // Price per byte in GRT
+  GRT price_per_byte = 4;
 }
 
 // PaymentStatus represents the current payment state of a session.
 message PaymentStatus {
-  // Current RAV value in GRT (wei)
-  BigInt current_rav_value = 1;
-  // Accumulated usage value in GRT (wei)
-  BigInt accumulated_usage_value = 2;
-  // Available escrow balance in GRT (wei)
-  BigInt escrow_balance = 3;
+  // Current RAV value in GRT
+  GRT current_rav_value = 1;
+  // Accumulated usage value in GRT
+  GRT accumulated_usage_value = 2;
+  // Available escrow balance in GRT
+  GRT escrow_balance = 3;
   // Whether funds are sufficient
   bool funds_sufficient = 4;
   // Estimated blocks remaining at current rate

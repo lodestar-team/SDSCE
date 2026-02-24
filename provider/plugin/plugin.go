@@ -1,9 +1,9 @@
 // Package plugin provides SDS plugin registration for firehose-core.
 // It registers "sds" scheme handlers with dauth, dsession, and dmetering
-// that connect to an SDS provider sidecar via gRPC/Connect.
+// that connect to an SDS provider gateway via gRPC/Connect.
 //
 // The plugins are gRPC clients - all business logic (service provider address,
-// escrow address, etc.) is configured on the provider sidecar server side.
+// escrow address, etc.) is configured on the provider gateway server side.
 // Plugin configuration only needs connection parameters.
 //
 // Usage in firehose-core:

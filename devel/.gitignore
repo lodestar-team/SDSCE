@@ -2,7 +2,7 @@
 sds
 
 # State files created during devenv operation
-.provider-sidecar
+.provider-gateway
 .consumer-sidecar
 .firehose/
 

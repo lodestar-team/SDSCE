@@ -21,7 +21,7 @@ import (
 //
 //	sds://host:port?plaintext=true&insecure=true&dev-api-key=<key>
 //
-// The plugin connects to the provider sidecar's AuthService for RAV validation.
+// The plugin connects to the provider gateway's AuthService for RAV validation.
 // All business logic (service provider, escrow, etc.) is on the server side.
 func RegisterAuth() {
 	dauth.Register("sds", func(config string, logger *zap.Logger) (dauth.Authenticator, error) {
@@ -48,7 +48,7 @@ func RegisterAuth() {
 	})
 }
 
-// authenticator implements dauth.Authenticator by calling the provider sidecar.
+// authenticator implements dauth.Authenticator by calling the provider gateway.
 type authenticator struct {
 	client    authv1connect.AuthServiceClient
 	devAPIKey string
@@ -110,7 +110,7 @@ func (a *authenticator) Authenticate(ctx context.Context, path string, headers m
 		return ctx, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid x-sds-rav header: %w", err))
 	}
 
-	// Call the provider sidecar's AuthService to validate the RAV
+	// Call the provider gateway's AuthService to validate the RAV
 	req := connect.NewRequest(&authv1.ValidateAuthRequest{
 		PaymentRav: signedRAV,
 		IpAddress:  ipAddress,

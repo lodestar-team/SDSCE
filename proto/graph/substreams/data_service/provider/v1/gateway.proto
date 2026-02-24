@@ -5,21 +5,21 @@ package graph.substreams.data_service.provider.v1;
 import "graph/substreams/data_service/common/v1/types.proto";
 
 // PaymentGatewayService is the service that connects the consumer sidecar to the
-// provider sidecar for payment negotiation and RAV exchange.
+// provider gateway for payment negotiation and RAV exchange.
 //
-// Flow: consumer sidecar (sc) <-> provider sidecar (psc)
+// Flow: consumer sidecar (sc) <-> provider gateway (psc)
 service PaymentGatewayService {
   // StartSession initiates a payment session with the provider.
   // The consumer sidecar calls this to establish a session before
   // the substreams client connects to the provider.
   rpc StartSession(StartSessionRequest) returns (StartSessionResponse);
 
-  // SubmitRAV submits a signed RAV to the provider sidecar.
+  // SubmitRAV submits a signed RAV to the provider gateway.
   // Called when the provider requests a new RAV for continued service.
   rpc SubmitRAV(SubmitRAVRequest) returns (SubmitRAVResponse);
 
   // PaymentSession is a bidirectional stream for ongoing payment negotiation.
-  // This allows the provider sidecar to request RAVs and notify about
+  // This allows the provider gateway to request RAVs and notify about
   // funding requirements in real-time.
   rpc PaymentSession(stream PaymentSessionRequest) returns (stream PaymentSessionResponse);
 }
@@ -40,6 +40,8 @@ message StartSessionResponse {
   bool accepted = 3;
   // If not accepted, the reason for rejection
   string rejection_reason = 4;
+  // The provider's pricing configuration for this session
+  common.v1.PricingConfig pricing_config = 5;
 }
 
 message SubmitRAVRequest {
@@ -60,7 +62,7 @@ message SubmitRAVResponse {
   bool should_continue = 3;
 }
 
-// Messages from consumer sidecar to provider sidecar in the bidirectional stream
+// Messages from consumer sidecar to provider gateway in the bidirectional stream
 message PaymentSessionRequest {
   // The session ID this stream message applies to.
   // Required: the provider binds a PaymentSession stream to exactly one session.
@@ -75,7 +77,7 @@ message PaymentSessionRequest {
   }
 }
 
-// Messages from provider sidecar to consumer sidecar in the bidirectional stream
+// Messages from provider gateway to consumer sidecar in the bidirectional stream
 message PaymentSessionResponse {
   oneof message {
     // Request for a new signed RAV
@@ -97,8 +99,8 @@ message SignedRAVSubmission {
 message FundsAcknowledgment {
   // Whether more funds will be deposited
   bool will_deposit = 1;
-  // Expected deposit amount in GRT (wei)
-  common.v1.BigInt deposit_amount = 2;
+  // Expected deposit amount in GRT
+  common.v1.GRT deposit_amount = 2;
 }
 
 message UsageReport {
@@ -118,12 +120,12 @@ message RAVRequest {
 message NeedMoreFunds {
   // Current outstanding RAVs that will be collected
   repeated common.v1.SignedRAV outstanding_ravs = 1;
-  // Total outstanding value in GRT (wei)
-  common.v1.BigInt total_outstanding = 2;
-  // Current escrow balance in GRT (wei)
-  common.v1.BigInt escrow_balance = 3;
-  // Minimum additional funds needed in GRT (wei)
-  common.v1.BigInt minimum_needed = 4;
+  // Total outstanding value in GRT
+  common.v1.GRT total_outstanding = 2;
+  // Current escrow balance in GRT
+  common.v1.GRT escrow_balance = 3;
+  // Minimum additional funds needed in GRT
+  common.v1.GRT minimum_needed = 4;
 }
 
 message SessionControl {

@@ -1,4 +1,4 @@
-package sidecar
+package gateway
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/alphadose/haxmap"
 	"github.com/graphprotocol/substreams-data-service/horizon"
+	"github.com/graphprotocol/substreams-data-service/internal/session"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
 	authv1connect "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/auth/v1/authv1connect"
 	sessionv1connect "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/session/v1/sessionv1connect"
@@ -25,18 +26,14 @@ import (
 	"go.uber.org/zap"
 )
 
-var _ providerv1connect.ProviderSidecarServiceHandler = (*Sidecar)(nil)
-var _ providerv1connect.PaymentGatewayServiceHandler = (*Sidecar)(nil)
+var _ providerv1connect.PaymentGatewayServiceHandler = (*Gateway)(nil)
 
-type Sidecar struct {
+type Gateway struct {
 	*shutter.Shutter
 
 	listenAddr string
 	logger     *zap.Logger
 	server     *connectrpc.ConnectWebServer
-
-	// Session management (legacy payment sessions)
-	sessions *sidecar.SessionManager
 
 	// Service provider identity
 	serviceProvider eth.Address
@@ -62,7 +59,9 @@ type Sidecar struct {
 	authService    *providerauth.AuthService
 	usageService   *providerusage.UsageService
 	sessionService *providersession.SessionService
-	repo           repository.GlobalRepository
+
+	// Global repository for session/usage state (shared across all components)
+	repo repository.GlobalRepository
 }
 
 type Config struct {
@@ -84,7 +83,7 @@ type authCacheEntry struct {
 	expires time.Time
 }
 
-func New(config *Config, logger *zap.Logger) *Sidecar {
+func New(config *Config, logger *zap.Logger) *Gateway {
 	var escrowQuerier *sidecar.EscrowQuerier
 	if config.RPCEndpoint != "" && config.EscrowAddr != nil {
 		escrowQuerier = sidecar.NewEscrowQuerier(config.RPCEndpoint, config.EscrowAddr)
@@ -104,7 +103,7 @@ func New(config *Config, logger *zap.Logger) *Sidecar {
 	repo := repository.NewInMemoryRepository()
 
 	// The auth service needs to call IsAuthorized on the collector; reuse
-	// the collectorQuerier from the existing sidecar if available.
+	// the collectorQuerier from the existing gateway if available.
 	var authCollectorQuerier providerauth.CollectorAuthorizer
 	if collectorQuerier != nil {
 		authCollectorQuerier = collectorQuerier
@@ -118,11 +117,10 @@ func New(config *Config, logger *zap.Logger) *Sidecar {
 	usageSvc := providerusage.NewUsageService(repo)
 	sessionSvc := providersession.NewSessionService(repo, config.QuotaConfig)
 
-	return &Sidecar{
+	return &Gateway{
 		Shutter:          shutter.New(),
 		listenAddr:       config.ListenAddr,
 		logger:           logger,
-		sessions:         sidecar.NewSessionManager(),
 		serviceProvider:  config.ServiceProvider,
 		domain:           config.Domain,
 		collectorAddr:    config.CollectorAddr,
@@ -138,24 +136,37 @@ func New(config *Config, logger *zap.Logger) *Sidecar {
 	}
 }
 
+// toRepoPricingConfig converts sidecar.PricingConfig to repository.PricingConfig.
+func toRepoPricingConfig(pc *sidecar.PricingConfig) repository.PricingConfig {
+	if pc == nil {
+		return repository.PricingConfig{}
+	}
+	return repository.PricingConfig{
+		PricePerBlock: pc.PricePerBlock,
+		PricePerByte:  pc.PricePerByte,
+	}
+}
+
+// generateSessionID creates a unique session ID.
+func generateSessionID() string {
+	return session.GenerateID()
+}
+
 // GetEscrowBalance queries the on-chain escrow balance for a payer
-func (s *Sidecar) GetEscrowBalance(ctx context.Context, payer eth.Address) (*big.Int, error) {
+func (s *Gateway) GetEscrowBalance(ctx context.Context, payer eth.Address) (*big.Int, error) {
 	if s.escrowQuerier == nil {
 		return nil, nil // No RPC configured
 	}
 	return s.escrowQuerier.GetBalance(ctx, payer, s.collectorAddr, s.serviceProvider)
 }
 
-func (s *Sidecar) SessionCount() int {
-	return s.sessions.Count()
+func (s *Gateway) SessionCount() int {
+	return s.repo.SessionCount(context.Background())
 }
 
-func (s *Sidecar) Run() {
+func (s *Gateway) Run() {
 	// Connect/HTTP server for SDS services
 	handlerGetters := []connectrpc.HandlerGetter{
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return providerv1connect.NewProviderSidecarServiceHandler(s, opts...)
-		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return providerv1connect.NewPaymentGatewayServiceHandler(s, opts...)
 		},
@@ -177,7 +188,6 @@ func (s *Sidecar) Run() {
 		server.WithLogger(s.logger),
 		server.WithHealthCheck(server.HealthCheckOverHTTP, s.healthCheck),
 		server.WithConnectPermissiveCORS(),
-		server.WithConnectReflection(providerv1connect.ProviderSidecarServiceName),
 		server.WithConnectReflection(providerv1connect.PaymentGatewayServiceName),
 		server.WithConnectReflection(authv1connect.AuthServiceName),
 		server.WithConnectReflection(usagev1connect.UsageServiceName),
@@ -189,18 +199,18 @@ func (s *Sidecar) Run() {
 	})
 
 	s.OnTerminating(func(_ error) {
-		s.server.Shutdown(nil)
+		s.server.Shutdown(0)
 	})
 
-	s.logger.Info("starting provider sidecar", zap.String("listen_addr", s.listenAddr))
+	s.logger.Info("starting provider gateway", zap.String("listen_addr", s.listenAddr))
 	s.server.Launch(s.listenAddr)
 }
 
-func (s *Sidecar) healthCheck(ctx context.Context) (isReady bool, out interface{}, err error) {
+func (s *Gateway) healthCheck(ctx context.Context) (isReady bool, out interface{}, err error) {
 	return true, nil, nil
 }
 
-func (s *Sidecar) isSignerAuthorized(ctx context.Context, payer, signer eth.Address) (bool, error) {
+func (s *Gateway) isSignerAuthorized(ctx context.Context, payer, signer eth.Address) (bool, error) {
 	if sidecar.AddressesEqual(payer, signer) {
 		return true, nil
 	}

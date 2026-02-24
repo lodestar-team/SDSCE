@@ -55,7 +55,7 @@ func runConsumerSidecar(cmd *cobra.Command, args []string) error {
 		Domain:     horizon.NewDomain(chainID, collectorAddr),
 	}
 
-	app := NewApplication(cmd.Context())
+	app := cli.NewApplication(cmd.Context())
 
 	sidecarServer := sidecar.New(config, consumerLog)
 	app.SuperviseAndStart(sidecarServer)

@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/graphprotocol/substreams-data-service/horizon"
-	"github.com/graphprotocol/substreams-data-service/provider/sidecar"
+	"github.com/graphprotocol/substreams-data-service/provider/gateway"
 	sidecarlib "github.com/graphprotocol/substreams-data-service/sidecar"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -17,17 +17,17 @@ import (
 
 var providerLog, _ = logging.PackageLogger("provider", "github.com/graphprotocol/substreams-data-service/cmd/sds@provider")
 
-var providerSidecarCmd = Command(
-	runProviderSidecar,
-	"sidecar",
-	"Start the provider sidecar gRPC server",
+var providerGatewayCmd = Command(
+	runProviderGateway,
+	"gateway",
+	"Start the provider payment gateway server",
 	Description(`
-		Starts the provider sidecar which handles payment validation and usage
-		tracking for data providers.
+		Starts the provider payment gateway which handles payment session management
+		and RAV exchange for data providers.
 
-		The sidecar exposes two services:
-		- ProviderSidecarService: Called by the data provider to validate payments and report usage
+		The gateway exposes the following services:
 		- PaymentGatewayService: Called by consumer sidecars for session management and RAV exchange
+		- AuthService, UsageService, SessionService: Plugin services for Firehose integration (sds:// URI scheme)
 
 		Pricing configuration should be provided via a YAML file with the following format:
 		  price_per_block: "0.000001"   # Price per processed block in GRT
@@ -44,7 +44,7 @@ var providerSidecarCmd = Command(
 	}),
 )
 
-func runProviderSidecar(cmd *cobra.Command, args []string) error {
+func runProviderGateway(cmd *cobra.Command, args []string) error {
 	listenAddr := sflags.MustGetString(cmd, "grpc-listen-addr")
 	serviceProviderHex := sflags.MustGetString(cmd, "service-provider")
 	chainID := sflags.MustGetUint64(cmd, "chain-id")
@@ -76,7 +76,7 @@ func runProviderSidecar(cmd *cobra.Command, args []string) error {
 		pricingConfig = sidecarlib.DefaultPricingConfig()
 	}
 
-	config := &sidecar.Config{
+	config := &gateway.Config{
 		ListenAddr:      listenAddr,
 		ServiceProvider: serviceProviderAddr,
 		Domain:          horizon.NewDomain(chainID, collectorAddr),
@@ -86,10 +86,10 @@ func runProviderSidecar(cmd *cobra.Command, args []string) error {
 		PricingConfig:   pricingConfig,
 	}
 
-	app := NewApplication(cmd.Context())
+	app := cli.NewApplication(cmd.Context())
 
-	sidecarServer := sidecar.New(config, providerLog)
-	app.SuperviseAndStart(sidecarServer)
+	gatewayServer := gateway.New(config, providerLog)
+	app.SuperviseAndStart(gatewayServer)
 
 	return app.WaitForTermination(providerLog, 0*time.Second, 30*time.Second)
 }

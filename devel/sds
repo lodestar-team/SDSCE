@@ -16,7 +16,7 @@ main() {
   binary_package="./cmd/${binary_name}"
 
   pushd "$ROOT" &> /dev/null
-    go install -ldflags "-X main.Version=$version" "${binary_package}"
+    go install -ldflags "-X github.com/graphprotocol/substreams-data-service.Version=$version" "${binary_package}"
   popd &> /dev/null
 
   if [[ $KILL_AFTER != "" ]]; then

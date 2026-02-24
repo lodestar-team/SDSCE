@@ -1,4 +1,4 @@
-package sidecar
+package gateway
 
 import (
 	"context"
@@ -8,22 +8,24 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	sds "github.com/graphprotocol/substreams-data-service"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
+	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 	"go.uber.org/zap"
 )
 
 // PaymentSession is a bidirectional stream for ongoing payment negotiation.
-// This allows the provider sidecar to request RAVs and notify about
+// This allows the provider gateway to request RAVs and notify about
 // funding requirements in real-time.
-func (s *Sidecar) PaymentSession(
+func (s *Gateway) PaymentSession(
 	ctx context.Context,
 	stream *connect.BidiStream[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse],
 ) error {
 	s.logger.Info("PaymentSession stream started")
 
-	var session *sidecar.Session
+	var session *repository.Session
 	var sessionID string
 	var awaitingRAV bool
 
@@ -53,7 +55,7 @@ func (s *Sidecar) PaymentSession(
 				return nil
 			}
 
-			session, err = s.sessions.Get(sessionID)
+			session, err = s.repo.SessionGet(ctx, sessionID)
 			if err != nil {
 				_ = stream.Send(&providerv1.PaymentSessionResponse{
 					Message: &providerv1.PaymentSessionResponse_SessionControl{
@@ -111,11 +113,11 @@ func (s *Sidecar) PaymentSession(
 	}
 }
 
-func (s *Sidecar) handleRAVSubmission(
+func (s *Gateway) handleRAVSubmission(
 	ctx context.Context,
 	stream *connect.BidiStream[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse],
 	sessionID string,
-	session *sidecar.Session,
+	session *repository.Session,
 	submission *providerv1.SignedRAVSubmission,
 ) {
 	s.logger.Debug("received RAV submission in stream")
@@ -236,7 +238,7 @@ func (s *Sidecar) handleRAVSubmission(
 	}
 
 	// Verify RAV value is greater than or equal to previous RAV
-	currentRAV := session.GetRAV()
+	currentRAV := session.CurrentRAV
 	if currentRAV != nil && currentRAV.Message != nil {
 		if signedRAV.Message.ValueAggregate.Cmp(currentRAV.Message.ValueAggregate) < 0 {
 			stream.Send(&providerv1.PaymentSessionResponse{
@@ -252,13 +254,18 @@ func (s *Sidecar) handleRAVSubmission(
 	}
 
 	// Store the new RAV
-	session.SetRAV(signedRAV)
+	session.CurrentRAV = signedRAV
 	session.MarkBaseline()
+
+	// Update the session in the repository
+	if err := s.repo.SessionUpdate(ctx, session); err != nil {
+		s.logger.Warn("failed to update session", zap.String("session_id", sessionID), zap.Error(err))
+	}
 
 	s.logger.Info("RAV accepted via stream",
 		zap.String("session_id", sessionID),
 		zap.Stringer("signer", signerAddr),
-		zap.String("value", signedRAV.Message.ValueAggregate.String()),
+		zap.Stringer("value", signedRAV.Message.ValueAggregate),
 	)
 
 	// Send continue message
@@ -271,11 +278,11 @@ func (s *Sidecar) handleRAVSubmission(
 	})
 }
 
-func (s *Sidecar) handleFundsAcknowledgment(
+func (s *Gateway) handleFundsAcknowledgment(
 	ctx context.Context,
 	stream *connect.BidiStream[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse],
 	sessionID string,
-	session *sidecar.Session,
+	session *repository.Session,
 	ack *providerv1.FundsAcknowledgment,
 ) {
 	s.logger.Debug("received funds acknowledgment",
@@ -305,11 +312,11 @@ func (s *Sidecar) handleFundsAcknowledgment(
 	}
 }
 
-func (s *Sidecar) handleUsageReport(
+func (s *Gateway) handleUsageReport(
 	ctx context.Context,
 	stream *connect.BidiStream[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse],
 	sessionID string,
-	session *sidecar.Session,
+	session *repository.Session,
 	awaitingRAV bool,
 	report *providerv1.UsageReport,
 ) (newAwaitingRAV bool, terminate bool) {
@@ -330,15 +337,16 @@ func (s *Sidecar) handleUsageReport(
 		return awaitingRAV, true
 	}
 
-	// Provider sidecar is cost-authoritative: compute cost from raw metering inputs.
+	// Provider gateway is cost-authoritative: compute cost from raw metering inputs.
 	computedCost := session.CalculateUsageCost(report.Usage.BlocksProcessed, report.Usage.BytesTransferred)
 	if report.Usage.Cost != nil {
 		providedCost := report.Usage.Cost.ToNative()
-		if providedCost.Cmp(computedCost) != 0 {
+		computedCostGRT := sds.NewGRTFromBigInt(computedCost)
+		if providedCost.Cmp(&computedCostGRT) != 0 {
 			s.logger.Warn("usage.cost mismatch in stream; overriding with computed cost",
 				zap.String("session_id", sessionID),
-				zap.String("provided_cost_wei", providedCost.String()),
-				zap.String("computed_cost_wei", computedCost.String()),
+				zap.Stringer("provided_cost", &providedCost),
+				zap.Stringer("computed_cost", &computedCostGRT),
 				zap.Uint64("blocks", report.Usage.BlocksProcessed),
 				zap.Uint64("bytes", report.Usage.BytesTransferred),
 			)
@@ -352,16 +360,21 @@ func (s *Sidecar) handleUsageReport(
 		computedCost,
 	)
 
+	// Update the session in the repository
+	if err := s.repo.SessionUpdate(ctx, session); err != nil {
+		s.logger.Warn("failed to update session", zap.String("session_id", sessionID), zap.Error(err))
+	}
+
 	if !awaitingRAV {
 		blocks, bytes, reqs, deltaCost := session.UsageDeltaSinceBaseline()
 		if deltaCost.Sign() > 0 {
-			currentRAV := session.GetRAV()
+			currentRAV := session.CurrentRAV
 			if currentRAV != nil {
 				usage := &commonv1.Usage{
 					BlocksProcessed:  blocks,
 					BytesTransferred: bytes,
 					Requests:         reqs,
-					Cost:             commonv1.BigIntFromNative(deltaCost),
+					Cost:             commonv1.GRTFromBigInt(deltaCost),
 				}
 
 				stream.Send(&providerv1.PaymentSessionResponse{

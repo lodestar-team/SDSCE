@@ -1,0 +1,24 @@
+package main
+
+import (
+	"time"
+
+	"github.com/spf13/pflag"
+	. "github.com/streamingfast/cli"
+)
+
+var sinkGroup = Group(
+	"sink",
+	"Substreams sink commands",
+
+	PersistentFlags(func(flags *pflag.FlagSet) {
+		flags.String("consumer-sidecar-addr", "http://localhost:9002", "Consumer sidecar address")
+		flags.String("gateway-endpoint", "", "Provider gateway endpoint for payment session (e.g., 'https://gateway:9001?insecure=true'). If empty, uses the substreams endpoint.")
+		flags.String("payer-address", "", "Payer address (required)")
+		flags.String("receiver-address", "", "Receiver/service provider address (required)")
+		flags.String("data-service-address", "", "Data service contract address (required)")
+		flags.Duration("report-interval", 1*time.Second, "Interval between usage reports")
+	}),
+
+	sinkRunCmd,
+)

@@ -1,13 +1,13 @@
 package main
 
 import (
+	sds "github.com/graphprotocol/substreams-data-service"
 	. "github.com/streamingfast/cli"
 	"github.com/streamingfast/logging"
 	"go.uber.org/zap"
 )
 
-var zlog, _ = logging.PackageLogger("sds", "github.com/graphprotocol/substreams-data-service/cmd/sds")
-var Version = "dev"
+var zlog, tracer = logging.PackageLogger("sds", "github.com/graphprotocol/substreams-data-service/cmd/sds")
 
 func init() {
 	logging.InstantiateLoggers(logging.WithDefaultLevel(zap.ErrorLevel))
@@ -17,25 +17,28 @@ func main() {
 	Run(
 		"sds",
 		"Substreams Data Service CLI",
-		ConfigureVersion(Version),
+		ConfigureVersion(sds.Version),
 		OnCommandErrorLogAndExit(zlog),
 
 		devenvCmd,
+		sinkGroup,
 
 		Group(
 			"provider",
 			"Provider-side commands",
-			providerSidecarCmd,
-			providerFakeOperatorCmd,
+			providerGatewayCmd,
 		),
 
 		Group(
 			"consumer",
 			"Consumer-side commands",
 			consumerSidecarCmd,
-			consumerFakeClientCmd,
 		),
 
-		toolsCmd,
+		Group(
+			"tools",
+			"Development and debugging tools",
+			toolsRAVCmd,
+		),
 	)
 }

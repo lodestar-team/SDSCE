@@ -18,7 +18,7 @@ import (
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
-	providersidecar "github.com/graphprotocol/substreams-data-service/provider/sidecar"
+	providergateway "github.com/graphprotocol/substreams-data-service/provider/gateway"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
@@ -37,7 +37,7 @@ func TestPaymentSession_BindsToSessionID(t *testing.T) {
 
 	domain := env.Domain()
 
-	providerConfig := &providersidecar.Config{
+	providerConfig := &providergateway.Config{
 		ListenAddr:      ":19006",
 		ServiceProvider: env.ServiceProvider.Address,
 		Domain:          domain,
@@ -45,9 +45,9 @@ func TestPaymentSession_BindsToSessionID(t *testing.T) {
 		EscrowAddr:      env.Escrow.Address,
 		RPCEndpoint:     env.RPCURL,
 	}
-	providerSidecar := providersidecar.New(providerConfig, zlog.Named("provider"))
-	go providerSidecar.Run()
-	defer providerSidecar.Shutdown(nil)
+	providerGateway := providergateway.New(providerConfig, zlog.Named("provider"))
+	go providerGateway.Run()
+	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)
 
 	h2cClient := &http.Client{

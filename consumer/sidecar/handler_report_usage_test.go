@@ -70,7 +70,7 @@ func TestReportUsage_InactiveSession(t *testing.T) {
 			BlocksProcessed:  1,
 			BytesTransferred: 2,
 			Requests:         1,
-			Cost:             commonv1.BigIntFromNative(big.NewInt(1)),
+			Cost:             commonv1.GRTFromBigInt(big.NewInt(1)),
 		},
 	}))
 	if gotErr == nil {

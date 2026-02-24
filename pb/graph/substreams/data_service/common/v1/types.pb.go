@@ -175,6 +175,109 @@ func (x *BigInt) GetBytes() []byte {
 	return nil
 }
 
+// GRT represents a GRT token amount in base units (18 decimals).
+// 1 GRT = 10^18 base units.
+// Stored as big-endian bytes, same encoding as BigInt.
+type GRT struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Bytes         []byte                 `protobuf:"bytes,1,opt,name=bytes,proto3" json:"bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GRT) Reset() {
+	*x = GRT{}
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GRT) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GRT) ProtoMessage() {}
+
+func (x *GRT) ProtoReflect() protoreflect.Message {
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GRT.ProtoReflect.Descriptor instead.
+func (*GRT) Descriptor() ([]byte, []int) {
+	return file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *GRT) GetBytes() []byte {
+	if x != nil {
+		return x.Bytes
+	}
+	return nil
+}
+
+// PricingConfig defines the pricing for a data service.
+// Used to communicate pricing from provider to consumer at session start.
+type PricingConfig struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Price per block processed in GRT
+	PricePerBlock *GRT `protobuf:"bytes,1,opt,name=price_per_block,json=pricePerBlock,proto3" json:"price_per_block,omitempty"`
+	// Price per byte transferred in GRT
+	PricePerByte  *GRT `protobuf:"bytes,2,opt,name=price_per_byte,json=pricePerByte,proto3" json:"price_per_byte,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PricingConfig) Reset() {
+	*x = PricingConfig{}
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PricingConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PricingConfig) ProtoMessage() {}
+
+func (x *PricingConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PricingConfig.ProtoReflect.Descriptor instead.
+func (*PricingConfig) Descriptor() ([]byte, []int) {
+	return file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *PricingConfig) GetPricePerBlock() *GRT {
+	if x != nil {
+		return x.PricePerBlock
+	}
+	return nil
+}
+
+func (x *PricingConfig) GetPricePerByte() *GRT {
+	if x != nil {
+		return x.PricePerByte
+	}
+	return nil
+}
+
 // SignedRAV represents a signed Receipt Aggregate Voucher.
 // This is the core payment primitive - a signed commitment to pay for usage.
 type SignedRAV struct {
@@ -195,7 +298,7 @@ type SignedRAV struct {
 
 func (x *SignedRAV) Reset() {
 	*x = SignedRAV{}
-	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[2]
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -207,7 +310,7 @@ func (x *SignedRAV) String() string {
 func (*SignedRAV) ProtoMessage() {}
 
 func (x *SignedRAV) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[2]
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -220,7 +323,7 @@ func (x *SignedRAV) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedRAV.ProtoReflect.Descriptor instead.
 func (*SignedRAV) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP(), []int{2}
+	return file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SignedRAV) GetRav() *RAV {
@@ -252,8 +355,8 @@ type RAV struct {
 	ServiceProvider *Address `protobuf:"bytes,3,opt,name=service_provider,json=serviceProvider,proto3" json:"service_provider,omitempty"`
 	// Timestamp when this RAV was created (Unix nanoseconds)
 	TimestampNs uint64 `protobuf:"varint,4,opt,name=timestamp_ns,json=timestampNs,proto3" json:"timestamp_ns,omitempty"`
-	// Total value in GRT (wei) accumulated in this RAV
-	ValueAggregate *BigInt `protobuf:"bytes,5,opt,name=value_aggregate,json=valueAggregate,proto3" json:"value_aggregate,omitempty"`
+	// Total value in GRT accumulated in this RAV
+	ValueAggregate *GRT `protobuf:"bytes,5,opt,name=value_aggregate,json=valueAggregate,proto3" json:"value_aggregate,omitempty"`
 	// Arbitrary metadata (e.g., request CID)
 	Metadata      []byte `protobuf:"bytes,6,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -262,7 +365,7 @@ type RAV struct {
 
 func (x *RAV) Reset() {
 	*x = RAV{}
-	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[3]
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -274,7 +377,7 @@ func (x *RAV) String() string {
 func (*RAV) ProtoMessage() {}
 
 func (x *RAV) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[3]
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -287,7 +390,7 @@ func (x *RAV) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RAV.ProtoReflect.Descriptor instead.
 func (*RAV) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP(), []int{3}
+	return file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RAV) GetCollectionId() []byte {
@@ -325,7 +428,7 @@ func (x *RAV) GetTimestampNs() uint64 {
 	return 0
 }
 
-func (x *RAV) GetValueAggregate() *BigInt {
+func (x *RAV) GetValueAggregate() *GRT {
 	if x != nil {
 		return x.ValueAggregate
 	}
@@ -348,15 +451,15 @@ type Usage struct {
 	BytesTransferred uint64 `protobuf:"varint,2,opt,name=bytes_transferred,json=bytesTransferred,proto3" json:"bytes_transferred,omitempty"`
 	// Number of requests made
 	Requests uint64 `protobuf:"varint,3,opt,name=requests,proto3" json:"requests,omitempty"`
-	// Computed cost in GRT (wei) for this usage
-	Cost          *BigInt `protobuf:"bytes,4,opt,name=cost,proto3" json:"cost,omitempty"`
+	// Computed cost in GRT for this usage
+	Cost          *GRT `protobuf:"bytes,4,opt,name=cost,proto3" json:"cost,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Usage) Reset() {
 	*x = Usage{}
-	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[4]
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -368,7 +471,7 @@ func (x *Usage) String() string {
 func (*Usage) ProtoMessage() {}
 
 func (x *Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[4]
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -381,7 +484,7 @@ func (x *Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Usage.ProtoReflect.Descriptor instead.
 func (*Usage) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP(), []int{4}
+	return file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Usage) GetBlocksProcessed() uint64 {
@@ -405,7 +508,7 @@ func (x *Usage) GetRequests() uint64 {
 	return 0
 }
 
-func (x *Usage) GetCost() *BigInt {
+func (x *Usage) GetCost() *GRT {
 	if x != nil {
 		return x.Cost
 	}
@@ -427,7 +530,7 @@ type EscrowAccount struct {
 
 func (x *EscrowAccount) Reset() {
 	*x = EscrowAccount{}
-	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[5]
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -439,7 +542,7 @@ func (x *EscrowAccount) String() string {
 func (*EscrowAccount) ProtoMessage() {}
 
 func (x *EscrowAccount) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[5]
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -452,7 +555,7 @@ func (x *EscrowAccount) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EscrowAccount.ProtoReflect.Descriptor instead.
 func (*EscrowAccount) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP(), []int{5}
+	return file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *EscrowAccount) GetPayer() *Address {
@@ -487,13 +590,15 @@ type SessionInfo struct {
 	CurrentRav *SignedRAV `protobuf:"bytes,3,opt,name=current_rav,json=currentRav,proto3" json:"current_rav,omitempty"`
 	// Accumulated usage in this session
 	AccumulatedUsage *Usage `protobuf:"bytes,4,opt,name=accumulated_usage,json=accumulatedUsage,proto3" json:"accumulated_usage,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Pricing configuration for this session (set by provider)
+	PricingConfig *PricingConfig `protobuf:"bytes,5,opt,name=pricing_config,json=pricingConfig,proto3" json:"pricing_config,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SessionInfo) Reset() {
 	*x = SessionInfo{}
-	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[6]
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -505,7 +610,7 @@ func (x *SessionInfo) String() string {
 func (*SessionInfo) ProtoMessage() {}
 
 func (x *SessionInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[6]
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -518,7 +623,7 @@ func (x *SessionInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionInfo.ProtoReflect.Descriptor instead.
 func (*SessionInfo) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP(), []int{6}
+	return file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SessionInfo) GetSessionId() string {
@@ -549,6 +654,13 @@ func (x *SessionInfo) GetAccumulatedUsage() *Usage {
 	return nil
 }
 
+func (x *SessionInfo) GetPricingConfig() *PricingConfig {
+	if x != nil {
+		return x.PricingConfig
+	}
+	return nil
+}
+
 // ServiceParameters defines pricing and requirements for a service.
 type ServiceParameters struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -556,17 +668,17 @@ type ServiceParameters struct {
 	RequiredBlocksPreproc uint64 `protobuf:"varint,1,opt,name=required_blocks_preproc,json=requiredBlocksPreproc,proto3" json:"required_blocks_preproc,omitempty"`
 	// Estimated bytes per block
 	EstimatedBytesPerBlock uint64 `protobuf:"varint,2,opt,name=estimated_bytes_per_block,json=estimatedBytesPerBlock,proto3" json:"estimated_bytes_per_block,omitempty"`
-	// Price per block in GRT (wei)
-	PricePerBlock *BigInt `protobuf:"bytes,3,opt,name=price_per_block,json=pricePerBlock,proto3" json:"price_per_block,omitempty"`
-	// Price per byte in GRT (wei)
-	PricePerByte  *BigInt `protobuf:"bytes,4,opt,name=price_per_byte,json=pricePerByte,proto3" json:"price_per_byte,omitempty"`
+	// Price per block in GRT
+	PricePerBlock *GRT `protobuf:"bytes,3,opt,name=price_per_block,json=pricePerBlock,proto3" json:"price_per_block,omitempty"`
+	// Price per byte in GRT
+	PricePerByte  *GRT `protobuf:"bytes,4,opt,name=price_per_byte,json=pricePerByte,proto3" json:"price_per_byte,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ServiceParameters) Reset() {
 	*x = ServiceParameters{}
-	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[7]
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -578,7 +690,7 @@ func (x *ServiceParameters) String() string {
 func (*ServiceParameters) ProtoMessage() {}
 
 func (x *ServiceParameters) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[7]
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -591,7 +703,7 @@ func (x *ServiceParameters) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceParameters.ProtoReflect.Descriptor instead.
 func (*ServiceParameters) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP(), []int{7}
+	return file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ServiceParameters) GetRequiredBlocksPreproc() uint64 {
@@ -608,14 +720,14 @@ func (x *ServiceParameters) GetEstimatedBytesPerBlock() uint64 {
 	return 0
 }
 
-func (x *ServiceParameters) GetPricePerBlock() *BigInt {
+func (x *ServiceParameters) GetPricePerBlock() *GRT {
 	if x != nil {
 		return x.PricePerBlock
 	}
 	return nil
 }
 
-func (x *ServiceParameters) GetPricePerByte() *BigInt {
+func (x *ServiceParameters) GetPricePerByte() *GRT {
 	if x != nil {
 		return x.PricePerByte
 	}
@@ -625,12 +737,12 @@ func (x *ServiceParameters) GetPricePerByte() *BigInt {
 // PaymentStatus represents the current payment state of a session.
 type PaymentStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Current RAV value in GRT (wei)
-	CurrentRavValue *BigInt `protobuf:"bytes,1,opt,name=current_rav_value,json=currentRavValue,proto3" json:"current_rav_value,omitempty"`
-	// Accumulated usage value in GRT (wei)
-	AccumulatedUsageValue *BigInt `protobuf:"bytes,2,opt,name=accumulated_usage_value,json=accumulatedUsageValue,proto3" json:"accumulated_usage_value,omitempty"`
-	// Available escrow balance in GRT (wei)
-	EscrowBalance *BigInt `protobuf:"bytes,3,opt,name=escrow_balance,json=escrowBalance,proto3" json:"escrow_balance,omitempty"`
+	// Current RAV value in GRT
+	CurrentRavValue *GRT `protobuf:"bytes,1,opt,name=current_rav_value,json=currentRavValue,proto3" json:"current_rav_value,omitempty"`
+	// Accumulated usage value in GRT
+	AccumulatedUsageValue *GRT `protobuf:"bytes,2,opt,name=accumulated_usage_value,json=accumulatedUsageValue,proto3" json:"accumulated_usage_value,omitempty"`
+	// Available escrow balance in GRT
+	EscrowBalance *GRT `protobuf:"bytes,3,opt,name=escrow_balance,json=escrowBalance,proto3" json:"escrow_balance,omitempty"`
 	// Whether funds are sufficient
 	FundsSufficient bool `protobuf:"varint,4,opt,name=funds_sufficient,json=fundsSufficient,proto3" json:"funds_sufficient,omitempty"`
 	// Estimated blocks remaining at current rate
@@ -641,7 +753,7 @@ type PaymentStatus struct {
 
 func (x *PaymentStatus) Reset() {
 	*x = PaymentStatus{}
-	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[8]
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -653,7 +765,7 @@ func (x *PaymentStatus) String() string {
 func (*PaymentStatus) ProtoMessage() {}
 
 func (x *PaymentStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[8]
+	mi := &file_graph_substreams_data_service_common_v1_types_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -666,24 +778,24 @@ func (x *PaymentStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PaymentStatus.ProtoReflect.Descriptor instead.
 func (*PaymentStatus) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP(), []int{8}
+	return file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *PaymentStatus) GetCurrentRavValue() *BigInt {
+func (x *PaymentStatus) GetCurrentRavValue() *GRT {
 	if x != nil {
 		return x.CurrentRavValue
 	}
 	return nil
 }
 
-func (x *PaymentStatus) GetAccumulatedUsageValue() *BigInt {
+func (x *PaymentStatus) GetAccumulatedUsageValue() *GRT {
 	if x != nil {
 		return x.AccumulatedUsageValue
 	}
 	return nil
 }
 
-func (x *PaymentStatus) GetEscrowBalance() *BigInt {
+func (x *PaymentStatus) GetEscrowBalance() *GRT {
 	if x != nil {
 		return x.EscrowBalance
 	}
@@ -712,43 +824,49 @@ const file_graph_substreams_data_service_common_v1_types_proto_rawDesc = "" +
 	"\aAddress\x12\x14\n" +
 	"\x05bytes\x18\x01 \x01(\fR\x05bytes\"\x1e\n" +
 	"\x06BigInt\x12\x14\n" +
-	"\x05bytes\x18\x01 \x01(\fR\x05bytes\"i\n" +
+	"\x05bytes\x18\x01 \x01(\fR\x05bytes\"\x1b\n" +
+	"\x03GRT\x12\x14\n" +
+	"\x05bytes\x18\x01 \x01(\fR\x05bytes\"\xb9\x01\n" +
+	"\rPricingConfig\x12T\n" +
+	"\x0fprice_per_block\x18\x01 \x01(\v2,.graph.substreams.data_service.common.v1.GRTR\rpricePerBlock\x12R\n" +
+	"\x0eprice_per_byte\x18\x02 \x01(\v2,.graph.substreams.data_service.common.v1.GRTR\fpricePerByte\"i\n" +
 	"\tSignedRAV\x12>\n" +
 	"\x03rav\x18\x01 \x01(\v2,.graph.substreams.data_service.common.v1.RAVR\x03rav\x12\x1c\n" +
-	"\tsignature\x18\x02 \x01(\fR\tsignature\"\xbd\x03\n" +
+	"\tsignature\x18\x02 \x01(\fR\tsignature\"\xba\x03\n" +
 	"\x03RAV\x12#\n" +
 	"\rcollection_id\x18\a \x01(\fR\fcollectionId\x12F\n" +
 	"\x05payer\x18\x01 \x01(\v20.graph.substreams.data_service.common.v1.AddressR\x05payer\x12S\n" +
 	"\fdata_service\x18\x02 \x01(\v20.graph.substreams.data_service.common.v1.AddressR\vdataService\x12[\n" +
 	"\x10service_provider\x18\x03 \x01(\v20.graph.substreams.data_service.common.v1.AddressR\x0fserviceProvider\x12!\n" +
-	"\ftimestamp_ns\x18\x04 \x01(\x04R\vtimestampNs\x12X\n" +
-	"\x0fvalue_aggregate\x18\x05 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\x0evalueAggregate\x12\x1a\n" +
-	"\bmetadata\x18\x06 \x01(\fR\bmetadata\"\xc0\x01\n" +
+	"\ftimestamp_ns\x18\x04 \x01(\x04R\vtimestampNs\x12U\n" +
+	"\x0fvalue_aggregate\x18\x05 \x01(\v2,.graph.substreams.data_service.common.v1.GRTR\x0evalueAggregate\x12\x1a\n" +
+	"\bmetadata\x18\x06 \x01(\fR\bmetadata\"\xbd\x01\n" +
 	"\x05Usage\x12)\n" +
 	"\x10blocks_processed\x18\x01 \x01(\x04R\x0fblocksProcessed\x12+\n" +
 	"\x11bytes_transferred\x18\x02 \x01(\x04R\x10bytesTransferred\x12\x1a\n" +
-	"\brequests\x18\x03 \x01(\x04R\brequests\x12C\n" +
-	"\x04cost\x18\x04 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\x04cost\"\xfa\x01\n" +
+	"\brequests\x18\x03 \x01(\x04R\brequests\x12@\n" +
+	"\x04cost\x18\x04 \x01(\v2,.graph.substreams.data_service.common.v1.GRTR\x04cost\"\xfa\x01\n" +
 	"\rEscrowAccount\x12F\n" +
 	"\x05payer\x18\x01 \x01(\v20.graph.substreams.data_service.common.v1.AddressR\x05payer\x12L\n" +
 	"\breceiver\x18\x02 \x01(\v20.graph.substreams.data_service.common.v1.AddressR\breceiver\x12S\n" +
-	"\fdata_service\x18\x03 \x01(\v20.graph.substreams.data_service.common.v1.AddressR\vdataService\"\xbd\x02\n" +
+	"\fdata_service\x18\x03 \x01(\v20.graph.substreams.data_service.common.v1.AddressR\vdataService\"\x9c\x03\n" +
 	"\vSessionInfo\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12]\n" +
 	"\x0eescrow_account\x18\x02 \x01(\v26.graph.substreams.data_service.common.v1.EscrowAccountR\rescrowAccount\x12S\n" +
 	"\vcurrent_rav\x18\x03 \x01(\v22.graph.substreams.data_service.common.v1.SignedRAVR\n" +
 	"currentRav\x12[\n" +
-	"\x11accumulated_usage\x18\x04 \x01(\v2..graph.substreams.data_service.common.v1.UsageR\x10accumulatedUsage\"\xb6\x02\n" +
+	"\x11accumulated_usage\x18\x04 \x01(\v2..graph.substreams.data_service.common.v1.UsageR\x10accumulatedUsage\x12]\n" +
+	"\x0epricing_config\x18\x05 \x01(\v26.graph.substreams.data_service.common.v1.PricingConfigR\rpricingConfig\"\xb0\x02\n" +
 	"\x11ServiceParameters\x126\n" +
 	"\x17required_blocks_preproc\x18\x01 \x01(\x04R\x15requiredBlocksPreproc\x129\n" +
-	"\x19estimated_bytes_per_block\x18\x02 \x01(\x04R\x16estimatedBytesPerBlock\x12W\n" +
-	"\x0fprice_per_block\x18\x03 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\rpricePerBlock\x12U\n" +
-	"\x0eprice_per_byte\x18\x04 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\fpricePerByte\"\x96\x03\n" +
-	"\rPaymentStatus\x12[\n" +
-	"\x11current_rav_value\x18\x01 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\x0fcurrentRavValue\x12g\n" +
-	"\x17accumulated_usage_value\x18\x02 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\x15accumulatedUsageValue\x12V\n" +
-	"\x0eescrow_balance\x18\x03 \x01(\v2/.graph.substreams.data_service.common.v1.BigIntR\rescrowBalance\x12)\n" +
+	"\x19estimated_bytes_per_block\x18\x02 \x01(\x04R\x16estimatedBytesPerBlock\x12T\n" +
+	"\x0fprice_per_block\x18\x03 \x01(\v2,.graph.substreams.data_service.common.v1.GRTR\rpricePerBlock\x12R\n" +
+	"\x0eprice_per_byte\x18\x04 \x01(\v2,.graph.substreams.data_service.common.v1.GRTR\fpricePerByte\"\x8d\x03\n" +
+	"\rPaymentStatus\x12X\n" +
+	"\x11current_rav_value\x18\x01 \x01(\v2,.graph.substreams.data_service.common.v1.GRTR\x0fcurrentRavValue\x12d\n" +
+	"\x17accumulated_usage_value\x18\x02 \x01(\v2,.graph.substreams.data_service.common.v1.GRTR\x15accumulatedUsageValue\x12S\n" +
+	"\x0eescrow_balance\x18\x03 \x01(\v2,.graph.substreams.data_service.common.v1.GRTR\rescrowBalance\x12)\n" +
 	"\x10funds_sufficient\x18\x04 \x01(\bR\x0ffundsSufficient\x12<\n" +
 	"\x1aestimated_blocks_remaining\x18\x05 \x01(\x04R\x18estimatedBlocksRemaining*\xb4\x01\n" +
 	"\tEndReason\x12\x1a\n" +
@@ -774,42 +892,47 @@ func file_graph_substreams_data_service_common_v1_types_proto_rawDescGZIP() []by
 }
 
 var file_graph_substreams_data_service_common_v1_types_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_graph_substreams_data_service_common_v1_types_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_graph_substreams_data_service_common_v1_types_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_graph_substreams_data_service_common_v1_types_proto_goTypes = []any{
 	(EndReason)(0),            // 0: graph.substreams.data_service.common.v1.EndReason
 	(*Address)(nil),           // 1: graph.substreams.data_service.common.v1.Address
 	(*BigInt)(nil),            // 2: graph.substreams.data_service.common.v1.BigInt
-	(*SignedRAV)(nil),         // 3: graph.substreams.data_service.common.v1.SignedRAV
-	(*RAV)(nil),               // 4: graph.substreams.data_service.common.v1.RAV
-	(*Usage)(nil),             // 5: graph.substreams.data_service.common.v1.Usage
-	(*EscrowAccount)(nil),     // 6: graph.substreams.data_service.common.v1.EscrowAccount
-	(*SessionInfo)(nil),       // 7: graph.substreams.data_service.common.v1.SessionInfo
-	(*ServiceParameters)(nil), // 8: graph.substreams.data_service.common.v1.ServiceParameters
-	(*PaymentStatus)(nil),     // 9: graph.substreams.data_service.common.v1.PaymentStatus
+	(*GRT)(nil),               // 3: graph.substreams.data_service.common.v1.GRT
+	(*PricingConfig)(nil),     // 4: graph.substreams.data_service.common.v1.PricingConfig
+	(*SignedRAV)(nil),         // 5: graph.substreams.data_service.common.v1.SignedRAV
+	(*RAV)(nil),               // 6: graph.substreams.data_service.common.v1.RAV
+	(*Usage)(nil),             // 7: graph.substreams.data_service.common.v1.Usage
+	(*EscrowAccount)(nil),     // 8: graph.substreams.data_service.common.v1.EscrowAccount
+	(*SessionInfo)(nil),       // 9: graph.substreams.data_service.common.v1.SessionInfo
+	(*ServiceParameters)(nil), // 10: graph.substreams.data_service.common.v1.ServiceParameters
+	(*PaymentStatus)(nil),     // 11: graph.substreams.data_service.common.v1.PaymentStatus
 }
 var file_graph_substreams_data_service_common_v1_types_proto_depIdxs = []int32{
-	4,  // 0: graph.substreams.data_service.common.v1.SignedRAV.rav:type_name -> graph.substreams.data_service.common.v1.RAV
-	1,  // 1: graph.substreams.data_service.common.v1.RAV.payer:type_name -> graph.substreams.data_service.common.v1.Address
-	1,  // 2: graph.substreams.data_service.common.v1.RAV.data_service:type_name -> graph.substreams.data_service.common.v1.Address
-	1,  // 3: graph.substreams.data_service.common.v1.RAV.service_provider:type_name -> graph.substreams.data_service.common.v1.Address
-	2,  // 4: graph.substreams.data_service.common.v1.RAV.value_aggregate:type_name -> graph.substreams.data_service.common.v1.BigInt
-	2,  // 5: graph.substreams.data_service.common.v1.Usage.cost:type_name -> graph.substreams.data_service.common.v1.BigInt
-	1,  // 6: graph.substreams.data_service.common.v1.EscrowAccount.payer:type_name -> graph.substreams.data_service.common.v1.Address
-	1,  // 7: graph.substreams.data_service.common.v1.EscrowAccount.receiver:type_name -> graph.substreams.data_service.common.v1.Address
-	1,  // 8: graph.substreams.data_service.common.v1.EscrowAccount.data_service:type_name -> graph.substreams.data_service.common.v1.Address
-	6,  // 9: graph.substreams.data_service.common.v1.SessionInfo.escrow_account:type_name -> graph.substreams.data_service.common.v1.EscrowAccount
-	3,  // 10: graph.substreams.data_service.common.v1.SessionInfo.current_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
-	5,  // 11: graph.substreams.data_service.common.v1.SessionInfo.accumulated_usage:type_name -> graph.substreams.data_service.common.v1.Usage
-	2,  // 12: graph.substreams.data_service.common.v1.ServiceParameters.price_per_block:type_name -> graph.substreams.data_service.common.v1.BigInt
-	2,  // 13: graph.substreams.data_service.common.v1.ServiceParameters.price_per_byte:type_name -> graph.substreams.data_service.common.v1.BigInt
-	2,  // 14: graph.substreams.data_service.common.v1.PaymentStatus.current_rav_value:type_name -> graph.substreams.data_service.common.v1.BigInt
-	2,  // 15: graph.substreams.data_service.common.v1.PaymentStatus.accumulated_usage_value:type_name -> graph.substreams.data_service.common.v1.BigInt
-	2,  // 16: graph.substreams.data_service.common.v1.PaymentStatus.escrow_balance:type_name -> graph.substreams.data_service.common.v1.BigInt
-	17, // [17:17] is the sub-list for method output_type
-	17, // [17:17] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	3,  // 0: graph.substreams.data_service.common.v1.PricingConfig.price_per_block:type_name -> graph.substreams.data_service.common.v1.GRT
+	3,  // 1: graph.substreams.data_service.common.v1.PricingConfig.price_per_byte:type_name -> graph.substreams.data_service.common.v1.GRT
+	6,  // 2: graph.substreams.data_service.common.v1.SignedRAV.rav:type_name -> graph.substreams.data_service.common.v1.RAV
+	1,  // 3: graph.substreams.data_service.common.v1.RAV.payer:type_name -> graph.substreams.data_service.common.v1.Address
+	1,  // 4: graph.substreams.data_service.common.v1.RAV.data_service:type_name -> graph.substreams.data_service.common.v1.Address
+	1,  // 5: graph.substreams.data_service.common.v1.RAV.service_provider:type_name -> graph.substreams.data_service.common.v1.Address
+	3,  // 6: graph.substreams.data_service.common.v1.RAV.value_aggregate:type_name -> graph.substreams.data_service.common.v1.GRT
+	3,  // 7: graph.substreams.data_service.common.v1.Usage.cost:type_name -> graph.substreams.data_service.common.v1.GRT
+	1,  // 8: graph.substreams.data_service.common.v1.EscrowAccount.payer:type_name -> graph.substreams.data_service.common.v1.Address
+	1,  // 9: graph.substreams.data_service.common.v1.EscrowAccount.receiver:type_name -> graph.substreams.data_service.common.v1.Address
+	1,  // 10: graph.substreams.data_service.common.v1.EscrowAccount.data_service:type_name -> graph.substreams.data_service.common.v1.Address
+	8,  // 11: graph.substreams.data_service.common.v1.SessionInfo.escrow_account:type_name -> graph.substreams.data_service.common.v1.EscrowAccount
+	5,  // 12: graph.substreams.data_service.common.v1.SessionInfo.current_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
+	7,  // 13: graph.substreams.data_service.common.v1.SessionInfo.accumulated_usage:type_name -> graph.substreams.data_service.common.v1.Usage
+	4,  // 14: graph.substreams.data_service.common.v1.SessionInfo.pricing_config:type_name -> graph.substreams.data_service.common.v1.PricingConfig
+	3,  // 15: graph.substreams.data_service.common.v1.ServiceParameters.price_per_block:type_name -> graph.substreams.data_service.common.v1.GRT
+	3,  // 16: graph.substreams.data_service.common.v1.ServiceParameters.price_per_byte:type_name -> graph.substreams.data_service.common.v1.GRT
+	3,  // 17: graph.substreams.data_service.common.v1.PaymentStatus.current_rav_value:type_name -> graph.substreams.data_service.common.v1.GRT
+	3,  // 18: graph.substreams.data_service.common.v1.PaymentStatus.accumulated_usage_value:type_name -> graph.substreams.data_service.common.v1.GRT
+	3,  // 19: graph.substreams.data_service.common.v1.PaymentStatus.escrow_balance:type_name -> graph.substreams.data_service.common.v1.GRT
+	20, // [20:20] is the sub-list for method output_type
+	20, // [20:20] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_graph_substreams_data_service_common_v1_types_proto_init() }
@@ -823,7 +946,7 @@ func file_graph_substreams_data_service_common_v1_types_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_graph_substreams_data_service_common_v1_types_proto_rawDesc), len(file_graph_substreams_data_service_common_v1_types_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   9,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

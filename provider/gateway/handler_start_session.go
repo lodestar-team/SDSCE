@@ -1,4 +1,4 @@
-package sidecar
+package gateway
 
 import (
 	"context"
@@ -6,7 +6,9 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
+	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
+	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 	"go.uber.org/zap"
 )
@@ -14,7 +16,7 @@ import (
 // StartSession initiates a payment session with the provider.
 // The consumer sidecar calls this to establish a session before
 // the substreams client connects to the provider.
-func (s *Sidecar) StartSession(
+func (s *Gateway) StartSession(
 	ctx context.Context,
 	req *connect.Request[providerv1.StartSessionRequest],
 ) (*connect.Response[providerv1.StartSessionResponse], error) {
@@ -115,13 +117,18 @@ func (s *Sidecar) StartSession(
 		}
 	}
 
-	// Create session
-	session := s.sessions.Create(payer, s.serviceProvider, dataService)
-	session.SetPricingConfig(s.pricingConfig)
+	// Create session using GlobalRepository
+	sessionID := generateSessionID()
+	session := repository.NewSession(sessionID, payer, s.serviceProvider, dataService, toRepoPricingConfig(s.pricingConfig))
 	if initialRAV != nil {
-		session.SetRAV(initialRAV)
+		session.CurrentRAV = initialRAV
 	}
 	session.MarkBaseline()
+
+	if err := s.repo.SessionCreate(ctx, session); err != nil {
+		s.logger.Error("failed to create session", zap.Error(err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to create session: %w", err))
+	}
 
 	s.logger.Info("StartSession succeeded",
 		zap.String("session_id", session.ID),
@@ -130,9 +137,10 @@ func (s *Sidecar) StartSession(
 
 	// Return the RAV to use (same as initial for now)
 	response := &providerv1.StartSessionResponse{
-		SessionId: session.ID,
-		UseRav:    req.Msg.InitialRav, // Use the same RAV
-		Accepted:  true,
+		SessionId:     session.ID,
+		UseRav:        req.Msg.InitialRav, // Use the same RAV
+		Accepted:      true,
+		PricingConfig: commonv1.PricingConfigFromNative(s.pricingConfig),
 	}
 
 	return connect.NewResponse(response), nil

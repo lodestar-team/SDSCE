@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"net/http"
 	"strings"
 	"time"
 
@@ -25,8 +24,9 @@ func (s *Sidecar) Init(
 	ctx context.Context,
 	req *connect.Request[consumerv1.InitRequest],
 ) (*connect.Response[consumerv1.InitResponse], error) {
-	s.logger.Info("Init called",
-		zap.String("provider_endpoint", req.Msg.ProviderEndpoint),
+	s.logger.Info("init called",
+		zap.String("gateway_endpoint", req.Msg.GatewayEndpoint),
+		zap.String("substreams_endpoint", req.Msg.SubstreamsEndpoint),
 	)
 
 	// Extract escrow account details
@@ -103,14 +103,11 @@ func (s *Sidecar) Init(
 		}
 	}
 
-	providerEndpoint := strings.TrimSpace(req.Msg.ProviderEndpoint)
+	parsedEndpoint := sidecar.ParseEndpoint(req.Msg.GatewayEndpoint)
 	var sessionID string
-	if providerEndpoint != "" {
-		if !strings.Contains(providerEndpoint, "://") {
-			providerEndpoint = "http://" + providerEndpoint
-		}
-
-		gatewayClient := providerv1connect.NewPaymentGatewayServiceClient(http.DefaultClient, providerEndpoint)
+	var providerPricingConfig *sidecar.PricingConfig
+	if parsedEndpoint.URL != "" {
+		gatewayClient := providerv1connect.NewPaymentGatewayServiceClient(parsedEndpoint.HTTPClient(), parsedEndpoint.URL)
 		gatewayResp, err := gatewayClient.StartSession(ctx, connect.NewRequest(&providerv1.StartSessionRequest{
 			EscrowAccount: ea,
 			InitialRav:    sidecar.HorizonSignedRAVToProto(initialRAV),
@@ -133,9 +130,18 @@ func (s *Sidecar) Init(
 		}
 
 		s.logger.Info("provider session started",
-			zap.String("provider_endpoint", providerEndpoint),
+			zap.String("gateway_endpoint", parsedEndpoint.URL),
 			zap.String("provider_session_id", sessionID),
 		)
+
+		// Store pricing config from provider
+		if gatewayResp.Msg.PricingConfig != nil {
+			providerPricingConfig = gatewayResp.Msg.PricingConfig.ToNative()
+			s.logger.Debug("received pricing config from provider",
+				zap.Stringer("price_per_block", &providerPricingConfig.PricePerBlock),
+				zap.Stringer("price_per_byte", &providerPricingConfig.PricePerByte),
+			)
+		}
 
 		if gatewayResp.Msg.UseRav != nil {
 			useRAV, err := sidecar.ProtoSignedRAVToHorizon(gatewayResp.Msg.UseRav)
@@ -160,6 +166,9 @@ func (s *Sidecar) Init(
 	}
 
 	session.SetRAV(initialRAV)
+	if providerPricingConfig != nil {
+		session.SetPricingConfig(providerPricingConfig)
+	}
 
 	s.logger.Debug("created session",
 		zap.String("session_id", session.ID),

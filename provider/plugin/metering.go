@@ -20,7 +20,7 @@ import (
 //
 //	sds://host:port?plaintext=true&insecure=true&network=<network>&buffer=<size>&delay=<ms>
 //
-// The plugin connects to the provider sidecar's UsageService for metering.
+// The plugin connects to the provider gateway's UsageService for metering.
 func RegisterMetering() {
 	dmetering.Register("sds", func(config string, logger *zap.Logger) (dmetering.EventEmitter, error) {
 		configExpanded := os.ExpandEnv(config)
@@ -61,7 +61,7 @@ func RegisterMetering() {
 	})
 }
 
-// meteringEmitter implements dmetering.EventEmitter by calling the provider sidecar.
+// meteringEmitter implements dmetering.EventEmitter by calling the provider gateway.
 type meteringEmitter struct {
 	*shutter.Shutter
 	client      usagev1connect.UsageServiceClient

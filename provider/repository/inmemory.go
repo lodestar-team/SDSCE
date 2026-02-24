@@ -109,6 +109,11 @@ func (r *InMemoryRepository) SessionGetByPayer(ctx context.Context, payer string
 	return r.SessionList(ctx, SessionFilter{PayerAddress: &payer})
 }
 
+// SessionCount returns the total number of sessions.
+func (r *InMemoryRepository) SessionCount(_ context.Context) int {
+	return int(r.sessions.Len())
+}
+
 // --- Worker management ---
 
 // WorkerCreate stores a new worker. Returns an error if the worker key already exists.

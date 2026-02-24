@@ -1,4 +1,4 @@
-package sidecar
+package gateway
 
 import (
 	"context"
@@ -10,9 +10,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// SubmitRAV submits a signed RAV to the provider sidecar.
+// SubmitRAV submits a signed RAV to the provider gateway.
 // Called when the provider requests a new RAV for continued service.
-func (s *Sidecar) SubmitRAV(
+func (s *Gateway) SubmitRAV(
 	ctx context.Context,
 	req *connect.Request[providerv1.SubmitRAVRequest],
 ) (*connect.Response[providerv1.SubmitRAVResponse], error) {
@@ -22,8 +22,8 @@ func (s *Sidecar) SubmitRAV(
 		zap.String("session_id", sessionID),
 	)
 
-	// Get the session
-	session, err := s.sessions.Get(sessionID)
+	// Get the session from GlobalRepository
+	session, err := s.repo.SessionGet(ctx, sessionID)
 	if err != nil {
 		s.logger.Warn("session not found", zap.String("session_id", sessionID))
 		return connect.NewResponse(&providerv1.SubmitRAVResponse{
@@ -104,7 +104,7 @@ func (s *Sidecar) SubmitRAV(
 	}
 
 	// Verify RAV value is greater than or equal to previous RAV
-	currentRAV := session.GetRAV()
+	currentRAV := session.CurrentRAV
 	if currentRAV != nil && currentRAV.Message != nil {
 		if signedRAV.Message.ValueAggregate.Cmp(currentRAV.Message.ValueAggregate) < 0 {
 			return connect.NewResponse(&providerv1.SubmitRAVResponse{
@@ -116,13 +116,18 @@ func (s *Sidecar) SubmitRAV(
 	}
 
 	// Store the new RAV
-	session.SetRAV(signedRAV)
+	session.CurrentRAV = signedRAV
 	session.MarkBaseline()
+
+	// Update the session in the repository
+	if err := s.repo.SessionUpdate(ctx, session); err != nil {
+		s.logger.Warn("failed to update session", zap.String("session_id", sessionID), zap.Error(err))
+	}
 
 	s.logger.Info("SubmitRAV accepted",
 		zap.String("session_id", sessionID),
 		zap.Stringer("signer", signerAddr),
-		zap.String("value", signedRAV.Message.ValueAggregate.String()),
+		zap.Stringer("value", signedRAV.Message.ValueAggregate),
 	)
 
 	response := &providerv1.SubmitRAVResponse{

@@ -4,10 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
-	"math/big"
-	"strings"
 	"time"
 
+	sds "github.com/graphprotocol/substreams-data-service"
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
@@ -18,19 +17,6 @@ import (
 	"github.com/streamingfast/cli/sflags"
 	"github.com/streamingfast/eth-go"
 	"google.golang.org/protobuf/proto"
-)
-
-// GRT token definition (18 decimals like ETH)
-var GRTToken = &eth.Token{
-	Name:     "Graph Token",
-	Symbol:   "GRT",
-	Decimals: 18,
-}
-
-var toolsCmd = Group(
-	"tools",
-	"Development and debugging tools",
-	toolsRAVCmd,
 )
 
 var toolsRAVCmd = Group(
@@ -113,8 +99,8 @@ func runToolsRAVCreate(cmd *cobra.Command, args []string) error {
 	signerKey, err := eth.NewPrivateKey(signerKeyHex)
 	cli.NoError(err, "invalid --signer-key %q", signerKeyHex)
 
-	// Parse value (supports "10 GRT", "0.5GRT", or raw)
-	value, err := parseGRTValue(valueStr)
+	// Parse value (supports "10 GRT", "0.5GRT", or plain decimal)
+	value, err := sds.ParseGRT(valueStr)
 	cli.NoError(err, "invalid --value %q", valueStr)
 
 	// Parse or generate collection ID
@@ -137,7 +123,7 @@ func runToolsRAVCreate(cmd *cobra.Command, args []string) error {
 		ServiceProvider: serviceProvider,
 		DataService:     dataService,
 		TimestampNs:     uint64(time.Now().UnixNano()),
-		ValueAggregate:  value,
+		ValueAggregate:  value.BigInt(),
 		Metadata:        nil,
 	}
 
@@ -168,7 +154,7 @@ func runToolsRAVCreate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Payer:            %s\n", payer.Pretty())
 	fmt.Printf("  Service Provider: %s\n", serviceProvider.Pretty())
 	fmt.Printf("  Data Service:     %s\n", dataService.Pretty())
-	fmt.Printf("  Value Aggregate:  %s (raw: %s)\n", formatGRT(value), value.String())
+	fmt.Printf("  Value Aggregate:  %s (raw: %s)\n", value.String(), value.BigInt().String())
 	fmt.Printf("  Timestamp:        %d\n", rav.TimestampNs)
 	fmt.Printf("  Signer:           %s\n", signerKey.PublicKey().Address().Pretty())
 	fmt.Println()
@@ -182,80 +168,6 @@ func runToolsRAVCreate(cmd *cobra.Command, args []string) error {
 	fmt.Println(base64Encoded)
 
 	return nil
-}
-
-// parseGRTValue parses a value string that can be:
-// - "10 GRT" or "10GRT" (with optional space)
-// - "0.5 GRT" (decimal GRT)
-// - "1000000000000000000" (raw, 18 decimals)
-func parseGRTValue(s string) (*big.Int, error) {
-	s = strings.TrimSpace(s)
-
-	// Check for GRT suffix (case-insensitive)
-	lower := strings.ToLower(s)
-	if strings.HasSuffix(lower, "grt") {
-		// Remove "grt" suffix and trim
-		numStr := strings.TrimSpace(s[:len(s)-3])
-		return parseDecimalToBigInt(numStr, GRTToken.Decimals)
-	}
-
-	// Try parsing as raw integer
-	value, ok := new(big.Int).SetString(s, 10)
-	if !ok {
-		return nil, fmt.Errorf("invalid value: must be a number with optional 'GRT' suffix (e.g., '10 GRT', '0.5GRT') or raw integer")
-	}
-	return value, nil
-}
-
-// parseDecimalToBigInt parses a decimal string and converts to big.Int with given decimals
-// e.g., "1.5" with decimals=18 -> 1500000000000000000
-func parseDecimalToBigInt(s string, decimals uint) (*big.Int, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return nil, fmt.Errorf("empty value")
-	}
-
-	// Split on decimal point
-	parts := strings.Split(s, ".")
-	if len(parts) > 2 {
-		return nil, fmt.Errorf("invalid number: multiple decimal points")
-	}
-
-	// Parse integer part
-	intPart, ok := new(big.Int).SetString(parts[0], 10)
-	if !ok {
-		return nil, fmt.Errorf("invalid integer part: %s", parts[0])
-	}
-
-	// Multiply by 10^decimals
-	multiplier := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
-	result := new(big.Int).Mul(intPart, multiplier)
-
-	// Handle fractional part if present
-	if len(parts) == 2 {
-		fracStr := parts[1]
-		if len(fracStr) > int(decimals) {
-			return nil, fmt.Errorf("too many decimal places: max %d", decimals)
-		}
-
-		// Pad with zeros to match decimals
-		fracStr = fracStr + strings.Repeat("0", int(decimals)-len(fracStr))
-
-		fracPart, ok := new(big.Int).SetString(fracStr, 10)
-		if !ok {
-			return nil, fmt.Errorf("invalid fractional part: %s", parts[1])
-		}
-
-		// Add fractional part (already scaled)
-		result.Add(result, fracPart)
-	}
-
-	return result, nil
-}
-
-// formatGRT formats a raw value as GRT with up to 6 decimal places
-func formatGRT(raw *big.Int) string {
-	return GRTToken.AmountBig(raw).Format(6)
 }
 
 // Ensure proto import is used

@@ -9,7 +9,7 @@ package plugin
 //	common-session-plugin: "sds://localhost:9001?plaintext=true"
 //	common-metering-plugin: "sds://localhost:9001?plaintext=true&network=my-network"
 //
-// All three plugins connect to the same provider sidecar endpoint.
+// All three plugins connect to the same provider gateway endpoint.
 // The sidecar handles all business logic (service provider, escrow, quotas, etc.).
 func Register() {
 	RegisterAuth()

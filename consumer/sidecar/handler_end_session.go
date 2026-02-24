@@ -34,7 +34,7 @@ func (s *Sidecar) EndSession(
 	// Add final usage if provided
 	finalUsage := req.Msg.FinalUsage
 	if finalUsage != nil {
-		session.AddUsage(finalUsage.BlocksProcessed, finalUsage.BytesTransferred, finalUsage.Requests, finalUsage.Cost.ToNative())
+		session.AddUsage(finalUsage.BlocksProcessed, finalUsage.BytesTransferred, finalUsage.Requests, finalUsage.Cost.ToBigInt())
 	}
 
 	// Get current RAV
@@ -44,13 +44,13 @@ func (s *Sidecar) EndSession(
 	var finalValue *big.Int
 	if currentRAV != nil && currentRAV.Message != nil {
 		if finalUsage != nil {
-			finalValue = new(big.Int).Add(currentRAV.Message.ValueAggregate, finalUsage.Cost.ToNative())
+			finalValue = new(big.Int).Add(currentRAV.Message.ValueAggregate, finalUsage.Cost.ToBigInt())
 		} else {
 			finalValue = currentRAV.Message.ValueAggregate
 		}
 	} else {
 		if finalUsage != nil {
-			finalValue = finalUsage.Cost.ToNative()
+			finalValue = finalUsage.Cost.ToBigInt()
 		} else {
 			finalValue = big.NewInt(0)
 		}

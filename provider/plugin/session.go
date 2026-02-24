@@ -20,7 +20,7 @@ import (
 //
 //	sds://host:port?plaintext=true&insecure=true&keep-alive-delay=20s&minimal-worker-life-duration=5s
 //
-// The plugin connects to the provider sidecar's SessionService for worker pool management.
+// The plugin connects to the provider gateway's SessionService for worker pool management.
 // All quota configuration is on the server side.
 func RegisterSession() {
 	dsession.Register("sds", func(config string, logger *zap.Logger) (dsession.SessionPool, error) {
@@ -64,7 +64,7 @@ type sessionInfo struct {
 	closer         chan struct{}
 }
 
-// sessionPool implements dsession.SessionPool by calling the provider sidecar.
+// sessionPool implements dsession.SessionPool by calling the provider gateway.
 type sessionPool struct {
 	client                    sessionv1connect.SessionServiceClient
 	logger                    *zap.Logger

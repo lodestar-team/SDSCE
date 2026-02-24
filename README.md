@@ -21,16 +21,16 @@ The `devel/sds` wrapper automatically compiles and runs the CLI on each invocati
 echo 'path_add PATH "`pwd`/devel"' > .envrc && direnv allow
 ```
 
-Now `sds` invokes `devel/sds` directly. Use [reflex](https://github.com/cespare/reflex) to auto-restart services on code changes:
+Now `sds` invokes `devel/sds` directly. Use [reflex](https://github.com/cespare/reflex) to start everything (`devenv`, Consumer Sidecar, Provider Gateway & Firehose Stack) and auto-restart services (Consuemr Sidecar and Provider Gateway) on code changes:
 
 ```bash
-reflex -c .reflex  # Starts both sidecars with debug logging
+reflex -c .reflex
 ```
 
 We have `devel/sds_sink` helper that can be used to sink in data service mode (invokes `sds sink ...` configured for development environment):
 
 ```bash
-sds_sink run common@v0.1.0 map_clocks
+sds_sink run common@v0.1.0 map_clocks -s -1
 ```
 
 ### Development Environment

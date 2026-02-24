@@ -6,17 +6,19 @@ A Golang implementation of the payment infrastructure for Substreams Data Servic
 
 ### Prerequisites
 
-- Go 1.24+
+- Go 1.25+
 - Docker (for running [Development Environment](#development-environment) and integration tests)
-- [reflex](https://github.com/cespare/reflex) (optional, for auto-restart)
 - [direnv](https://direnv.net/) (optional, for auto-loading environment)
+- [reflex](https://github.com/cespare/reflex) (optional, for auto-restart)
+- [firecore](https://github.com/streamingfast/firehose-core)
+- [dummy-blockchain](https://github.com/streamingfast/dummy-blockchain)
 
 ### Quick Start
 
 The `devel/sds` wrapper automatically compiles and runs the CLI on each invocation. Using [direnv](https://direnv.net/), create an `.envrc` file to add it to your PATH:
 
 ```bash
-echo 'PATH_add "`pwd`/devel"' > .envrc && direnv allow
+echo 'path_add PATH "`pwd`/devel"' > .envrc && direnv allow
 ```
 
 Now `sds` invokes `devel/sds` directly. Use [reflex](https://github.com/cespare/reflex) to auto-restart services on code changes:
@@ -25,7 +27,16 @@ Now `sds` invokes `devel/sds` directly. Use [reflex](https://github.com/cespare/
 reflex -c .reflex  # Starts both sidecars with debug logging
 ```
 
+We have `devel/sds_sink` helper that can be used to sink in data service mode (invokes `sds sink ...` configured for development environment):
+
+```bash
+sds_sink run common@v0.1.0 map_clocks
+```
+
 ### Development Environment
+
+> [!NOTE]
+> If you are still having `reflex -c .reflex` running from quick start, your development environment is already running so no need to invoke `sds env`.
 
 The `sds devenv` command starts an Anvil node and deploys Graph Protocol contracts (requires Docker). It deploys the original `PaymentsEscrow`, `GraphPayments`, and `GraphTallyCollector` contracts, plus `SubstreamsDataService` and various mock contracts (GRTToken, Controller, Staking, etc.) for testing. Integration tests use the same devenv via testcontainers.
 
@@ -58,6 +69,22 @@ go test ./...                      # All tests
 go test ./test/integration/... -v  # Integration tests (requires Docker)
 ```
 
+### Running Full System with Firecore
+
+To run the full Substreams Data Service stack with a Firehose provider, you need `firecore` and `dummy-blockchain` binaries (see [Prerequisites](#prerequisites)). Clone the repositories and build from source:
+
+```bash
+# Build firecore
+git clone https://github.com/streamingfast/firehose-core
+cd firehose-core && go install ./cmd/firecore && cd ..
+
+# Build dummy-blockchain
+git clone https://github.com/streamingfast/dummy-blockchain
+cd dummy-blockchain && go install . && cd ..
+```
+
+A sample firecore configuration is provided in `devel/firecore.config.yaml` that uses dummy-blockchain as the reader node and configures the SDS plugins (auth, session, metering) to connect to the provider gateway on `:9001`.
+
 ## Architecture
 
 ### Overview
@@ -74,7 +101,7 @@ The project implements a payment layer for Substreams data streaming. Consumers 
                                  └─────────────────────────────┤
                                                                ▼
                                                       ┌────────────────┐
-                                                      │Provider Sidecar│
+                                                      │Provider Gateway│
                                                       │ (validation)   │
                                                       └───────┬────────┘
                                                               │
@@ -101,7 +128,7 @@ sds consumer sidecar \
   --collector-address 0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9
 ```
 
-#### Provider Sidecar (`provider/sidecar`)
+#### Provider Gateway (`provider/sidecar`)
 
 Runs alongside the data provider (substreams-tier1) and handles:
 - RAV validation and signature verification
@@ -109,11 +136,11 @@ Runs alongside the data provider (substreams-tier1) and handles:
 - Escrow balance queries
 - Payment status monitoring
 
-**Usage metering note:** the provider sidecar does **not** currently meter bytes/blocks directly from the Substreams/Firehose stream. Usage must be **pushed to it** by the provider process (e.g. via `ProviderSidecarService.ReportUsage` or `PaymentGatewayService.PaymentSession` `usage_report`). A production integration will require a **metering plugin** in the provider stack (substreams-tier1 / firehose / substreams) to measure usage and emit those reports.
+**Usage metering note:** the provider gateway does **not** meter bytes/blocks directly from the Substreams/Firehose stream. Usage is reported via `PaymentGatewayService.PaymentSession` `usage_report` or through the Firehose plugin services (`sds://` URI scheme). The Firehose provider plugins handle authentication, session management, and usage reporting for production integrations.
 
 ```bash
 # Using devenv addresses
-sds provider sidecar \
+sds provider gateway \
   --service-provider 0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
   --collector-address 0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9 \
   --escrow-address 0xfc7487a37ca8eac2e64cba61277aa109e9b8631e \
@@ -135,32 +162,11 @@ Shared components between consumer and provider:
 - Proto converters for RAV/Address/BigInt types
 - Escrow balance querying
 
-### Fake Clients (Testing)
-
-The CLI includes fake client commands for testing sidecars in isolation:
-
-```bash
-# Simulate a substreams client connecting to consumer sidecar
-sds consumer fake-client \
-  --payer-address 0xe90874856c339d5d3733c92ea5acadc6014b34d5 \
-  --receiver-address 0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
-  --data-service-address 0x37478fd2f5845e3664fe4155d74c00e1a4e7a5e2
-
-# Simulate a provider operator sending usage reports
-sds provider fake-operator \
-  --signer-private-key 0xdd02564c0e9836fb570322be23f8355761d4d04ebccdc53f4f53325227680a9f \
-  --collector-address 0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9 \
-  --payer-address 0xe90874856c339d5d3733c92ea5acadc6014b34d5 \
-  --service-provider-address 0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
-  --data-service-address 0x37478fd2f5845e3664fe4155d74c00e1a4e7a5e2
-```
-
 ### Protocol Buffers
 
 Service definitions are in `proto/`:
 - `common/v1/types.proto`: Shared types (Address, BigInt, RAV, Usage, etc.)
 - `consumer/v1/consumer.proto`: ConsumerSidecarService
-- `provider/v1/provider.proto`: ProviderSidecarService
 - `provider/v1/gateway.proto`: PaymentGatewayService
 
 ## References

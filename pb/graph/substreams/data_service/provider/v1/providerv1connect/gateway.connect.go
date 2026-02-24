@@ -51,11 +51,11 @@ type PaymentGatewayServiceClient interface {
 	// The consumer sidecar calls this to establish a session before
 	// the substreams client connects to the provider.
 	StartSession(context.Context, *connect.Request[v1.StartSessionRequest]) (*connect.Response[v1.StartSessionResponse], error)
-	// SubmitRAV submits a signed RAV to the provider sidecar.
+	// SubmitRAV submits a signed RAV to the provider gateway.
 	// Called when the provider requests a new RAV for continued service.
 	SubmitRAV(context.Context, *connect.Request[v1.SubmitRAVRequest]) (*connect.Response[v1.SubmitRAVResponse], error)
 	// PaymentSession is a bidirectional stream for ongoing payment negotiation.
-	// This allows the provider sidecar to request RAVs and notify about
+	// This allows the provider gateway to request RAVs and notify about
 	// funding requirements in real-time.
 	PaymentSession(context.Context) *connect.BidiStreamForClient[v1.PaymentSessionRequest, v1.PaymentSessionResponse]
 }
@@ -123,11 +123,11 @@ type PaymentGatewayServiceHandler interface {
 	// The consumer sidecar calls this to establish a session before
 	// the substreams client connects to the provider.
 	StartSession(context.Context, *connect.Request[v1.StartSessionRequest]) (*connect.Response[v1.StartSessionResponse], error)
-	// SubmitRAV submits a signed RAV to the provider sidecar.
+	// SubmitRAV submits a signed RAV to the provider gateway.
 	// Called when the provider requests a new RAV for continued service.
 	SubmitRAV(context.Context, *connect.Request[v1.SubmitRAVRequest]) (*connect.Response[v1.SubmitRAVResponse], error)
 	// PaymentSession is a bidirectional stream for ongoing payment negotiation.
-	// This allows the provider sidecar to request RAVs and notify about
+	// This allows the provider gateway to request RAVs and notify about
 	// funding requirements in real-time.
 	PaymentSession(context.Context, *connect.BidiStream[v1.PaymentSessionRequest, v1.PaymentSessionResponse]) error
 }

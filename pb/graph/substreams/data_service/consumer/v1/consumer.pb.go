@@ -26,8 +26,12 @@ type InitRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The escrow account to use for funding this session
 	EscrowAccount *v1.EscrowAccount `protobuf:"bytes,1,opt,name=escrow_account,json=escrowAccount,proto3" json:"escrow_account,omitempty"`
-	// The provider endpoint to connect to
-	ProviderEndpoint string `protobuf:"bytes,2,opt,name=provider_endpoint,json=providerEndpoint,proto3" json:"provider_endpoint,omitempty"`
+	// The provider gateway endpoint for payment session management (e.g., "https://gateway.provider.com:9001")
+	// Supports ?insecure=true query parameter for self-signed certificates.
+	GatewayEndpoint string `protobuf:"bytes,2,opt,name=gateway_endpoint,json=gatewayEndpoint,proto3" json:"gateway_endpoint,omitempty"`
+	// The Substreams endpoint for data streaming (e.g., "substreams.provider.com:10015")
+	// This is where the sink will connect to stream data.
+	SubstreamsEndpoint string `protobuf:"bytes,4,opt,name=substreams_endpoint,json=substreamsEndpoint,proto3" json:"substreams_endpoint,omitempty"`
 	// Optional: existing RAV to continue from (for session resumption)
 	ExistingRav   *v1.SignedRAV `protobuf:"bytes,3,opt,name=existing_rav,json=existingRav,proto3" json:"existing_rav,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -71,9 +75,16 @@ func (x *InitRequest) GetEscrowAccount() *v1.EscrowAccount {
 	return nil
 }
 
-func (x *InitRequest) GetProviderEndpoint() string {
+func (x *InitRequest) GetGatewayEndpoint() string {
 	if x != nil {
-		return x.ProviderEndpoint
+		return x.GatewayEndpoint
+	}
+	return ""
+}
+
+func (x *InitRequest) GetSubstreamsEndpoint() string {
+	if x != nil {
+		return x.SubstreamsEndpoint
 	}
 	return ""
 }
@@ -368,10 +379,11 @@ var File_graph_substreams_data_service_consumer_v1_consumer_proto protoreflect.F
 
 const file_graph_substreams_data_service_consumer_v1_consumer_proto_rawDesc = "" +
 	"\n" +
-	"8graph/substreams/data_service/consumer/v1/consumer.proto\x12)graph.substreams.data_service.consumer.v1\x1a3graph/substreams/data_service/common/v1/types.proto\"\xf0\x01\n" +
+	"8graph/substreams/data_service/consumer/v1/consumer.proto\x12)graph.substreams.data_service.consumer.v1\x1a3graph/substreams/data_service/common/v1/types.proto\"\x9f\x02\n" +
 	"\vInitRequest\x12]\n" +
-	"\x0eescrow_account\x18\x01 \x01(\v26.graph.substreams.data_service.common.v1.EscrowAccountR\rescrowAccount\x12+\n" +
-	"\x11provider_endpoint\x18\x02 \x01(\tR\x10providerEndpoint\x12U\n" +
+	"\x0eescrow_account\x18\x01 \x01(\v26.graph.substreams.data_service.common.v1.EscrowAccountR\rescrowAccount\x12)\n" +
+	"\x10gateway_endpoint\x18\x02 \x01(\tR\x0fgatewayEndpoint\x12/\n" +
+	"\x13substreams_endpoint\x18\x04 \x01(\tR\x12substreamsEndpoint\x12U\n" +
 	"\fexisting_rav\x18\x03 \x01(\v22.graph.substreams.data_service.common.v1.SignedRAVR\vexistingRav\"\xb3\x01\n" +
 	"\fInitResponse\x12N\n" +
 	"\asession\x18\x01 \x01(\v24.graph.substreams.data_service.common.v1.SessionInfoR\asession\x12S\n" +

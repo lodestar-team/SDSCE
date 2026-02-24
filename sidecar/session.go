@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/graphprotocol/substreams-data-service/horizon"
+	"github.com/graphprotocol/substreams-data-service/internal/session"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	"github.com/streamingfast/eth-go"
 )
@@ -48,10 +48,10 @@ type Session struct {
 
 	// Baseline usage snapshot for determining "usage since last RAV".
 	// Provider-side logic uses this to decide when to request a new RAV.
-	baselineBlocks  uint64
-	baselineBytes   uint64
-	baselineReqs    uint64
-	baselineCostWei *big.Int
+	baselineBlocks uint64
+	baselineBytes  uint64
+	baselineReqs   uint64
+	baselineCost   *big.Int
 
 	// Price configuration (set by provider)
 	PricePerBlock *big.Int
@@ -62,32 +62,32 @@ type Session struct {
 // NewSession creates a new session with a generated ID
 func NewSession(payer, receiver, dataService eth.Address) *Session {
 	return &Session{
-		ID:              uuid.New().String(),
-		State:           SessionStateActive,
-		CreatedAt:       time.Now(),
-		UpdatedAt:       time.Now(),
-		Payer:           payer,
-		Receiver:        receiver,
-		DataService:     dataService,
-		TotalCost:       big.NewInt(0),
-		baselineCostWei: big.NewInt(0),
-		PricePerBlock:   big.NewInt(0),
+		ID:            session.GenerateID(),
+		State:         SessionStateActive,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
+		Payer:         payer,
+		Receiver:      receiver,
+		DataService:   dataService,
+		TotalCost:     big.NewInt(0),
+		baselineCost:  big.NewInt(0),
+		PricePerBlock: big.NewInt(0),
 	}
 }
 
 // NewSessionWithID creates a new session with a specific ID.
 func NewSessionWithID(id string, payer, receiver, dataService eth.Address) *Session {
 	return &Session{
-		ID:              id,
-		State:           SessionStateActive,
-		CreatedAt:       time.Now(),
-		UpdatedAt:       time.Now(),
-		Payer:           payer,
-		Receiver:        receiver,
-		DataService:     dataService,
-		TotalCost:       big.NewInt(0),
-		baselineCostWei: big.NewInt(0),
-		PricePerBlock:   big.NewInt(0),
+		ID:            id,
+		State:         SessionStateActive,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
+		Payer:         payer,
+		Receiver:      receiver,
+		DataService:   dataService,
+		TotalCost:     big.NewInt(0),
+		baselineCost:  big.NewInt(0),
+		PricePerBlock: big.NewInt(0),
 	}
 }
 
@@ -106,7 +106,7 @@ func (s *Session) AddUsage(blocks, bytes, requests uint64, cost *big.Int) {
 }
 
 // UsageDeltaSinceBaseline returns the usage accrued since the baseline snapshot.
-func (s *Session) UsageDeltaSinceBaseline() (blocks, bytes, requests uint64, costWei *big.Int) {
+func (s *Session) UsageDeltaSinceBaseline() (blocks, bytes, requests uint64, cost *big.Int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -120,9 +120,9 @@ func (s *Session) UsageDeltaSinceBaseline() (blocks, bytes, requests uint64, cos
 		requests = s.Requests - s.baselineReqs
 	}
 
-	costWei = new(big.Int).Sub(s.TotalCost, s.baselineCostWei)
-	if costWei.Sign() < 0 {
-		costWei = big.NewInt(0)
+	cost = new(big.Int).Sub(s.TotalCost, s.baselineCost)
+	if cost.Sign() < 0 {
+		cost = big.NewInt(0)
 	}
 
 	return
@@ -136,7 +136,7 @@ func (s *Session) MarkBaseline() {
 	s.baselineBlocks = s.BlocksProcessed
 	s.baselineBytes = s.BytesTransferred
 	s.baselineReqs = s.Requests
-	s.baselineCostWei = new(big.Int).Set(s.TotalCost)
+	s.baselineCost = new(big.Int).Set(s.TotalCost)
 }
 
 // GetUsage returns a copy of the current usage
@@ -148,7 +148,7 @@ func (s *Session) GetUsage() *commonv1.Usage {
 		BlocksProcessed:  s.BlocksProcessed,
 		BytesTransferred: s.BytesTransferred,
 		Requests:         s.Requests,
-		Cost:             commonv1.BigIntFromNative(s.TotalCost),
+		Cost:             commonv1.GRTFromBigInt(s.TotalCost),
 	}
 }
 
@@ -196,11 +196,11 @@ func (s *Session) SetPricingConfig(config *PricingConfig) {
 
 	s.PricingConfig = config
 	if config != nil {
-		if config.PricePerBlock != nil {
-			s.PricePerBlock = config.PricePerBlock.Wei()
+		if !config.PricePerBlock.IsZero() {
+			s.PricePerBlock = config.PricePerBlock.BigInt()
 		}
-		if config.PricePerByte != nil {
-			s.PricePerByte = config.PricePerByte.Wei()
+		if !config.PricePerByte.IsZero() {
+			s.PricePerByte = config.PricePerByte.BigInt()
 		}
 	}
 }
@@ -211,7 +211,7 @@ func (s *Session) CalculateUsageCost(blocksProcessed, bytesTransferred uint64) *
 	defer s.mu.RUnlock()
 
 	if s.PricingConfig != nil {
-		return s.PricingConfig.CalculateUsageCost(blocksProcessed, bytesTransferred)
+		return s.PricingConfig.CalculateUsageCost(blocksProcessed, bytesTransferred).BigInt()
 	}
 
 	// Fallback to manual calculation
@@ -241,6 +241,7 @@ func (s *Session) ToSessionInfo() *commonv1.SessionInfo {
 		},
 		CurrentRav:       HorizonSignedRAVToProto(s.CurrentRAV),
 		AccumulatedUsage: s.GetUsage(),
+		PricingConfig:    commonv1.PricingConfigFromNative(s.PricingConfig),
 	}
 }
 

@@ -144,7 +144,7 @@ func NewConsumerSidecar(
 	}
 }
 
-// NewProviderSidecar creates a new provider sidecar for RAV validation
+// NewProviderGateway creates a new provider gateway for RAV validation
 func NewProviderSidecar(
 	name string,
 	domain *horizon.Domain,
@@ -218,7 +218,7 @@ func (sc *ConsumerSidecar) StartSession(psc *ProviderSidecar, escrowAccount eth.
 		return nil, err
 	}
 
-	// Send to provider sidecar
+	// Send to provider gateway
 	req := &SessionRequest{
 		EscrowAccount: escrowAccount,
 		InitialRAV:    signedRAV0,
@@ -538,7 +538,7 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 	)
 
 	// Provider Sidecar (psc)
-	providerSidecar := NewProviderSidecar(
+	providerGateway := NewProviderSidecar(
 		"ProviderSidecar",
 		domain,
 		[]eth.Address{signerAddr},
@@ -555,7 +555,7 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 	// Provider (p)
 	provider := NewProvider(
 		"BlockProvider",
-		providerSidecar,
+		providerGateway,
 		env.DataService.Address,
 		env.ServiceProvider.PrivateKey,
 		env.Collector.Address,
@@ -573,7 +573,7 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 
 	// Step 2: sc -> psc: startSession(escrow_account, RAV0)
 	zlog.Info("Step 2: startSession with initial RAV0")
-	sessionResp, err := consumerSidecar.StartSession(providerSidecar, env.Escrow.Address)
+	sessionResp, err := consumerSidecar.StartSession(providerGateway, env.Escrow.Address)
 	require.NoError(t, err)
 	require.NotNil(t, sessionResp)
 	assert.NotNil(t, sessionResp.AcceptedRAV, "Provider should accept initial RAV")
@@ -621,12 +621,12 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 
 		zlog.Debug("Batch streamed",
 			zap.Uint64("blocks_sent", sent+blocksToSend),
-			zap.String("total_value", providerSidecar.trackedUsage.String()))
+			zap.String("total_value", providerGateway.trackedUsage.String()))
 	}
 
 	// Step 10: psc -> sc: requestRAV(RAVx, usage)
 	zlog.Info("Step 10: Provider requests updated RAV")
-	newRAV, err := providerSidecar.RequestRAV(consumerSidecar)
+	newRAV, err := providerGateway.RequestRAV(consumerSidecar)
 	require.NoError(t, err)
 	require.NotNil(t, newRAV)
 
@@ -636,12 +636,12 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 
 	// Step 11: sc -> psc: signed(RAVx)
 	zlog.Info("Step 11: Consumer returns signed RAV")
-	err = providerSidecar.ReceiveSignedRAV(newRAV)
+	err = providerGateway.ReceiveSignedRAV(newRAV)
 	require.NoError(t, err)
 
 	// Step 12: psc -> p: Continue() or Stop()
 	zlog.Info("Step 12: Provider decides to continue or stop")
-	shouldContinue := providerSidecar.ShouldContinue()
+	shouldContinue := providerGateway.ShouldContinue()
 	assert.True(t, shouldContinue, "Should continue - escrow has sufficient funds")
 
 	// ============================================================================
@@ -649,11 +649,11 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 	// ============================================================================
 
 	zlog.Info("Optional: Checking escrow funds")
-	escrowFunds, err := providerSidecar.CheckEscrowFunds()
+	escrowFunds, err := providerGateway.CheckEscrowFunds()
 	require.NoError(t, err)
 	assert.True(t, escrowFunds.Cmp(expectedValue) >= 0, "Escrow should have enough funds")
 
-	ravSum := providerSidecar.CheckSumOfAllKnownRAVs()
+	ravSum := providerGateway.CheckSumOfAllKnownRAVs()
 	assert.Equal(t, expectedValue.String(), ravSum.String(), "RAV sum should match tracked usage")
 
 	// ============================================================================
@@ -675,7 +675,7 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 	// ============================================================================
 
 	zlog.Info("Final: Collecting RAV on-chain via SubstreamsDataService")
-	tokensCollected, err := providerSidecar.CollectFinalRAV(env, provider.dataServiceCut)
+	tokensCollected, err := providerGateway.CollectFinalRAV(env, provider.dataServiceCut)
 	require.NoError(t, err)
 
 	// Verify collection amount
@@ -725,7 +725,7 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 		collectionID,
 	)
 
-	providerSidecar := NewProviderSidecar(
+	providerGateway := NewProviderSidecar(
 		"ProviderSidecar",
 		domain,
 		[]eth.Address{signerAddr},
@@ -740,7 +740,7 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 
 	provider := NewProvider(
 		"BlockProvider",
-		providerSidecar,
+		providerGateway,
 		env.DataService.Address,
 		env.ServiceProvider.PrivateKey,
 		env.Collector.Address,
@@ -748,7 +748,7 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 	)
 
 	// Start session
-	sessionResp, err := consumerSidecar.StartSession(providerSidecar, env.Escrow.Address)
+	sessionResp, err := consumerSidecar.StartSession(providerGateway, env.Escrow.Address)
 	require.NoError(t, err)
 	consumerSidecar.ReceiveSessionResponse(sessionResp)
 
@@ -765,17 +765,17 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 		substreamsClient.ReceiveData(usage)
 
 		// Request RAV
-		newRAV, err := providerSidecar.RequestRAV(consumerSidecar)
+		newRAV, err := providerGateway.RequestRAV(consumerSidecar)
 		require.NoError(t, err)
-		err = providerSidecar.ReceiveSignedRAV(newRAV)
+		err = providerGateway.ReceiveSignedRAV(newRAV)
 		require.NoError(t, err)
 
 		// Check if we should continue
-		shouldContinue := providerSidecar.ShouldContinue()
+		shouldContinue := providerGateway.ShouldContinue()
 		if !shouldContinue {
 			zlog.Info("Provider stopping due to insufficient escrow",
 				zap.Int("batches_streamed", i+1),
-				zap.String("tracked_usage", providerSidecar.trackedUsage.String()),
+				zap.String("tracked_usage", providerGateway.trackedUsage.String()),
 				zap.String("escrow_balance", smallEscrow.String()))
 
 			// Provider should stop when escrow is insufficient
@@ -787,7 +787,7 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 	assert.False(t, provider.sessionActive, "Session should have ended due to insufficient escrow")
 
 	// The final RAV value should be limited to what we streamed before stopping
-	finalRAVValue := providerSidecar.currentRAV.Message.ValueAggregate
+	finalRAVValue := providerGateway.currentRAV.Message.ValueAggregate
 	assert.True(t, finalRAVValue.Cmp(smallEscrow) >= 0,
 		"Final RAV value should exceed escrow (we streamed until it was exceeded)")
 
@@ -821,7 +821,7 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 		collectionID,
 	)
 
-	providerSidecar := NewProviderSidecar(
+	providerGateway := NewProviderSidecar(
 		"ProviderSidecar",
 		domain,
 		[]eth.Address{signerAddr},
@@ -836,7 +836,7 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 
 	provider := NewProvider(
 		"BlockProvider",
-		providerSidecar,
+		providerGateway,
 		env.DataService.Address,
 		env.ServiceProvider.PrivateKey,
 		env.Collector.Address,
@@ -844,7 +844,7 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 	)
 
 	// Initialize session
-	sessionResp, err := consumerSidecar.StartSession(providerSidecar, env.Escrow.Address)
+	sessionResp, err := consumerSidecar.StartSession(providerGateway, env.Escrow.Address)
 	require.NoError(t, err)
 	consumerSidecar.ReceiveSessionResponse(sessionResp)
 
@@ -869,7 +869,7 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 		runningTotal.Add(runningTotal, cycleValue)
 
 		// Request RAV
-		newRAV, err := providerSidecar.RequestRAV(consumerSidecar)
+		newRAV, err := providerGateway.RequestRAV(consumerSidecar)
 		require.NoError(t, err)
 		require.NotNil(t, newRAV)
 
@@ -884,7 +884,7 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 				"RAV timestamp should increase")
 		}
 
-		err = providerSidecar.ReceiveSignedRAV(newRAV)
+		err = providerGateway.ReceiveSignedRAV(newRAV)
 		require.NoError(t, err)
 
 		ravHistory = append(ravHistory, newRAV)
@@ -898,7 +898,7 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 	provider.EndSession()
 
 	// Collect final RAV on-chain via SubstreamsDataService
-	tokensCollected, err := providerSidecar.CollectFinalRAV(env, provider.dataServiceCut)
+	tokensCollected, err := providerGateway.CollectFinalRAV(env, provider.dataServiceCut)
 	require.NoError(t, err)
 
 	// Verify final collection

@@ -46,7 +46,7 @@ func ProtoRAVToHorizon(pr *commonv1.RAV) (*horizon.RAV, error) {
 		DataService:     dataService,
 		ServiceProvider: serviceProvider,
 		TimestampNs:     pr.TimestampNs,
-		ValueAggregate:  pr.ValueAggregate.ToNative(),
+		ValueAggregate:  pr.ValueAggregate.ToBigInt(),
 		Metadata:        pr.Metadata,
 	}, nil
 }
@@ -63,7 +63,7 @@ func HorizonRAVToProto(hr *horizon.RAV) *commonv1.RAV {
 		DataService:     commonv1.AddressFromEth(hr.DataService),
 		ServiceProvider: commonv1.AddressFromEth(hr.ServiceProvider),
 		TimestampNs:     hr.TimestampNs,
-		ValueAggregate:  commonv1.BigIntFromNative(hr.ValueAggregate),
+		ValueAggregate:  commonv1.GRTFromBigInt(hr.ValueAggregate),
 		Metadata:        hr.Metadata,
 	}
 }

@@ -1,0 +1,10 @@
+# Compiled binaries
+sds
+
+# State files created during devenv operation
+.provider-gateway
+.consumer-sidecar
+.firehose/
+
+# Any temporary data
+*.tmp

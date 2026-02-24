@@ -1,8 +1,29 @@
+-r "^$" -s -R "devel/.*" -- sh -c \
+    'echo "Starting Devenv..." && \
+    DLOG="${DLOG:-warn}" ./devel/sds devenv'
 
 -r "\.(go|sql)$" -s -R "devel/.*" -- sh -c \
-    'echo "Starting Consumer Sidecar ..." && \
-    DLOG=".*=debug" ./devel/sds consumer sidecar'
+   'echo "Starting Consumer Sidecar ..." && \
+   DLOG=".*=debug" ./devel/sds consumer sidecar \
+       --grpc-listen-addr=:9002 \
+       --signer-private-key=0xe4c2694501255921b6588519cfd36d4e86ddc4ce19ab1bc91d9c58057c040304 \
+       --collector-address=0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9'
 
 -r "\.(go|sql)$" -s -R "devel/.*" -- sh -c \
-    'echo "Starting Provider Sidecar ..." && \
-    DLOG=".*=debug" ./devel/sds provider sidecar'
+    'echo "Starting Provider Gateway ..." && \
+    touch ./devel/.provider-gateway && \
+    DLOG=".*=debug" ./devel/sds provider gateway \
+        --grpc-listen-addr=:9001 \
+        --service-provider=0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
+        --collector-address=0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9 \
+        --escrow-address=0xfc7487a37ca8eac2e64cba61277aa109e9b8631e \
+        --rpc-endpoint=http://localhost:58545'
+
+-r "(\.provider-gateway|firecore\.config\.yaml)$" -s -R "devel/.*" -- sh -c \
+    'echo "Restarting firehose-core instance (5s delay for provider gateway startup)..." && \
+    sleep 5 && \
+    rm -rf ./devel/.firehose && \
+    echo "Starting Firehose Core" && \
+    echo " Substreams: sds sink -e https://localhost:10016 --insecure" && \
+    echo "" && \
+    DLOG="${DLOG:-error}" firecore -c devel/firecore.config.yaml -d ./devel/.firehose start'

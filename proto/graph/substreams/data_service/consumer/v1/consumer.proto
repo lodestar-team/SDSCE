@@ -26,8 +26,12 @@ service ConsumerSidecarService {
 message InitRequest {
   // The escrow account to use for funding this session
   common.v1.EscrowAccount escrow_account = 1;
-  // The provider endpoint to connect to
-  string provider_endpoint = 2;
+  // The provider gateway endpoint for payment session management (e.g., "https://gateway.provider.com:9001")
+  // Supports ?insecure=true query parameter for self-signed certificates.
+  string gateway_endpoint = 2;
+  // The Substreams endpoint for data streaming (e.g., "substreams.provider.com:10015")
+  // This is where the sink will connect to stream data.
+  string substreams_endpoint = 4;
   // Optional: existing RAV to continue from (for session resumption)
   common.v1.SignedRAV existing_rav = 3;
 }

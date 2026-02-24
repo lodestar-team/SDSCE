@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package graph.substreams.data_service.sds.auth.v1;
+
+import "graph/substreams/data_service/common/v1/types.proto";
+
+// AuthService validates incoming payment RAVs for firehose-core plugins.
+// The sds:// dauth plugin calls ValidateAuth with the RAV extracted from
+// the x-sds-rav gRPC header and receives back auth context (payer address, etc.)
+// to populate trusted headers.
+service AuthService {
+  // ValidateAuth validates a SignedRAV and returns auth context for the caller.
+  // Called by the sds:// dauth plugin when a client connects with an x-sds-rav header.
+  rpc ValidateAuth(ValidateAuthRequest) returns (ValidateAuthResponse);
+}
+
+message ValidateAuthRequest {
+  // SignedRAV extracted from the `x-sds-rav` gRPC header
+  common.v1.SignedRAV payment_rav = 1;
+  // Client IP address (optional, for logging/rate-limiting)
+  string ip_address = 2;
+  // Request path/endpoint (optional)
+  string path = 3;
+}
+
+message ValidateAuthResponse {
+  // Payer Ethereum address (0x...) → maps to x-user-id / x-organization-id
+  string organization_id = 1;
+  // Optional identifier for sub-key or signer; empty for now
+  string api_key_id = 2;
+  // Additional context to pass through as trusted headers
+  map<string, string> metadata = 3;
+}

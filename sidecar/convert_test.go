@@ -24,7 +24,7 @@ func TestProtoRAVToHorizon(t *testing.T) {
 		DataService:     commonv1.AddressFromEth(dataService),
 		ServiceProvider: commonv1.AddressFromEth(serviceProvider),
 		TimestampNs:     1234567890,
-		ValueAggregate:  commonv1.BigIntFromNative(big.NewInt(1000)),
+		ValueAggregate:  commonv1.GRTFromBigInt(big.NewInt(1000)),
 		Metadata:        []byte("test-metadata"),
 	}
 
@@ -81,7 +81,7 @@ func TestProtoRAVToHorizon_CollectionIDRequired(t *testing.T) {
 		DataService:     &commonv1.Address{Bytes: make([]byte, 20)},
 		ServiceProvider: &commonv1.Address{Bytes: make([]byte, 20)},
 		TimestampNs:     123,
-		ValueAggregate:  commonv1.BigIntFromNative(big.NewInt(1)),
+		ValueAggregate:  commonv1.GRTFromBigInt(big.NewInt(1)),
 	}
 
 	_, err := ProtoRAVToHorizon(protoRAV)
@@ -102,7 +102,7 @@ func TestProtoRAVToHorizon_DoesNotInferCollectionIDFromMetadata(t *testing.T) {
 		DataService:     &commonv1.Address{Bytes: make([]byte, 20)},
 		ServiceProvider: &commonv1.Address{Bytes: make([]byte, 20)},
 		TimestampNs:     123,
-		ValueAggregate:  commonv1.BigIntFromNative(big.NewInt(1)),
+		ValueAggregate:  commonv1.GRTFromBigInt(big.NewInt(1)),
 		Metadata:        metadata[:],
 	}
 
@@ -120,7 +120,7 @@ func TestProtoRAVToHorizon_InvalidAddressLength(t *testing.T) {
 		DataService:     &commonv1.Address{Bytes: make([]byte, 20)},
 		ServiceProvider: &commonv1.Address{Bytes: make([]byte, 20)},
 		TimestampNs:     123,
-		ValueAggregate:  commonv1.BigIntFromNative(big.NewInt(1)),
+		ValueAggregate:  commonv1.GRTFromBigInt(big.NewInt(1)),
 	}
 
 	_, err := ProtoRAVToHorizon(protoRAV)
@@ -137,7 +137,7 @@ func TestProtoSignedRAVToHorizon_InvalidSignatureLength(t *testing.T) {
 			DataService:     &commonv1.Address{Bytes: make([]byte, 20)},
 			ServiceProvider: &commonv1.Address{Bytes: make([]byte, 20)},
 			TimestampNs:     123,
-			ValueAggregate:  commonv1.BigIntFromNative(big.NewInt(1)),
+			ValueAggregate:  commonv1.GRTFromBigInt(big.NewInt(1)),
 		},
 		Signature: []byte{0x01, 0x02},
 	}

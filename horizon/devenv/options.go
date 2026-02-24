@@ -16,6 +16,8 @@ func (NoopReporter) ReportProgress(message string) {}
 type Config struct {
 	// ChainID is the chain ID for the Anvil network (default: 1337)
 	ChainID uint64
+	// RPCPort is the fixed host port for the Anvil RPC endpoint (default: 58545)
+	RPCPort int
 	// EscrowAmount is the default amount to deposit in escrow (default: 10,000 GRT)
 	EscrowAmount *big.Int
 	// ProvisionAmount is the default provision amount (default: 1,000 GRT)
@@ -34,6 +36,7 @@ func DefaultConfig() *Config {
 
 	return &Config{
 		ChainID:         1337,
+		RPCPort:         58545,
 		EscrowAmount:    escrow,
 		ProvisionAmount: provision,
 		Reporter:        NoopReporter{},
@@ -47,6 +50,13 @@ type Option func(*Config)
 func WithChainID(chainID uint64) Option {
 	return func(c *Config) {
 		c.ChainID = chainID
+	}
+}
+
+// WithRPCPort sets the fixed host port for the Anvil RPC endpoint
+func WithRPCPort(port int) Option {
+	return func(c *Config) {
+		c.RPCPort = port
 	}
 }
 

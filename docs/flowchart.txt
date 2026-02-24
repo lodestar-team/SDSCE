@@ -2,7 +2,7 @@ title substreams network payments (Dec 10 2025)
 participant "substreams" as ss
 participant "sidecar" as sc
 
-participant "provider sidecar" as psc
+participant "provider gateway" as psc
 participant "provider" as p
 
 ss->sc: init()

@@ -26,10 +26,6 @@ func (s *Sidecar) ReportUsage(
 	if usage == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("<usage> is required"))
 	}
-	if usage.Cost == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("<usage.cost> is required"))
-	}
-	cost := usage.Cost.ToNative()
 
 	s.logger.Debug("ReportUsage called",
 		zap.String("session_id", sessionID),
@@ -46,6 +42,9 @@ func (s *Sidecar) ReportUsage(
 	if !session.IsActive() {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("session %q is not active", sessionID))
 	}
+
+	// Calculate cost using the session's pricing config (provider-authoritative)
+	cost := session.CalculateUsageCost(usage.BlocksProcessed, usage.BytesTransferred)
 
 	// Add usage to session
 	session.AddUsage(usage.BlocksProcessed, usage.BytesTransferred, usage.Requests, cost)

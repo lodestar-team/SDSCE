@@ -14,6 +14,10 @@ service PaymentGatewayService {
   // the substreams client connects to the provider.
   rpc StartSession(StartSessionRequest) returns (StartSessionResponse);
 
+  // GetSessionStatus returns basic status for a session, intended for operator
+  // tooling and demo/integration flows.
+  rpc GetSessionStatus(GetSessionStatusRequest) returns (GetSessionStatusResponse);
+
   // SubmitRAV submits a signed RAV to the provider gateway.
   // Called when the provider requests a new RAV for continued service.
   rpc SubmitRAV(SubmitRAVRequest) returns (SubmitRAVResponse);
@@ -22,6 +26,18 @@ service PaymentGatewayService {
   // This allows the provider gateway to request RAVs and notify about
   // funding requirements in real-time.
   rpc PaymentSession(stream PaymentSessionRequest) returns (stream PaymentSessionResponse);
+}
+
+message GetSessionStatusRequest {
+  // The session ID
+  string session_id = 1;
+}
+
+message GetSessionStatusResponse {
+  // Whether the session is active.
+  bool active = 1;
+  // Payment status snapshot (best-effort).
+  common.v1.PaymentStatus payment_status = 2;
 }
 
 message StartSessionRequest {

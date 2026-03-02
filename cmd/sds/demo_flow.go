@@ -36,8 +36,8 @@ var demoFlowCmd = Command(
 	`),
 	Flags(func(flags *pflag.FlagSet) {
 		flags.String("consumer-sidecar-addr", "http://localhost:9002", "Consumer sidecar address")
-		flags.String("provider-sidecar-addr", "http://localhost:9001", "Provider sidecar address (for status checks)")
-		flags.String("provider-endpoint", "http://localhost:9001", "Provider endpoint to pass to consumer Init (PaymentGatewayService)")
+		flags.String("provider-sidecar-addr", "http://localhost:9001", "Provider gateway address (used for status checks)")
+		flags.String("provider-endpoint", "http://localhost:9001", "Provider gateway endpoint to pass to consumer Init (PaymentGatewayService)")
 
 		flags.String("payer-address", "", "Payer address (required)")
 		flags.String("receiver-address", "", "Receiver/service provider address (required)")
@@ -85,7 +85,7 @@ func runDemoFlow(cmd *cobra.Command, args []string) error {
 	cli.Ensure(batchSize > 0, "<batch-size> must be > 0")
 
 	consumerClient := consumerv1connect.NewConsumerSidecarServiceClient(http.DefaultClient, consumerSidecarAddr)
-	providerClient := providerv1connect.NewProviderSidecarServiceClient(http.DefaultClient, providerSidecarAddr)
+	providerClient := providerv1connect.NewPaymentGatewayServiceClient(http.DefaultClient, providerSidecarAddr)
 
 	fmt.Printf("Step 1: Init\n")
 	initResp, err := consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{
@@ -94,7 +94,7 @@ func runDemoFlow(cmd *cobra.Command, args []string) error {
 			Receiver:    commonv1.AddressFromEth(receiver),
 			DataService: commonv1.AddressFromEth(dataService),
 		},
-		ProviderEndpoint: providerEndpoint,
+		GatewayEndpoint: providerEndpoint,
 	}))
 	cli.NoError(err, "consumer Init failed")
 
@@ -126,7 +126,7 @@ func runDemoFlow(cmd *cobra.Command, args []string) error {
 
 		totalBlocksSent += batch
 		if resp.Msg.GetUpdatedRav() != nil && resp.Msg.GetUpdatedRav().GetRav() != nil {
-			v := resp.Msg.GetUpdatedRav().GetRav().GetValueAggregate().ToNative()
+			v := resp.Msg.GetUpdatedRav().GetRav().GetValueAggregate().ToBigInt()
 			fmt.Printf("  blocks=%d total=%d updated_rav_value=%s\n", batch, totalBlocksSent, v.String())
 		} else {
 			fmt.Printf("  blocks=%d total=%d\n", batch, totalBlocksSent)
@@ -150,25 +150,20 @@ func runDemoFlow(cmd *cobra.Command, args []string) error {
 
 	cur := big.NewInt(0)
 	if ps := statusResp.Msg.GetPaymentStatus(); ps != nil && ps.GetCurrentRavValue() != nil {
-		cur = ps.GetCurrentRavValue().ToNative()
+		cur = ps.GetCurrentRavValue().ToBigInt()
 	}
 	fmt.Printf("  provider_current_rav_value=%s\n", cur.String())
 
 	fmt.Printf("\nStep 4: EndSession\n")
 	endResp, err := consumerClient.EndSession(ctx, connect.NewRequest(&consumerv1.EndSessionRequest{
-		SessionId: sessionID,
-		FinalUsage: &commonv1.Usage{
-			BlocksProcessed:  0,
-			BytesTransferred: 0,
-			Requests:         0,
-			Cost:             commonv1.BigIntFromNative(big.NewInt(0)),
-		},
+		SessionId:  sessionID,
+		FinalUsage: nil,
 	}))
 	cli.NoError(err, "consumer EndSession failed")
 
 	final := big.NewInt(0)
 	if endResp.Msg.GetFinalRav() != nil && endResp.Msg.GetFinalRav().GetRav() != nil {
-		final = endResp.Msg.GetFinalRav().GetRav().GetValueAggregate().ToNative()
+		final = endResp.Msg.GetFinalRav().GetRav().GetValueAggregate().ToBigInt()
 	}
 	fmt.Printf("  final_rav_value=%s\n", final.String())
 
@@ -181,7 +176,7 @@ func runDemoFlow(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func waitProviderInactive(ctx context.Context, providerClient providerv1connect.ProviderSidecarServiceClient, sessionID string, timeout time.Duration) (bool, error) {
+func waitProviderInactive(ctx context.Context, providerClient providerv1connect.PaymentGatewayServiceClient, sessionID string, timeout time.Duration) (bool, error) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		resp, err := providerClient.GetSessionStatus(ctx, connect.NewRequest(&providerv1.GetSessionStatusRequest{

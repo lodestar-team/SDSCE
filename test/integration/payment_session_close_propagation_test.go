@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"math/big"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/require"
 
+	sds "github.com/graphprotocol/substreams-data-service"
 	consumersidecar "github.com/graphprotocol/substreams-data-service/consumer/sidecar"
 	"github.com/graphprotocol/substreams-data-service/horizon/devenv"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
@@ -17,7 +17,7 @@ import (
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1/consumerv1connect"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
-	providersidecar "github.com/graphprotocol/substreams-data-service/provider/sidecar"
+	providergateway "github.com/graphprotocol/substreams-data-service/provider/gateway"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
@@ -36,7 +36,7 @@ func TestSessionClose_ConsumerEndSession_MakesProviderInactive(t *testing.T) {
 
 	domain := env.Domain()
 
-	providerSidecar := providersidecar.New(&providersidecar.Config{
+	providerGateway := providergateway.New(&providergateway.Config{
 		ListenAddr:      ":19016",
 		ServiceProvider: env.ServiceProvider.Address,
 		Domain:          domain,
@@ -44,12 +44,12 @@ func TestSessionClose_ConsumerEndSession_MakesProviderInactive(t *testing.T) {
 		EscrowAddr:      env.Escrow.Address,
 		RPCEndpoint:     env.RPCURL,
 		PricingConfig: &sidecar.PricingConfig{
-			PricePerBlock: sidecar.NewPriceFromWei(big.NewInt(1)),
-			PricePerByte:  sidecar.NewPriceFromWei(big.NewInt(0)),
+			PricePerBlock: sds.NewGRTFromUint64(1),
+			PricePerByte:  sds.ZeroGRT(),
 		},
 	}, zlog.Named("provider"))
-	go providerSidecar.Run()
-	defer providerSidecar.Shutdown(nil)
+	go providerGateway.Run()
+	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)
 
 	consumerSidecar := consumersidecar.New(&consumersidecar.Config{
@@ -62,7 +62,7 @@ func TestSessionClose_ConsumerEndSession_MakesProviderInactive(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	consumerClient := consumerv1connect.NewConsumerSidecarServiceClient(http.DefaultClient, "http://localhost:19015")
-	providerClient := providerv1connect.NewProviderSidecarServiceClient(http.DefaultClient, "http://localhost:19016")
+	providerClient := providerv1connect.NewPaymentGatewayServiceClient(http.DefaultClient, "http://localhost:19016")
 
 	initResp, err := consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{
 		EscrowAccount: &commonv1.EscrowAccount{
@@ -70,7 +70,7 @@ func TestSessionClose_ConsumerEndSession_MakesProviderInactive(t *testing.T) {
 			Receiver:    commonv1.AddressFromEth(env.ServiceProvider.Address),
 			DataService: commonv1.AddressFromEth(env.DataService.Address),
 		},
-		ProviderEndpoint: "http://localhost:19016",
+		GatewayEndpoint: "http://localhost:19016",
 	}))
 	require.NoError(t, err)
 

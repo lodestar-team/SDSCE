@@ -67,7 +67,7 @@ func (s *Sidecar) ReportUsage(
 		if usage.Cost == nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("<usage.cost> is required"))
 		}
-		cost = usage.Cost.ToNative()
+		cost = usage.Cost.ToBigInt()
 	}
 	session.AddUsage(usage.BlocksProcessed, usage.BytesTransferred, usage.Requests, cost)
 
@@ -250,7 +250,7 @@ func (s *Sidecar) signRAVForRequest(session *sidecarlib.Session, req *providerv1
 		return nil, fmt.Errorf("rav_request.current_rav.rav is required")
 	}
 
-	deltaCost := req.Usage.Cost.ToNative()
+	deltaCost := req.Usage.Cost.ToBigInt()
 	nextValue := new(big.Int).Add(current.Message.ValueAggregate, deltaCost)
 
 	return s.signRAV(

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	sds "github.com/graphprotocol/substreams-data-service"
 	consumersidecar "github.com/graphprotocol/substreams-data-service/consumer/sidecar"
 	"github.com/graphprotocol/substreams-data-service/horizon/devenv"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
@@ -130,7 +131,7 @@ func TestPaymentFlowBasic(t *testing.T) {
 	assert.Equal(t, uint64(150), endResp.Msg.TotalUsage.BlocksProcessed, "expected 150 total blocks")
 
 	// Convert final RAV value
-	finalValue := endResp.Msg.FinalRav.Rav.ValueAggregate.ToNative()
+	finalValue := endResp.Msg.FinalRav.Rav.ValueAggregate.ToBigInt()
 	t.Logf("Session ended. Final RAV value: %s", finalValue.String())
 
 	t.Log("Payment flow test completed successfully!")
@@ -168,8 +169,8 @@ func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
 		EscrowAddr:      env.Escrow.Address,
 		RPCEndpoint:     env.RPCURL,
 		PricingConfig: &sidecar.PricingConfig{
-			PricePerBlock: sidecar.NewPriceFromWei(big.NewInt(1)),
-			PricePerByte:  sidecar.NewPriceFromWei(big.NewInt(0)),
+			PricePerBlock: sds.NewGRTFromUint64(1),
+			PricePerByte:  sds.ZeroGRT(),
 		},
 	}, zlog.Named("provider"))
 	go providerGateway.Run()
@@ -206,7 +207,7 @@ func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
 	require.NotNil(t, reportResp.Msg.GetUpdatedRav().GetRav())
 
 	existingRAV := reportResp.Msg.GetUpdatedRav()
-	existingValue := existingRAV.GetRav().GetValueAggregate().ToNative()
+	existingValue := existingRAV.GetRav().GetValueAggregate().ToBigInt()
 	require.Equal(t, 0, existingValue.Cmp(big.NewInt(1)))
 
 	// Resume by calling Init(existing_rav=...) and assert the returned payment_rav matches the existing state.
@@ -219,8 +220,8 @@ func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
 	require.NotNil(t, initResp2.Msg.GetPaymentRav())
 	require.NotNil(t, initResp2.Msg.GetPaymentRav().GetRav())
 
-	resumedValue := initResp2.Msg.GetPaymentRav().GetRav().GetValueAggregate().ToNative()
-	require.Equal(t, 0, resumedValue.Cmp(&existingValue))
+	resumedValue := initResp2.Msg.GetPaymentRav().GetRav().GetValueAggregate().ToBigInt()
+	require.Equal(t, 0, resumedValue.Cmp(existingValue))
 
 	// Invalid resumption should fail clearly.
 	_, err = consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{

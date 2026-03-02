@@ -200,8 +200,8 @@ func runDemoSetup(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\n")
 
 	fmt.Printf("START COMMANDS:\n")
-	fmt.Printf("  Provider sidecar:\n")
-	fmt.Printf("    sds provider sidecar --service-provider %s --collector-address %s --escrow-address %s --rpc-endpoint %s\n",
+	fmt.Printf("  Provider gateway:\n")
+	fmt.Printf("    sds provider gateway --service-provider %s --collector-address %s --escrow-address %s --rpc-endpoint %s\n",
 		serviceProviderAddr.Pretty(),
 		collectorAddr.Pretty(),
 		escrowAddr.Pretty(),

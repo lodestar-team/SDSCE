@@ -13,12 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
 
+	sds "github.com/graphprotocol/substreams-data-service"
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/graphprotocol/substreams-data-service/horizon/devenv"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
-	providersidecar "github.com/graphprotocol/substreams-data-service/provider/sidecar"
+	providergateway "github.com/graphprotocol/substreams-data-service/provider/gateway"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
@@ -39,11 +40,11 @@ func TestPaymentSession_RejectsUnderpayingRAV(t *testing.T) {
 
 	// Make pricing deterministic: 1 wei per block, 0 per byte.
 	pricingConfig := &sidecar.PricingConfig{
-		PricePerBlock: sidecar.NewPriceFromWei(big.NewInt(1)),
-		PricePerByte:  sidecar.NewPriceFromWei(big.NewInt(0)),
+		PricePerBlock: sds.NewGRTFromUint64(1),
+		PricePerByte:  sds.ZeroGRT(),
 	}
 
-	providerSidecar := providersidecar.New(&providersidecar.Config{
+	providerGateway := providergateway.New(&providergateway.Config{
 		ListenAddr:      ":19014",
 		ServiceProvider: env.ServiceProvider.Address,
 		Domain:          domain,
@@ -52,8 +53,8 @@ func TestPaymentSession_RejectsUnderpayingRAV(t *testing.T) {
 		RPCEndpoint:     env.RPCURL,
 		PricingConfig:   pricingConfig,
 	}, zlog.Named("provider"))
-	go providerSidecar.Run()
-	defer providerSidecar.Shutdown(nil)
+	go providerGateway.Run()
+	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)
 
 	h2cClient := &http.Client{
@@ -66,7 +67,6 @@ func TestPaymentSession_RejectsUnderpayingRAV(t *testing.T) {
 	}
 
 	gatewayClient := providerv1connect.NewPaymentGatewayServiceClient(h2cClient, "http://localhost:19014", connect.WithGRPC())
-	providerClient := providerv1connect.NewProviderSidecarServiceClient(http.DefaultClient, "http://localhost:19014")
 
 	rav0 := &horizon.RAV{
 		Payer:           env.Payer.Address,
@@ -111,7 +111,7 @@ func TestPaymentSession_RejectsUnderpayingRAV(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp.GetRavRequest(), "expected provider to emit a rav_request")
 
-	current := resp.GetRavRequest().GetCurrentRav().GetRav().GetValueAggregate().ToNative()
+	current := resp.GetRavRequest().GetCurrentRav().GetRav().GetValueAggregate().ToBigInt()
 	require.Equal(t, 0, current.Cmp(big.NewInt(0)))
 
 	// Underpay: keep same value even though usage delta is 1 wei.
@@ -142,12 +142,12 @@ func TestPaymentSession_RejectsUnderpayingRAV(t *testing.T) {
 	require.Equal(t, providerv1.SessionControl_ACTION_STOP, resp2.GetSessionControl().GetAction())
 	require.Contains(t, resp2.GetSessionControl().GetReason(), "underpays")
 
-	statusResp, err := providerClient.GetSessionStatus(ctx, connect.NewRequest(&providerv1.GetSessionStatusRequest{
+	statusResp, err := gatewayClient.GetSessionStatus(ctx, connect.NewRequest(&providerv1.GetSessionStatusRequest{
 		SessionId: startResp.Msg.SessionId,
 	}))
 	require.NoError(t, err)
 	require.NotNil(t, statusResp.Msg.GetPaymentStatus())
-	require.Equal(t, big.NewInt(0).Bytes(), statusResp.Msg.GetPaymentStatus().GetCurrentRavValue().ToNative().Bytes())
+	require.Equal(t, 0, statusResp.Msg.GetPaymentStatus().GetCurrentRavValue().ToBigInt().Cmp(big.NewInt(0)))
 
 	require.NoError(t, stream.CloseRequest())
 	_ = stream.CloseResponse()

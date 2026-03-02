@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/require"
 
+	sds "github.com/graphprotocol/substreams-data-service"
 	consumersidecar "github.com/graphprotocol/substreams-data-service/consumer/sidecar"
 	"github.com/graphprotocol/substreams-data-service/horizon/devenv"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
@@ -17,7 +18,7 @@ import (
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1/consumerv1connect"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
-	providersidecar "github.com/graphprotocol/substreams-data-service/provider/sidecar"
+	providergateway "github.com/graphprotocol/substreams-data-service/provider/gateway"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
@@ -38,11 +39,11 @@ func TestConsumerSidecar_ReportUsage_WiresPaymentSessionLoop(t *testing.T) {
 
 	// Make pricing deterministic: 1 wei per block, 0 per byte.
 	pricingConfig := &sidecar.PricingConfig{
-		PricePerBlock: sidecar.NewPriceFromWei(big.NewInt(1)),
-		PricePerByte:  sidecar.NewPriceFromWei(big.NewInt(0)),
+		PricePerBlock: sds.NewGRTFromUint64(1),
+		PricePerByte:  sds.ZeroGRT(),
 	}
 
-	providerSidecar := providersidecar.New(&providersidecar.Config{
+	providerGateway := providergateway.New(&providergateway.Config{
 		ListenAddr:      ":19013",
 		ServiceProvider: env.ServiceProvider.Address,
 		Domain:          domain,
@@ -51,8 +52,8 @@ func TestConsumerSidecar_ReportUsage_WiresPaymentSessionLoop(t *testing.T) {
 		RPCEndpoint:     env.RPCURL,
 		PricingConfig:   pricingConfig,
 	}, zlog.Named("provider"))
-	go providerSidecar.Run()
-	defer providerSidecar.Shutdown(nil)
+	go providerGateway.Run()
+	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)
 
 	consumerSidecar := consumersidecar.New(&consumersidecar.Config{
@@ -65,7 +66,7 @@ func TestConsumerSidecar_ReportUsage_WiresPaymentSessionLoop(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	consumerClient := consumerv1connect.NewConsumerSidecarServiceClient(http.DefaultClient, "http://localhost:19012")
-	providerClient := providerv1connect.NewProviderSidecarServiceClient(http.DefaultClient, "http://localhost:19013")
+	providerClient := providerv1connect.NewPaymentGatewayServiceClient(http.DefaultClient, "http://localhost:19013")
 
 	initResp, err := consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{
 		EscrowAccount: &commonv1.EscrowAccount{
@@ -73,7 +74,7 @@ func TestConsumerSidecar_ReportUsage_WiresPaymentSessionLoop(t *testing.T) {
 			Receiver:    commonv1.AddressFromEth(env.ServiceProvider.Address),
 			DataService: commonv1.AddressFromEth(env.DataService.Address),
 		},
-		ProviderEndpoint: "http://localhost:19013",
+		GatewayEndpoint: "http://localhost:19013",
 	}))
 	require.NoError(t, err)
 
@@ -93,12 +94,12 @@ func TestConsumerSidecar_ReportUsage_WiresPaymentSessionLoop(t *testing.T) {
 	require.True(t, usageResp.Msg.GetShouldContinue())
 	require.NotNil(t, usageResp.Msg.GetUpdatedRav())
 	require.NotNil(t, usageResp.Msg.GetUpdatedRav().GetRav())
-	require.Equal(t, big.NewInt(1).Bytes(), usageResp.Msg.GetUpdatedRav().GetRav().GetValueAggregate().ToNative().Bytes())
+	require.Equal(t, 0, usageResp.Msg.GetUpdatedRav().GetRav().GetValueAggregate().ToBigInt().Cmp(big.NewInt(1)))
 
 	statusResp, err := providerClient.GetSessionStatus(ctx, connect.NewRequest(&providerv1.GetSessionStatusRequest{
 		SessionId: sessionID,
 	}))
 	require.NoError(t, err)
 	require.NotNil(t, statusResp.Msg.GetPaymentStatus())
-	require.Equal(t, big.NewInt(1).Bytes(), statusResp.Msg.GetPaymentStatus().GetCurrentRavValue().ToNative().Bytes())
+	require.Equal(t, 0, statusResp.Msg.GetPaymentStatus().GetCurrentRavValue().ToBigInt().Cmp(big.NewInt(1)))
 }

@@ -75,7 +75,106 @@ func (x SessionControl_Action) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SessionControl_Action.Descriptor instead.
 func (SessionControl_Action) EnumDescriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{11, 0}
+	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{13, 0}
+}
+
+type GetSessionStatusRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The session ID
+	SessionId     string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSessionStatusRequest) Reset() {
+	*x = GetSessionStatusRequest{}
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSessionStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSessionStatusRequest) ProtoMessage() {}
+
+func (x *GetSessionStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSessionStatusRequest.ProtoReflect.Descriptor instead.
+func (*GetSessionStatusRequest) Descriptor() ([]byte, []int) {
+	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *GetSessionStatusRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+type GetSessionStatusResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Whether the session is active.
+	Active bool `protobuf:"varint,1,opt,name=active,proto3" json:"active,omitempty"`
+	// Payment status snapshot (best-effort).
+	PaymentStatus *v1.PaymentStatus `protobuf:"bytes,2,opt,name=payment_status,json=paymentStatus,proto3" json:"payment_status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSessionStatusResponse) Reset() {
+	*x = GetSessionStatusResponse{}
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSessionStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSessionStatusResponse) ProtoMessage() {}
+
+func (x *GetSessionStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSessionStatusResponse.ProtoReflect.Descriptor instead.
+func (*GetSessionStatusResponse) Descriptor() ([]byte, []int) {
+	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *GetSessionStatusResponse) GetActive() bool {
+	if x != nil {
+		return x.Active
+	}
+	return false
+}
+
+func (x *GetSessionStatusResponse) GetPaymentStatus() *v1.PaymentStatus {
+	if x != nil {
+		return x.PaymentStatus
+	}
+	return nil
 }
 
 type StartSessionRequest struct {
@@ -90,7 +189,7 @@ type StartSessionRequest struct {
 
 func (x *StartSessionRequest) Reset() {
 	*x = StartSessionRequest{}
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[0]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -102,7 +201,7 @@ func (x *StartSessionRequest) String() string {
 func (*StartSessionRequest) ProtoMessage() {}
 
 func (x *StartSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[0]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -115,7 +214,7 @@ func (x *StartSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartSessionRequest.ProtoReflect.Descriptor instead.
 func (*StartSessionRequest) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{0}
+	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *StartSessionRequest) GetEscrowAccount() *v1.EscrowAccount {
@@ -150,7 +249,7 @@ type StartSessionResponse struct {
 
 func (x *StartSessionResponse) Reset() {
 	*x = StartSessionResponse{}
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[1]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -162,7 +261,7 @@ func (x *StartSessionResponse) String() string {
 func (*StartSessionResponse) ProtoMessage() {}
 
 func (x *StartSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[1]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -175,7 +274,7 @@ func (x *StartSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartSessionResponse.ProtoReflect.Descriptor instead.
 func (*StartSessionResponse) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{1}
+	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *StartSessionResponse) GetSessionId() string {
@@ -227,7 +326,7 @@ type SubmitRAVRequest struct {
 
 func (x *SubmitRAVRequest) Reset() {
 	*x = SubmitRAVRequest{}
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[2]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -239,7 +338,7 @@ func (x *SubmitRAVRequest) String() string {
 func (*SubmitRAVRequest) ProtoMessage() {}
 
 func (x *SubmitRAVRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[2]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -252,7 +351,7 @@ func (x *SubmitRAVRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitRAVRequest.ProtoReflect.Descriptor instead.
 func (*SubmitRAVRequest) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{2}
+	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SubmitRAVRequest) GetSessionId() string {
@@ -290,7 +389,7 @@ type SubmitRAVResponse struct {
 
 func (x *SubmitRAVResponse) Reset() {
 	*x = SubmitRAVResponse{}
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[3]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -302,7 +401,7 @@ func (x *SubmitRAVResponse) String() string {
 func (*SubmitRAVResponse) ProtoMessage() {}
 
 func (x *SubmitRAVResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[3]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -315,7 +414,7 @@ func (x *SubmitRAVResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitRAVResponse.ProtoReflect.Descriptor instead.
 func (*SubmitRAVResponse) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{3}
+	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SubmitRAVResponse) GetAccepted() bool {
@@ -357,7 +456,7 @@ type PaymentSessionRequest struct {
 
 func (x *PaymentSessionRequest) Reset() {
 	*x = PaymentSessionRequest{}
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[4]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -369,7 +468,7 @@ func (x *PaymentSessionRequest) String() string {
 func (*PaymentSessionRequest) ProtoMessage() {}
 
 func (x *PaymentSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[4]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -382,7 +481,7 @@ func (x *PaymentSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PaymentSessionRequest.ProtoReflect.Descriptor instead.
 func (*PaymentSessionRequest) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{4}
+	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *PaymentSessionRequest) GetSessionId() string {
@@ -466,7 +565,7 @@ type PaymentSessionResponse struct {
 
 func (x *PaymentSessionResponse) Reset() {
 	*x = PaymentSessionResponse{}
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[5]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -478,7 +577,7 @@ func (x *PaymentSessionResponse) String() string {
 func (*PaymentSessionResponse) ProtoMessage() {}
 
 func (x *PaymentSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[5]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -491,7 +590,7 @@ func (x *PaymentSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PaymentSessionResponse.ProtoReflect.Descriptor instead.
 func (*PaymentSessionResponse) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{5}
+	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *PaymentSessionResponse) GetMessage() isPaymentSessionResponse_Message {
@@ -565,7 +664,7 @@ type SignedRAVSubmission struct {
 
 func (x *SignedRAVSubmission) Reset() {
 	*x = SignedRAVSubmission{}
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[6]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -577,7 +676,7 @@ func (x *SignedRAVSubmission) String() string {
 func (*SignedRAVSubmission) ProtoMessage() {}
 
 func (x *SignedRAVSubmission) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[6]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -590,7 +689,7 @@ func (x *SignedRAVSubmission) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedRAVSubmission.ProtoReflect.Descriptor instead.
 func (*SignedRAVSubmission) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{6}
+	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SignedRAVSubmission) GetSignedRav() *v1.SignedRAV {
@@ -619,7 +718,7 @@ type FundsAcknowledgment struct {
 
 func (x *FundsAcknowledgment) Reset() {
 	*x = FundsAcknowledgment{}
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[7]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -631,7 +730,7 @@ func (x *FundsAcknowledgment) String() string {
 func (*FundsAcknowledgment) ProtoMessage() {}
 
 func (x *FundsAcknowledgment) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[7]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -644,7 +743,7 @@ func (x *FundsAcknowledgment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FundsAcknowledgment.ProtoReflect.Descriptor instead.
 func (*FundsAcknowledgment) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{7}
+	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *FundsAcknowledgment) GetWillDeposit() bool {
@@ -671,7 +770,7 @@ type UsageReport struct {
 
 func (x *UsageReport) Reset() {
 	*x = UsageReport{}
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[8]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -683,7 +782,7 @@ func (x *UsageReport) String() string {
 func (*UsageReport) ProtoMessage() {}
 
 func (x *UsageReport) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[8]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -696,7 +795,7 @@ func (x *UsageReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UsageReport.ProtoReflect.Descriptor instead.
 func (*UsageReport) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{8}
+	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *UsageReport) GetUsage() *v1.Usage {
@@ -720,7 +819,7 @@ type RAVRequest struct {
 
 func (x *RAVRequest) Reset() {
 	*x = RAVRequest{}
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[9]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -732,7 +831,7 @@ func (x *RAVRequest) String() string {
 func (*RAVRequest) ProtoMessage() {}
 
 func (x *RAVRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[9]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -745,7 +844,7 @@ func (x *RAVRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RAVRequest.ProtoReflect.Descriptor instead.
 func (*RAVRequest) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{9}
+	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *RAVRequest) GetCurrentRav() *v1.SignedRAV {
@@ -785,7 +884,7 @@ type NeedMoreFunds struct {
 
 func (x *NeedMoreFunds) Reset() {
 	*x = NeedMoreFunds{}
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[10]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -797,7 +896,7 @@ func (x *NeedMoreFunds) String() string {
 func (*NeedMoreFunds) ProtoMessage() {}
 
 func (x *NeedMoreFunds) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[10]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -810,7 +909,7 @@ func (x *NeedMoreFunds) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NeedMoreFunds.ProtoReflect.Descriptor instead.
 func (*NeedMoreFunds) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{10}
+	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *NeedMoreFunds) GetOutstandingRavs() []*v1.SignedRAV {
@@ -852,7 +951,7 @@ type SessionControl struct {
 
 func (x *SessionControl) Reset() {
 	*x = SessionControl{}
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[11]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -864,7 +963,7 @@ func (x *SessionControl) String() string {
 func (*SessionControl) ProtoMessage() {}
 
 func (x *SessionControl) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[11]
+	mi := &file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -877,7 +976,7 @@ func (x *SessionControl) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionControl.ProtoReflect.Descriptor instead.
 func (*SessionControl) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{11}
+	return file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *SessionControl) GetAction() SessionControl_Action {
@@ -898,7 +997,13 @@ var File_graph_substreams_data_service_provider_v1_gateway_proto protoreflect.Fi
 
 const file_graph_substreams_data_service_provider_v1_gateway_proto_rawDesc = "" +
 	"\n" +
-	"7graph/substreams/data_service/provider/v1/gateway.proto\x12)graph.substreams.data_service.provider.v1\x1a3graph/substreams/data_service/common/v1/types.proto\"\xc9\x01\n" +
+	"7graph/substreams/data_service/provider/v1/gateway.proto\x12)graph.substreams.data_service.provider.v1\x1a3graph/substreams/data_service/common/v1/types.proto\"8\n" +
+	"\x17GetSessionStatusRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"\x91\x01\n" +
+	"\x18GetSessionStatusResponse\x12\x16\n" +
+	"\x06active\x18\x01 \x01(\bR\x06active\x12]\n" +
+	"\x0epayment_status\x18\x02 \x01(\v26.graph.substreams.data_service.common.v1.PaymentStatusR\rpaymentStatus\"\xc9\x01\n" +
 	"\x13StartSessionRequest\x12]\n" +
 	"\x0eescrow_account\x18\x01 \x01(\v26.graph.substreams.data_service.common.v1.EscrowAccountR\rescrowAccount\x12S\n" +
 	"\vinitial_rav\x18\x02 \x01(\v22.graph.substreams.data_service.common.v1.SignedRAVR\n" +
@@ -961,9 +1066,10 @@ const file_graph_substreams_data_service_provider_v1_gateway_proto_rawDesc = "" 
 	"\x12ACTION_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fACTION_CONTINUE\x10\x01\x12\x0f\n" +
 	"\vACTION_STOP\x10\x02\x12\x10\n" +
-	"\fACTION_PAUSE\x10\x032\xce\x03\n" +
+	"\fACTION_PAUSE\x10\x032\xec\x04\n" +
 	"\x15PaymentGatewayService\x12\x8f\x01\n" +
-	"\fStartSession\x12>.graph.substreams.data_service.provider.v1.StartSessionRequest\x1a?.graph.substreams.data_service.provider.v1.StartSessionResponse\x12\x86\x01\n" +
+	"\fStartSession\x12>.graph.substreams.data_service.provider.v1.StartSessionRequest\x1a?.graph.substreams.data_service.provider.v1.StartSessionResponse\x12\x9b\x01\n" +
+	"\x10GetSessionStatus\x12B.graph.substreams.data_service.provider.v1.GetSessionStatusRequest\x1aC.graph.substreams.data_service.provider.v1.GetSessionStatusResponse\x12\x86\x01\n" +
 	"\tSubmitRAV\x12;.graph.substreams.data_service.provider.v1.SubmitRAVRequest\x1a<.graph.substreams.data_service.provider.v1.SubmitRAVResponse\x12\x99\x01\n" +
 	"\x0ePaymentSession\x12@.graph.substreams.data_service.provider.v1.PaymentSessionRequest\x1aA.graph.substreams.data_service.provider.v1.PaymentSessionResponse(\x010\x01B\xec\x02\n" +
 	"-com.graph.substreams.data_service.provider.v1B\fGatewayProtoP\x01Zhgithub.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1;providerv1\xa2\x02\x04GSDP\xaa\x02(Graph.Substreams.DataService.Provider.V1\xca\x02(Graph\\Substreams\\DataService\\Provider\\V1\xe2\x024Graph\\Substreams\\DataService\\Provider\\V1\\GPBMetadata\xea\x02,Graph::Substreams::DataService::Provider::V1b\x06proto3"
@@ -981,62 +1087,68 @@ func file_graph_substreams_data_service_provider_v1_gateway_proto_rawDescGZIP() 
 }
 
 var file_graph_substreams_data_service_provider_v1_gateway_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_graph_substreams_data_service_provider_v1_gateway_proto_goTypes = []any{
-	(SessionControl_Action)(0),     // 0: graph.substreams.data_service.provider.v1.SessionControl.Action
-	(*StartSessionRequest)(nil),    // 1: graph.substreams.data_service.provider.v1.StartSessionRequest
-	(*StartSessionResponse)(nil),   // 2: graph.substreams.data_service.provider.v1.StartSessionResponse
-	(*SubmitRAVRequest)(nil),       // 3: graph.substreams.data_service.provider.v1.SubmitRAVRequest
-	(*SubmitRAVResponse)(nil),      // 4: graph.substreams.data_service.provider.v1.SubmitRAVResponse
-	(*PaymentSessionRequest)(nil),  // 5: graph.substreams.data_service.provider.v1.PaymentSessionRequest
-	(*PaymentSessionResponse)(nil), // 6: graph.substreams.data_service.provider.v1.PaymentSessionResponse
-	(*SignedRAVSubmission)(nil),    // 7: graph.substreams.data_service.provider.v1.SignedRAVSubmission
-	(*FundsAcknowledgment)(nil),    // 8: graph.substreams.data_service.provider.v1.FundsAcknowledgment
-	(*UsageReport)(nil),            // 9: graph.substreams.data_service.provider.v1.UsageReport
-	(*RAVRequest)(nil),             // 10: graph.substreams.data_service.provider.v1.RAVRequest
-	(*NeedMoreFunds)(nil),          // 11: graph.substreams.data_service.provider.v1.NeedMoreFunds
-	(*SessionControl)(nil),         // 12: graph.substreams.data_service.provider.v1.SessionControl
-	(*v1.EscrowAccount)(nil),       // 13: graph.substreams.data_service.common.v1.EscrowAccount
-	(*v1.SignedRAV)(nil),           // 14: graph.substreams.data_service.common.v1.SignedRAV
-	(*v1.PricingConfig)(nil),       // 15: graph.substreams.data_service.common.v1.PricingConfig
-	(*v1.Usage)(nil),               // 16: graph.substreams.data_service.common.v1.Usage
-	(*v1.GRT)(nil),                 // 17: graph.substreams.data_service.common.v1.GRT
+	(SessionControl_Action)(0),       // 0: graph.substreams.data_service.provider.v1.SessionControl.Action
+	(*GetSessionStatusRequest)(nil),  // 1: graph.substreams.data_service.provider.v1.GetSessionStatusRequest
+	(*GetSessionStatusResponse)(nil), // 2: graph.substreams.data_service.provider.v1.GetSessionStatusResponse
+	(*StartSessionRequest)(nil),      // 3: graph.substreams.data_service.provider.v1.StartSessionRequest
+	(*StartSessionResponse)(nil),     // 4: graph.substreams.data_service.provider.v1.StartSessionResponse
+	(*SubmitRAVRequest)(nil),         // 5: graph.substreams.data_service.provider.v1.SubmitRAVRequest
+	(*SubmitRAVResponse)(nil),        // 6: graph.substreams.data_service.provider.v1.SubmitRAVResponse
+	(*PaymentSessionRequest)(nil),    // 7: graph.substreams.data_service.provider.v1.PaymentSessionRequest
+	(*PaymentSessionResponse)(nil),   // 8: graph.substreams.data_service.provider.v1.PaymentSessionResponse
+	(*SignedRAVSubmission)(nil),      // 9: graph.substreams.data_service.provider.v1.SignedRAVSubmission
+	(*FundsAcknowledgment)(nil),      // 10: graph.substreams.data_service.provider.v1.FundsAcknowledgment
+	(*UsageReport)(nil),              // 11: graph.substreams.data_service.provider.v1.UsageReport
+	(*RAVRequest)(nil),               // 12: graph.substreams.data_service.provider.v1.RAVRequest
+	(*NeedMoreFunds)(nil),            // 13: graph.substreams.data_service.provider.v1.NeedMoreFunds
+	(*SessionControl)(nil),           // 14: graph.substreams.data_service.provider.v1.SessionControl
+	(*v1.PaymentStatus)(nil),         // 15: graph.substreams.data_service.common.v1.PaymentStatus
+	(*v1.EscrowAccount)(nil),         // 16: graph.substreams.data_service.common.v1.EscrowAccount
+	(*v1.SignedRAV)(nil),             // 17: graph.substreams.data_service.common.v1.SignedRAV
+	(*v1.PricingConfig)(nil),         // 18: graph.substreams.data_service.common.v1.PricingConfig
+	(*v1.Usage)(nil),                 // 19: graph.substreams.data_service.common.v1.Usage
+	(*v1.GRT)(nil),                   // 20: graph.substreams.data_service.common.v1.GRT
 }
 var file_graph_substreams_data_service_provider_v1_gateway_proto_depIdxs = []int32{
-	13, // 0: graph.substreams.data_service.provider.v1.StartSessionRequest.escrow_account:type_name -> graph.substreams.data_service.common.v1.EscrowAccount
-	14, // 1: graph.substreams.data_service.provider.v1.StartSessionRequest.initial_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
-	14, // 2: graph.substreams.data_service.provider.v1.StartSessionResponse.use_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
-	15, // 3: graph.substreams.data_service.provider.v1.StartSessionResponse.pricing_config:type_name -> graph.substreams.data_service.common.v1.PricingConfig
-	14, // 4: graph.substreams.data_service.provider.v1.SubmitRAVRequest.signed_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
-	16, // 5: graph.substreams.data_service.provider.v1.SubmitRAVRequest.usage:type_name -> graph.substreams.data_service.common.v1.Usage
-	7,  // 6: graph.substreams.data_service.provider.v1.PaymentSessionRequest.rav_submission:type_name -> graph.substreams.data_service.provider.v1.SignedRAVSubmission
-	8,  // 7: graph.substreams.data_service.provider.v1.PaymentSessionRequest.funds_ack:type_name -> graph.substreams.data_service.provider.v1.FundsAcknowledgment
-	9,  // 8: graph.substreams.data_service.provider.v1.PaymentSessionRequest.usage_report:type_name -> graph.substreams.data_service.provider.v1.UsageReport
-	10, // 9: graph.substreams.data_service.provider.v1.PaymentSessionResponse.rav_request:type_name -> graph.substreams.data_service.provider.v1.RAVRequest
-	11, // 10: graph.substreams.data_service.provider.v1.PaymentSessionResponse.need_more_funds:type_name -> graph.substreams.data_service.provider.v1.NeedMoreFunds
-	12, // 11: graph.substreams.data_service.provider.v1.PaymentSessionResponse.session_control:type_name -> graph.substreams.data_service.provider.v1.SessionControl
-	14, // 12: graph.substreams.data_service.provider.v1.SignedRAVSubmission.signed_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
-	16, // 13: graph.substreams.data_service.provider.v1.SignedRAVSubmission.usage:type_name -> graph.substreams.data_service.common.v1.Usage
-	17, // 14: graph.substreams.data_service.provider.v1.FundsAcknowledgment.deposit_amount:type_name -> graph.substreams.data_service.common.v1.GRT
-	16, // 15: graph.substreams.data_service.provider.v1.UsageReport.usage:type_name -> graph.substreams.data_service.common.v1.Usage
-	14, // 16: graph.substreams.data_service.provider.v1.RAVRequest.current_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
-	16, // 17: graph.substreams.data_service.provider.v1.RAVRequest.usage:type_name -> graph.substreams.data_service.common.v1.Usage
-	14, // 18: graph.substreams.data_service.provider.v1.NeedMoreFunds.outstanding_ravs:type_name -> graph.substreams.data_service.common.v1.SignedRAV
-	17, // 19: graph.substreams.data_service.provider.v1.NeedMoreFunds.total_outstanding:type_name -> graph.substreams.data_service.common.v1.GRT
-	17, // 20: graph.substreams.data_service.provider.v1.NeedMoreFunds.escrow_balance:type_name -> graph.substreams.data_service.common.v1.GRT
-	17, // 21: graph.substreams.data_service.provider.v1.NeedMoreFunds.minimum_needed:type_name -> graph.substreams.data_service.common.v1.GRT
-	0,  // 22: graph.substreams.data_service.provider.v1.SessionControl.action:type_name -> graph.substreams.data_service.provider.v1.SessionControl.Action
-	1,  // 23: graph.substreams.data_service.provider.v1.PaymentGatewayService.StartSession:input_type -> graph.substreams.data_service.provider.v1.StartSessionRequest
-	3,  // 24: graph.substreams.data_service.provider.v1.PaymentGatewayService.SubmitRAV:input_type -> graph.substreams.data_service.provider.v1.SubmitRAVRequest
-	5,  // 25: graph.substreams.data_service.provider.v1.PaymentGatewayService.PaymentSession:input_type -> graph.substreams.data_service.provider.v1.PaymentSessionRequest
-	2,  // 26: graph.substreams.data_service.provider.v1.PaymentGatewayService.StartSession:output_type -> graph.substreams.data_service.provider.v1.StartSessionResponse
-	4,  // 27: graph.substreams.data_service.provider.v1.PaymentGatewayService.SubmitRAV:output_type -> graph.substreams.data_service.provider.v1.SubmitRAVResponse
-	6,  // 28: graph.substreams.data_service.provider.v1.PaymentGatewayService.PaymentSession:output_type -> graph.substreams.data_service.provider.v1.PaymentSessionResponse
-	26, // [26:29] is the sub-list for method output_type
-	23, // [23:26] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	15, // 0: graph.substreams.data_service.provider.v1.GetSessionStatusResponse.payment_status:type_name -> graph.substreams.data_service.common.v1.PaymentStatus
+	16, // 1: graph.substreams.data_service.provider.v1.StartSessionRequest.escrow_account:type_name -> graph.substreams.data_service.common.v1.EscrowAccount
+	17, // 2: graph.substreams.data_service.provider.v1.StartSessionRequest.initial_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
+	17, // 3: graph.substreams.data_service.provider.v1.StartSessionResponse.use_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
+	18, // 4: graph.substreams.data_service.provider.v1.StartSessionResponse.pricing_config:type_name -> graph.substreams.data_service.common.v1.PricingConfig
+	17, // 5: graph.substreams.data_service.provider.v1.SubmitRAVRequest.signed_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
+	19, // 6: graph.substreams.data_service.provider.v1.SubmitRAVRequest.usage:type_name -> graph.substreams.data_service.common.v1.Usage
+	9,  // 7: graph.substreams.data_service.provider.v1.PaymentSessionRequest.rav_submission:type_name -> graph.substreams.data_service.provider.v1.SignedRAVSubmission
+	10, // 8: graph.substreams.data_service.provider.v1.PaymentSessionRequest.funds_ack:type_name -> graph.substreams.data_service.provider.v1.FundsAcknowledgment
+	11, // 9: graph.substreams.data_service.provider.v1.PaymentSessionRequest.usage_report:type_name -> graph.substreams.data_service.provider.v1.UsageReport
+	12, // 10: graph.substreams.data_service.provider.v1.PaymentSessionResponse.rav_request:type_name -> graph.substreams.data_service.provider.v1.RAVRequest
+	13, // 11: graph.substreams.data_service.provider.v1.PaymentSessionResponse.need_more_funds:type_name -> graph.substreams.data_service.provider.v1.NeedMoreFunds
+	14, // 12: graph.substreams.data_service.provider.v1.PaymentSessionResponse.session_control:type_name -> graph.substreams.data_service.provider.v1.SessionControl
+	17, // 13: graph.substreams.data_service.provider.v1.SignedRAVSubmission.signed_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
+	19, // 14: graph.substreams.data_service.provider.v1.SignedRAVSubmission.usage:type_name -> graph.substreams.data_service.common.v1.Usage
+	20, // 15: graph.substreams.data_service.provider.v1.FundsAcknowledgment.deposit_amount:type_name -> graph.substreams.data_service.common.v1.GRT
+	19, // 16: graph.substreams.data_service.provider.v1.UsageReport.usage:type_name -> graph.substreams.data_service.common.v1.Usage
+	17, // 17: graph.substreams.data_service.provider.v1.RAVRequest.current_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
+	19, // 18: graph.substreams.data_service.provider.v1.RAVRequest.usage:type_name -> graph.substreams.data_service.common.v1.Usage
+	17, // 19: graph.substreams.data_service.provider.v1.NeedMoreFunds.outstanding_ravs:type_name -> graph.substreams.data_service.common.v1.SignedRAV
+	20, // 20: graph.substreams.data_service.provider.v1.NeedMoreFunds.total_outstanding:type_name -> graph.substreams.data_service.common.v1.GRT
+	20, // 21: graph.substreams.data_service.provider.v1.NeedMoreFunds.escrow_balance:type_name -> graph.substreams.data_service.common.v1.GRT
+	20, // 22: graph.substreams.data_service.provider.v1.NeedMoreFunds.minimum_needed:type_name -> graph.substreams.data_service.common.v1.GRT
+	0,  // 23: graph.substreams.data_service.provider.v1.SessionControl.action:type_name -> graph.substreams.data_service.provider.v1.SessionControl.Action
+	3,  // 24: graph.substreams.data_service.provider.v1.PaymentGatewayService.StartSession:input_type -> graph.substreams.data_service.provider.v1.StartSessionRequest
+	1,  // 25: graph.substreams.data_service.provider.v1.PaymentGatewayService.GetSessionStatus:input_type -> graph.substreams.data_service.provider.v1.GetSessionStatusRequest
+	5,  // 26: graph.substreams.data_service.provider.v1.PaymentGatewayService.SubmitRAV:input_type -> graph.substreams.data_service.provider.v1.SubmitRAVRequest
+	7,  // 27: graph.substreams.data_service.provider.v1.PaymentGatewayService.PaymentSession:input_type -> graph.substreams.data_service.provider.v1.PaymentSessionRequest
+	4,  // 28: graph.substreams.data_service.provider.v1.PaymentGatewayService.StartSession:output_type -> graph.substreams.data_service.provider.v1.StartSessionResponse
+	2,  // 29: graph.substreams.data_service.provider.v1.PaymentGatewayService.GetSessionStatus:output_type -> graph.substreams.data_service.provider.v1.GetSessionStatusResponse
+	6,  // 30: graph.substreams.data_service.provider.v1.PaymentGatewayService.SubmitRAV:output_type -> graph.substreams.data_service.provider.v1.SubmitRAVResponse
+	8,  // 31: graph.substreams.data_service.provider.v1.PaymentGatewayService.PaymentSession:output_type -> graph.substreams.data_service.provider.v1.PaymentSessionResponse
+	28, // [28:32] is the sub-list for method output_type
+	24, // [24:28] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_graph_substreams_data_service_provider_v1_gateway_proto_init() }
@@ -1044,12 +1156,12 @@ func file_graph_substreams_data_service_provider_v1_gateway_proto_init() {
 	if File_graph_substreams_data_service_provider_v1_gateway_proto != nil {
 		return
 	}
-	file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[4].OneofWrappers = []any{
+	file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[6].OneofWrappers = []any{
 		(*PaymentSessionRequest_RavSubmission)(nil),
 		(*PaymentSessionRequest_FundsAck)(nil),
 		(*PaymentSessionRequest_UsageReport)(nil),
 	}
-	file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[5].OneofWrappers = []any{
+	file_graph_substreams_data_service_provider_v1_gateway_proto_msgTypes[7].OneofWrappers = []any{
 		(*PaymentSessionResponse_RavRequest)(nil),
 		(*PaymentSessionResponse_NeedMoreFunds)(nil),
 		(*PaymentSessionResponse_SessionControl)(nil),
@@ -1060,7 +1172,7 @@ func file_graph_substreams_data_service_provider_v1_gateway_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_graph_substreams_data_service_provider_v1_gateway_proto_rawDesc), len(file_graph_substreams_data_service_provider_v1_gateway_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   12,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

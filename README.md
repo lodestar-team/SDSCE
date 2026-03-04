@@ -33,6 +33,14 @@ Now `sds` invokes `devel/sds` directly. Use [reflex](https://github.com/cespare/
 reflex -c .reflex  # Starts both sidecars with debug logging
 ```
 
+To keep on-chain state stable while restarting the rest of the stack, run `devenv` separately and use the stack-only reflex config:
+
+```bash
+./devel/sds devenv
+./devel/sds demo setup  # writes devel/.demo.env for `.reflex.stack` (set --env-file="" to disable)
+reflex -c .reflex.stack
+```
+
 We have `devel/sds_sink` helper that can be used to sink in data service mode (invokes `sds sink ...` configured for development environment):
 
 ```bash

@@ -5,6 +5,7 @@ sds
 .provider-gateway
 .consumer-sidecar
 .firehose/
+.demo.env
 .firehose-*/
 
 # Any temporary data

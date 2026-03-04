@@ -1,0 +1,35 @@
+-r "\.(go|sql)$" -s -R "devel/.*" -- sh -c \
+   '. ./devel/.demo.env 2>/dev/null || true && \
+   CONSUMER_LISTEN_ADDR="${SDS_DEMO_CONSUMER_LISTEN_ADDR:-:9002}" && \
+   COLLECTOR_ADDRESS="${SDS_DEMO_COLLECTOR_ADDRESS:-0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9}" && \
+   SIGNER_PRIVATE_KEY="${SDS_DEMO_SIGNER_PRIVATE_KEY:-0xe4c2694501255921b6588519cfd36d4e86ddc4ce19ab1bc91d9c58057c040304}" && \
+   echo "Starting Consumer Sidecar ..." && \
+   DLOG=".*=debug" ./devel/sds consumer sidecar \
+       --grpc-listen-addr="$CONSUMER_LISTEN_ADDR" \
+       --signer-private-key="$SIGNER_PRIVATE_KEY" \
+       --collector-address="$COLLECTOR_ADDRESS"'
+
+-r "\.(go|sql)$" -s -R "devel/.*" -- sh -c \
+    '. ./devel/.demo.env 2>/dev/null || true && \
+    PROVIDER_LISTEN_ADDR="${SDS_DEMO_PROVIDER_LISTEN_ADDR:-:9001}" && \
+    SERVICE_PROVIDER_ADDRESS="${SDS_DEMO_SERVICE_PROVIDER_ADDRESS:-0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf}" && \
+    COLLECTOR_ADDRESS="${SDS_DEMO_COLLECTOR_ADDRESS:-0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9}" && \
+    ESCROW_ADDRESS="${SDS_DEMO_ESCROW_ADDRESS:-0xfc7487a37ca8eac2e64cba61277aa109e9b8631e}" && \
+    RPC_ENDPOINT="${SDS_DEMO_RPC_ENDPOINT:-http://localhost:58545}" && \
+    echo "Starting Provider Gateway ..." && \
+    touch ./devel/.provider-gateway && \
+    DLOG=".*=debug" ./devel/sds provider gateway \
+        --grpc-listen-addr="$PROVIDER_LISTEN_ADDR" \
+        --service-provider="$SERVICE_PROVIDER_ADDRESS" \
+        --collector-address="$COLLECTOR_ADDRESS" \
+        --escrow-address="$ESCROW_ADDRESS" \
+        --rpc-endpoint="$RPC_ENDPOINT"'
+
+-r "(\.provider-gateway|firecore\.config\.yaml)$" -s -R "devel/.*" -- sh -c \
+    'echo "Restarting firehose-core instance (5s delay for provider gateway startup)..." && \
+    sleep 5 && \
+    rm -rf ./devel/.firehose && \
+    echo "Starting Firehose Core" && \
+    echo " Substreams: sds sink -e https://localhost:10016 --insecure" && \
+    echo "" && \
+    PATH="$(go env GOPATH)/bin:$PATH" DLOG="${DLOG:-error}" firecore -c devel/firecore.config.yaml -d ./devel/.firehose start'

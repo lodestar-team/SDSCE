@@ -1,6 +1,6 @@
 # Substreams Data Service — Implementation Backlog
 
-_Last updated: 2026-02-23_
+_Last updated: 2026-03-04_
 
 This repo already contains a working **Horizon V2 (TAP) signing/verification core** (`horizon/`) and a **development environment + integration tests** (`horizon/devenv/`, `test/integration/`).
 
@@ -105,6 +105,8 @@ Update process:
 | SDS-027 | P3 | not_started | Add rate limiting / abuse protection |
 | SDS-037 | P2 | done | Add CLI helper to prepare on-chain demo state (devenv) |
 | SDS-031 | P3 | done | Add `sds demo flow` manual harness (optional) |
+| SDS-038 | P2 | not_started | Make `sds sink run` the primary end-to-end demo (STOP-aware) |
+| SDS-039 | P2 | not_started | Document/enforce required firehose-core version for `sds://` plugins |
 | SDS-032 | P3 | not_started | Explore `protovalidate` for request validation |
 | SDS-033 | P3 | not_started | Reuse/caching for provider gateway clients |
 | SDS-028 | X | not_started | Define payment header format (client ↔ provider) |
@@ -425,6 +427,8 @@ The flow diagram in `docs/flowchart.txt` implies:
 
 ## P3 — Dev Tooling (Demo Prereqs)
 
+**Note on firehose-core compatibility:** the Firehose Core binary (`firecore`) must include the Substreams Data Service plugin registration (commit `536bcd99495f42a27b67b340ccf8416f0fc967bf` on `streamingfast/firehose-core`). Older binaries may start but fail to load/route `sds://` plugins. This affects `.reflex` and `devel/firecore.config.yaml`.
+
 - [x] SDS-037 Add a CLI helper to prepare on-chain demo state for devenv.
   - Context:
     - Integration tests call `Env.SetupTestWithSigner(...)` (mint/approve/deposit escrow, register service provider, authorize signer), but there is no CLI workflow for humans to do it when running sidecars manually.
@@ -446,16 +450,51 @@ The flow diagram in `docs/flowchart.txt` implies:
   - Target:
     - Provide a single command that:
       - calls consumer `Init`,
-      - calls provider `ValidatePayment`,
-      - opens `PaymentSession`, exercises `rav_request`/`rav_submission`, and
+      - opens `PaymentSession`, exercises `rav_request`/`rav_submission`,
       - sends usage updates (blocks/bytes),
-      - ends the session, printing key IDs and RAV values.
+      - ends the session, printing key IDs and RAV values, and
+      - (optionally) queries provider gateway status for the session.
     - Prefer to reuse the already-running `sds devenv` and the running sidecars, rather than spinning up containers itself.
   - Done when:
     - `./devel/sds demo flow ...` (or an `examples/` program) can be run by a human to demonstrate the end-to-end RPC flow with clear output.
   - Verify:
     - Manual: start `./devel/sds devenv`, start both sidecars, run the demo harness, and confirm it exercises both sidecars and prints session IDs + final RAV value.
     - Automated (preferred): add a lightweight integration test asserting the harness completes successfully.
+
+- [ ] SDS-038 Make `sds sink run` the primary end-to-end demo (STOP-aware).
+  - Context:
+    - `sds demo flow` is a good RPC-level harness, but it does not stream real Substreams data nor exercise the real provider stack (firehose-core + plugins).
+    - We now have `sds sink run` (and `devel/sds_sink`) which is a “Data Service aware” sink runner: it initializes a payment session with the consumer sidecar, injects `x-sds-rav` headers, reports usage while streaming, and ends the session.
+  - Target:
+    - Make the “default demo” path be:
+      - `reflex -c .reflex` (provider gateway + consumer sidecar + firecore),
+      - `./devel/sds demo setup` (fund escrow + authorize signer),
+      - `./devel/sds_sink run common@v0.1.0 map_clocks -s -1` (or similar), observing RAV/value progression.
+    - Make `sds sink run` STOP-aware:
+      - If consumer sidecar `ReportUsage` returns `should_continue=false`, terminate the sink run promptly and return a non-zero exit code with the stop reason.
+      - Ensure session cleanup (`EndSession`) still runs (best-effort) on termination.
+  - Done when:
+    - The demo can be run end-to-end without manual “fake usage loops”, using a real Substreams endpoint.
+    - A STOP decision from the sidecar actually stops the sink run and is visible to the operator.
+  - Verify:
+    - Manual: with `.reflex` running, run `./devel/sds_sink run common@v0.1.0 map_clocks -s -1` and observe periodic usage reports + RAV updates.
+    - Manual: force a STOP (e.g. underpay test setup) and confirm `sds sink run` exits non-zero and prints the stop reason.
+
+- [ ] SDS-039 Document/enforce required firehose-core version for `sds://` plugins.
+  - Context:
+    - The demo stack uses firehose-core plugins (`sds://...`) configured in `devel/firecore.config.yaml`.
+    - Plugin registration for SDS in firehose-core landed in `streamingfast/firehose-core@536bcd99495f42a27b67b340ccf8416f0fc967bf`; older `firecore` builds may not recognize or route SDS plugin URIs.
+  - Target:
+    - Update docs to explicitly state the minimum `firecore` build/commit required for the demo stack.
+    - Optionally add a lightweight runtime check (or clearer failure message) in dev tooling:
+      - detect unsupported plugin registration early (before starting the full stack), and
+      - guide the developer to rebuild `firecore`.
+  - Done when:
+    - A developer running the documented demo commands either:
+      - has a compatible `firecore` and the stack boots cleanly, or
+      - gets an immediate, actionable error pointing to the required firehose-core version.
+  - Verify:
+    - Manual: run `.reflex` with an up-to-date `firecore` binary and confirm firehose-core starts with SDS plugins enabled.
 
 ---
 

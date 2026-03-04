@@ -5,6 +5,7 @@ sds
 .provider-gateway
 .consumer-sidecar
 .firehose/
+.firehose-*/
 
 # Any temporary data
 *.tmp

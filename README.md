@@ -13,12 +13,18 @@ A Golang implementation of the payment infrastructure for Substreams Data Servic
 - [firecore](https://github.com/streamingfast/firehose-core)
 - [dummy-blockchain](https://github.com/streamingfast/dummy-blockchain)
 
+If you install `firecore`/`dummy-blockchain` with `go install`, ensure `$(go env GOPATH)/bin` is on your `PATH`.
+
 ### Quick Start
 
 The `devel/sds` wrapper automatically compiles and runs the CLI on each invocation. Using [direnv](https://direnv.net/), create an `.envrc` file to add it to your PATH:
 
 ```bash
-echo 'path_add PATH "`pwd`/devel"' > .envrc && direnv allow
+cat > .envrc <<'EOF'
+PATH_add "$(pwd)/devel"
+PATH_add "$(go env GOPATH)/bin"
+EOF
+direnv allow
 ```
 
 Now `sds` invokes `devel/sds` directly. Use [reflex](https://github.com/cespare/reflex) to auto-restart services on code changes:
@@ -75,15 +81,26 @@ To run the full Substreams Data Service stack with a Firehose provider, you need
 
 ```bash
 # Build firecore
-git clone https://github.com/streamingfast/firehose-core
-cd firehose-core && go install ./cmd/firecore && cd ..
+#
+# IMPORTANT: `firecore` must include SDS plugin registration support, otherwise the `sds://...` plugins
+# configured in `devel/firecore.config.yaml` won't load. Use at least this commit:
+#   536bcd99495f42a27b67b340ccf8416f0fc967bf
+go install github.com/streamingfast/firehose-core/cmd/firecore@536bcd99495f42a27b67b340ccf8416f0fc967bf
 
 # Build dummy-blockchain
-git clone https://github.com/streamingfast/dummy-blockchain
-cd dummy-blockchain && go install . && cd ..
+go install github.com/streamingfast/dummy-blockchain@latest
 ```
 
 A sample firecore configuration is provided in `devel/firecore.config.yaml` that uses dummy-blockchain as the reader node and configures the SDS plugins (auth, session, metering) to connect to the provider gateway on `:9001`.
+
+Sanity check (what to look for in logs):
+- Good:
+  - `auth plugin instantiation {"plugin_kind": "sds"}`
+  - `MeteringConfig:"sds://localhost:9001?..."`
+  - `processing block {"block_number": ...}` (dummy-blockchain is running)
+- Bad:
+  - `executable file not found in $PATH` for `dummy-blockchain` → ensure `$(go env GOPATH)/bin` is on `PATH`
+  - errors about unknown `sds` plugin kind/scheme → your `firecore` binary is too old
 
 ## Architecture
 
@@ -128,7 +145,7 @@ sds consumer sidecar \
   --collector-address 0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9
 ```
 
-#### Provider Gateway (`provider/sidecar`)
+#### Provider Gateway (`provider/gateway`)
 
 Runs alongside the data provider (substreams-tier1) and handles:
 - RAV validation and signature verification

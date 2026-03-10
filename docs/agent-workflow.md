@@ -32,6 +32,13 @@ In `plans/implementation-backlog.md`:
 - Prefer fixing root causes over adding workarounds.
 - Keep changes narrowly scoped to the selected task (avoid drive-by refactors).
 
+Before writing code, run these quick checks:
+
+- **Domain type check**: is there already a repo-level type/helper for this domain (`sds.GRT`, address/signature helpers, etc.)?
+- **Ownership check**: if the change touches concurrency or streams, which type owns the resource, the locking, and the timeout/retry policy?
+- **Determinism check**: if the change touches demo/dev orchestration, should missing config fail fast instead of silently defaulting?
+- **Package-boundary check**: if runtime code is importing from a development-only package, should that dependency be promoted to shared infrastructure instead?
+
 ### Protobuf changes
 
 If a task touches `proto/`:
@@ -89,3 +96,12 @@ In `plans/implementation-backlog.md`:
 - `blocked`: record the concrete blocker (missing dependency, unclear spec, external repo change required).
 - `deferred`: record the reason (not needed yet, too risky now, awaiting design decision) and what would un-defer it.
 
+---
+
+## 9) Incorporate Review Learnings
+
+If you are implementing or revisiting code after reviewer feedback:
+
+- Track the remediation work in the relevant plan/review document instead of leaving it as unstructured commentary.
+- Update `AGENTS.md` or workflow docs when the feedback reflects a reusable engineering rule rather than a one-off preference.
+- Prefer addressing the structural issue the reviewer pointed out, not just the narrow line comment.

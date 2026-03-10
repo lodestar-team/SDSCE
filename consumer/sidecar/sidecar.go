@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/big"
 	"net/http"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/graphprotocol/substreams-data-service/horizon"
@@ -34,25 +35,34 @@ type Sidecar struct {
 	signerKey *eth.PrivateKey
 	domain    *horizon.Domain
 
+	paymentSessionRoundtripTimeout time.Duration
+
 	// Provider gateway endpoint (set during Init)
 	// In production, this would be dynamically determined
 }
 
 type Config struct {
-	ListenAddr string
-	SignerKey  *eth.PrivateKey
-	Domain     *horizon.Domain
+	ListenAddr                     string
+	SignerKey                      *eth.PrivateKey
+	Domain                         *horizon.Domain
+	PaymentSessionRoundtripTimeout time.Duration
 }
 
 func New(config *Config, logger *zap.Logger) *Sidecar {
+	paymentSessionRoundtripTimeout := config.PaymentSessionRoundtripTimeout
+	if paymentSessionRoundtripTimeout <= 0 {
+		paymentSessionRoundtripTimeout = 30 * time.Second
+	}
+
 	return &Sidecar{
-		Shutter:         shutter.New(),
-		listenAddr:      config.ListenAddr,
-		logger:          logger,
-		sessions:        sidecar.NewSessionManager(),
-		paymentSessions: newPaymentSessionManager(),
-		signerKey:       config.SignerKey,
-		domain:          config.Domain,
+		Shutter:                        shutter.New(),
+		listenAddr:                     config.ListenAddr,
+		logger:                         logger,
+		sessions:                       sidecar.NewSessionManager(),
+		paymentSessions:                newPaymentSessionManager(),
+		signerKey:                      config.SignerKey,
+		domain:                         config.Domain,
+		paymentSessionRoundtripTimeout: paymentSessionRoundtripTimeout,
 	}
 }
 

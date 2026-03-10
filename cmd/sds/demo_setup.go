@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"math/big"
 	"os"
@@ -12,8 +11,9 @@ import (
 	"strings"
 	"time"
 
+	sds "github.com/graphprotocol/substreams-data-service"
+	"github.com/graphprotocol/substreams-data-service/contracts/artifacts"
 	"github.com/graphprotocol/substreams-data-service/horizon/devenv"
-	devenvcontracts "github.com/graphprotocol/substreams-data-service/horizon/devenv/contracts"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/streamingfast/cli"
@@ -110,9 +110,9 @@ func runDemoSetup(cmd *cobra.Command, args []string) error {
 		cli.NoError(err, "unable to generate random signer key")
 	}
 
-	escrowAmountWei, err := parseGRTToWei(escrowAmountStr)
+	escrowAmount, err := sds.ParseGRT(escrowAmountStr)
 	cli.NoError(err, "invalid <escrow-amount-grt> %q", escrowAmountStr)
-	provisionAmountWei, err := parseGRTToWei(provisionAmountStr)
+	provisionAmount, err := sds.ParseGRT(provisionAmountStr)
 	cli.NoError(err, "invalid <provision-amount-grt> %q", provisionAmountStr)
 
 	rpcClient := rpc.NewClient(rpcEndpoint)
@@ -121,15 +121,15 @@ func runDemoSetup(cmd *cobra.Command, args []string) error {
 	signerAddr := signerKey.PublicKey().Address()
 
 	// Load ABIs from embedded artifacts.
-	tokenABI, err := loadContractABI("MockGRTToken")
+	tokenABI, err := artifacts.LoadABI("MockGRTToken")
 	cli.NoError(err, "unable to load MockGRTToken ABI")
-	escrowABI, err := loadContractABI("PaymentsEscrow")
+	escrowABI, err := artifacts.LoadABI("PaymentsEscrow")
 	cli.NoError(err, "unable to load PaymentsEscrow ABI")
-	collectorABI, err := loadContractABI("GraphTallyCollector")
+	collectorABI, err := artifacts.LoadABI("GraphTallyCollector")
 	cli.NoError(err, "unable to load GraphTallyCollector ABI")
-	dataServiceABI, err := loadContractABI("SubstreamsDataService")
+	dataServiceABI, err := artifacts.LoadABI("SubstreamsDataService")
 	cli.NoError(err, "unable to load SubstreamsDataService ABI")
-	stakingABI, err := loadContractABI("MockStaking")
+	stakingABI, err := artifacts.LoadABI("MockStaking")
 	cli.NoError(err, "unable to load MockStaking ABI")
 
 	tokenContract := &devenv.Contract{Address: tokenAddr, ABI: tokenABI}
@@ -140,37 +140,37 @@ func runDemoSetup(cmd *cobra.Command, args []string) error {
 
 	// Mint GRT to payer.
 	{
-		data, err := tokenContract.CallData("mint", payerAddr, escrowAmountWei)
+		data, err := tokenContract.CallData("mint", payerAddr, escrowAmount.BigInt())
 		cli.NoError(err, "unable to encode MockGRTToken.mint")
-		cli.NoError(devenv.SendTransaction(ctx, rpcClient, deployerKey, chainID, &tokenContract.Address, big.NewInt(0), data), "minting GRT")
+		cli.NoError(devenv.SendTransaction(ctx, rpcClient, deployerKey, chainID, &tokenContract.Address, sds.ZeroGRT().BigInt(), data), "minting GRT")
 	}
 
 	// Approve escrow to spend GRT.
 	{
-		data, err := tokenContract.CallData("approve", escrowContract.Address, escrowAmountWei)
+		data, err := tokenContract.CallData("approve", escrowContract.Address, escrowAmount.BigInt())
 		cli.NoError(err, "unable to encode MockGRTToken.approve")
-		cli.NoError(devenv.SendTransaction(ctx, rpcClient, payerKey, chainID, &tokenContract.Address, big.NewInt(0), data), "approving escrow spend")
+		cli.NoError(devenv.SendTransaction(ctx, rpcClient, payerKey, chainID, &tokenContract.Address, sds.ZeroGRT().BigInt(), data), "approving escrow spend")
 	}
 
 	// Deposit into escrow for collector+serviceProvider.
 	{
-		data, err := escrowContract.CallData("deposit", collectorContract.Address, serviceProviderAddr, escrowAmountWei)
+		data, err := escrowContract.CallData("deposit", collectorContract.Address, serviceProviderAddr, escrowAmount.BigInt())
 		cli.NoError(err, "unable to encode PaymentsEscrow.deposit")
-		cli.NoError(devenv.SendTransaction(ctx, rpcClient, payerKey, chainID, &escrowContract.Address, big.NewInt(0), data), "depositing escrow")
+		cli.NoError(devenv.SendTransaction(ctx, rpcClient, payerKey, chainID, &escrowContract.Address, sds.ZeroGRT().BigInt(), data), "depositing escrow")
 	}
 
 	// Set provision tokens range (min=0 for demo).
 	{
-		data, err := dataServiceContract.CallData("setProvisionTokensRange", big.NewInt(0))
+		data, err := dataServiceContract.CallData("setProvisionTokensRange", sds.ZeroGRT().BigInt())
 		cli.NoError(err, "unable to encode SubstreamsDataService.setProvisionTokensRange")
-		cli.NoError(devenv.SendTransaction(ctx, rpcClient, deployerKey, chainID, &dataServiceContract.Address, big.NewInt(0), data), "setting provision tokens range")
+		cli.NoError(devenv.SendTransaction(ctx, rpcClient, deployerKey, chainID, &dataServiceContract.Address, sds.ZeroGRT().BigInt(), data), "setting provision tokens range")
 	}
 
 	// Set provision for service provider.
 	{
-		data, err := stakingContract.CallData("setProvision", serviceProviderAddr, dataServiceAddr, provisionAmountWei, uint32(0), uint64(0))
+		data, err := stakingContract.CallData("setProvision", serviceProviderAddr, dataServiceAddr, provisionAmount.BigInt(), uint32(0), uint64(0))
 		cli.NoError(err, "unable to encode MockStaking.setProvision")
-		cli.NoError(devenv.SendTransaction(ctx, rpcClient, deployerKey, chainID, &stakingContract.Address, big.NewInt(0), data), "setting provision")
+		cli.NoError(devenv.SendTransaction(ctx, rpcClient, deployerKey, chainID, &stakingContract.Address, sds.ZeroGRT().BigInt(), data), "setting provision")
 	}
 
 	// Register service provider.
@@ -180,7 +180,7 @@ func runDemoSetup(cmd *cobra.Command, args []string) error {
 
 		data, err := dataServiceContract.CallData("register", serviceProviderAddr, registerData)
 		cli.NoError(err, "unable to encode SubstreamsDataService.register")
-		cli.NoError(devenv.SendTransaction(ctx, rpcClient, serviceProviderKey, chainID, &dataServiceContract.Address, big.NewInt(0), data), "registering service provider")
+		cli.NoError(devenv.SendTransaction(ctx, rpcClient, serviceProviderKey, chainID, &dataServiceContract.Address, sds.ZeroGRT().BigInt(), data), "registering service provider")
 	}
 
 	// Authorize signer.
@@ -191,7 +191,7 @@ func runDemoSetup(cmd *cobra.Command, args []string) error {
 
 		data, err := collectorContract.CallData("authorizeSigner", signerAddr, new(big.Int).SetUint64(proofDeadline), proof)
 		cli.NoError(err, "unable to encode GraphTallyCollector.authorizeSigner")
-		cli.NoError(devenv.SendTransaction(ctx, rpcClient, payerKey, chainID, &collectorContract.Address, big.NewInt(0), data), "authorizing signer")
+		cli.NoError(devenv.SendTransaction(ctx, rpcClient, payerKey, chainID, &collectorContract.Address, sds.ZeroGRT().BigInt(), data), "authorizing signer")
 	}
 
 	authorized, err := isAuthorized(ctx, rpcClient, collectorContract, payerAddr, signerAddr)
@@ -274,39 +274,6 @@ func writeDemoEnvFile(path string, exports map[string]string) error {
 		return fmt.Errorf("writing env file %q: %w", path, err)
 	}
 	return nil
-}
-
-func parseGRTToWei(grt string) (*big.Int, error) {
-	grt = strings.TrimSpace(grt)
-	if grt == "" {
-		return big.NewInt(0), nil
-	}
-
-	f, ok := new(big.Float).SetString(grt)
-	if !ok {
-		return nil, fmt.Errorf("invalid decimal %q", grt)
-	}
-
-	weiMultiplier := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
-	weiF := new(big.Float).Mul(f, weiMultiplier)
-	wei, _ := weiF.Int(nil)
-	return wei, nil
-}
-
-func loadContractABI(name string) (*eth.ABI, error) {
-	data, err := devenvcontracts.FS.ReadFile(name + ".json")
-	if err != nil {
-		return nil, fmt.Errorf("reading embedded artifact: %w", err)
-	}
-
-	var artifact struct {
-		ABI json.RawMessage `json:"abi"`
-	}
-	if err := json.Unmarshal(data, &artifact); err != nil {
-		return nil, fmt.Errorf("parsing artifact: %w", err)
-	}
-
-	return eth.ParseABIFromBytes(artifact.ABI)
 }
 
 func isAuthorized(ctx context.Context, rpcClient *rpc.Client, collector *devenv.Contract, payer, signer eth.Address) (bool, error) {

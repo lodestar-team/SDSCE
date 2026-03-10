@@ -39,12 +39,7 @@ func (m *paymentSessionManager) SetEndpoint(sessionID, providerEndpoint string) 
 		return
 	}
 
-	// Endpoint should never change for a session; if it does, reset stream.
-	if client.providerEndpoint != providerEndpoint {
-		client.closeLocked()
-		client.providerEndpoint = providerEndpoint
-		client.gatewayClient = newPaymentGatewayClient(providerEndpoint)
-	}
+	client.SetEndpoint(providerEndpoint)
 }
 
 func (m *paymentSessionManager) Get(sessionID string) *paymentSessionClient {
@@ -73,7 +68,14 @@ type paymentSessionClient struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	stream *connect.BidiStreamForClient[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse]
+	stream       *connect.BidiStreamForClient[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse]
+	streamCancel context.CancelFunc
+	receiveCh    chan paymentSessionReceiveResult
+}
+
+type paymentSessionReceiveResult struct {
+	msg *providerv1.PaymentSessionResponse
+	err error
 }
 
 func newPaymentSessionClient(providerEndpoint string) *paymentSessionClient {
@@ -86,21 +88,102 @@ func newPaymentSessionClient(providerEndpoint string) *paymentSessionClient {
 	}
 }
 
+func (c *paymentSessionClient) SetEndpoint(providerEndpoint string) {
+	if providerEndpoint == "" {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.providerEndpoint == providerEndpoint {
+		return
+	}
+
+	c.closeLocked()
+	c.providerEndpoint = providerEndpoint
+	c.gatewayClient = newPaymentGatewayClient(providerEndpoint)
+}
+
+func (c *paymentSessionClient) WithStream(
+	fn func(
+		stream *connect.BidiStreamForClient[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse],
+		receive func(context.Context) (*providerv1.PaymentSessionResponse, error),
+	) error,
+) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	stream := c.ensureStreamLocked()
+	if err := fn(stream, c.receiveLocked); err != nil {
+		c.closeLocked()
+		return err
+	}
+
+	return nil
+}
+
 func (c *paymentSessionClient) ensureStreamLocked() *connect.BidiStreamForClient[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse] {
 	if c.stream != nil {
 		return c.stream
 	}
 
+	streamCtx, streamCancel := context.WithCancel(c.ctx)
 	c.stream = c.gatewayClient.PaymentSession(c.ctx)
+	c.streamCancel = streamCancel
+	c.receiveCh = make(chan paymentSessionReceiveResult, 1)
+	go c.receiveLoop(streamCtx, c.stream, c.receiveCh)
 	return c.stream
 }
 
+func (c *paymentSessionClient) receiveLocked(ctx context.Context) (*providerv1.PaymentSessionResponse, error) {
+	if c.receiveCh == nil {
+		return nil, context.Canceled
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case res, ok := <-c.receiveCh:
+		if !ok {
+			return nil, context.Canceled
+		}
+		return res.msg, res.err
+	}
+}
+
+func (c *paymentSessionClient) receiveLoop(
+	ctx context.Context,
+	stream *connect.BidiStreamForClient[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse],
+	ch chan paymentSessionReceiveResult,
+) {
+	defer close(ch)
+
+	for {
+		msg, err := stream.Receive()
+		select {
+		case ch <- paymentSessionReceiveResult{msg: msg, err: err}:
+		case <-ctx.Done():
+			return
+		}
+
+		if err != nil {
+			return
+		}
+	}
+}
+
 func (c *paymentSessionClient) closeLocked() {
+	if c.streamCancel != nil {
+		c.streamCancel()
+		c.streamCancel = nil
+	}
 	if c.stream != nil {
 		_ = c.stream.CloseRequest()
 		_ = c.stream.CloseResponse()
 		c.stream = nil
 	}
+	c.receiveCh = nil
 }
 
 func (c *paymentSessionClient) Close() {
@@ -118,6 +201,8 @@ func newH2CClient() *http.Client {
 	return &http.Client{
 		Transport: &http2.Transport{
 			AllowHTTP: true,
+			// Connect's gRPC client expects HTTP/2, and our local/demo provider gateway serves
+			// plaintext h2c rather than TLS. This dialer enables HTTP/2 over cleartext TCP.
 			DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
 				var d net.Dialer
 				return d.DialContext(ctx, network, addr)

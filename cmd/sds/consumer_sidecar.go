@@ -32,6 +32,7 @@ var consumerSidecarCmd = Command(
 		flags.String("signer-private-key", "", "Private key for signing RAVs (hex, required)")
 		flags.Uint64("chain-id", 1337, "Chain ID for EIP-712 domain")
 		flags.String("collector-address", "", "Collector contract address for EIP-712 domain (required)")
+		flags.Duration("payment-session-roundtrip-timeout", 30*time.Second, "Timeout for a PaymentSession request/response roundtrip with the provider gateway")
 	}),
 )
 
@@ -40,6 +41,7 @@ func runConsumerSidecar(cmd *cobra.Command, args []string) error {
 	signerKeyHex := sflags.MustGetString(cmd, "signer-private-key")
 	chainID := sflags.MustGetUint64(cmd, "chain-id")
 	collectorHex := sflags.MustGetString(cmd, "collector-address")
+	paymentSessionRoundtripTimeout := sflags.MustGetDuration(cmd, "payment-session-roundtrip-timeout")
 
 	cli.Ensure(signerKeyHex != "", "<signer-private-key> is required")
 	signerKey, err := eth.NewPrivateKey(signerKeyHex)
@@ -50,9 +52,10 @@ func runConsumerSidecar(cmd *cobra.Command, args []string) error {
 	cli.NoError(err, "invalid <collector-address> %q", collectorHex)
 
 	config := &sidecar.Config{
-		ListenAddr: listenAddr,
-		SignerKey:  signerKey,
-		Domain:     horizon.NewDomain(chainID, collectorAddr),
+		ListenAddr:                     listenAddr,
+		SignerKey:                      signerKey,
+		Domain:                         horizon.NewDomain(chainID, collectorAddr),
+		PaymentSessionRoundtripTimeout: paymentSessionRoundtripTimeout,
 	}
 
 	app := cli.NewApplication(cmd.Context())

@@ -3,12 +3,11 @@ package devenv
 import (
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"math/big"
 	"strings"
 
-	"github.com/graphprotocol/substreams-data-service/horizon/devenv/contracts"
+	"github.com/graphprotocol/substreams-data-service/contracts/artifacts"
 	"github.com/streamingfast/eth-go"
 	"github.com/streamingfast/eth-go/rpc"
 	"github.com/streamingfast/eth-go/signer/native"
@@ -45,24 +44,13 @@ func (c *Contract) MustCallData(method string, args ...interface{}) []byte {
 	return data
 }
 
-// ContractArtifact represents a compiled Foundry contract
-type ContractArtifact struct {
-	ABI      json.RawMessage `json:"abi"`
-	Bytecode struct {
-		Object string `json:"object"`
-	} `json:"bytecode"`
-}
+type ContractArtifact = artifacts.Artifact
 
 // mustLoadContract loads a contract ABI from embedded artifact and returns a Contract with zero address
 func mustLoadContract(name string) *Contract {
-	artifact, err := loadContractArtifact(name)
+	abi, err := artifacts.LoadABI(name)
 	if err != nil {
-		panic(fmt.Sprintf("loading %s artifact: %v", name, err))
-	}
-
-	abi, err := eth.ParseABIFromBytes(artifact.ABI)
-	if err != nil {
-		panic(fmt.Sprintf("parsing %s ABI: %v", name, err))
+		panic(fmt.Sprintf("loading %s ABI: %v", name, err))
 	}
 
 	return &Contract{ABI: abi}
@@ -70,17 +58,7 @@ func mustLoadContract(name string) *Contract {
 
 // loadContractArtifact loads a contract artifact (ABI and bytecode) from embedded JSON
 func loadContractArtifact(name string) (*ContractArtifact, error) {
-	data, err := contracts.FS.ReadFile(name + ".json")
-	if err != nil {
-		return nil, fmt.Errorf("reading embedded artifact: %w", err)
-	}
-
-	var artifact ContractArtifact
-	if err := json.Unmarshal(data, &artifact); err != nil {
-		return nil, fmt.Errorf("parsing artifact: %w", err)
-	}
-
-	return &artifact, nil
+	return artifacts.Load(name)
 }
 
 // deployContract deploys a contract and returns its address

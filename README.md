@@ -37,9 +37,11 @@ To keep on-chain state stable while restarting the rest of the stack, run `deven
 
 ```bash
 ./devel/sds devenv
-./devel/sds demo setup  # writes devel/.demo.env for `.reflex.stack` (set --env-file="" to disable)
+./devel/sds demo setup  # writes devel/.demo.env required by `.reflex.stack`
 reflex -c .reflex.stack
 ```
+
+`.reflex.stack` now fails fast if `devel/.demo.env` is missing or does not contain the required demo variables.
 
 We have `devel/sds_sink` helper that can be used to sink in data service mode (invokes `sds sink ...` configured for development environment):
 

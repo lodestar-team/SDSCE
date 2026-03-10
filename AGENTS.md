@@ -66,6 +66,27 @@ if err != nil {
 }
 ```
 
+## Domain Types and Boundaries
+
+- When working with GRT-denominated values, use the project `sds.GRT` type and helpers (`ParseGRT`, `BigInt`, etc.) instead of adding local decimal parsing or formatting helpers.
+- Keep `*big.Int` usage at explicit boundaries only: ABI encoding, contract calls, protobuf conversion, or third-party APIs that require it.
+- Before introducing a new helper for money/addresses/signatures, check whether the repo already has a project-level type or utility for that domain.
+- If contract ABIs/artifacts are needed outside development-only code, move them to a shared package instead of importing from `devenv`.
+
+## Concurrency and Stream Ownership
+
+- Do not lock another struct’s mutex from outside the owning type.
+- Public methods should be the synchronization boundary; `*Locked` helpers are acceptable only when fully internal to the owning type.
+- Avoid holding mutexes across blocking network I/O unless that serialization is deliberate and clearly documented.
+- For long-lived bidi streams, prefer a dedicated owner/manager over goroutine-per-operation wrappers.
+- Treat timeouts/retries for control-plane communication as explicit policy, not hidden constants in handlers.
+
+## Demo and Dev Orchestration
+
+- For reproducible demo/dev workflows, prefer fail-fast required environment/config over silent hardcoded fallbacks.
+- Use defaults only when they are an intentional part of the user-facing UX, not as hidden implementation conveniences.
+- Add a short comment for non-obvious transport/network setup (for example, h2c/plaintext HTTP/2 client configuration).
+
 ## Notes
 
 - All builds must pass before committing

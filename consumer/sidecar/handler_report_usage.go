@@ -127,105 +127,84 @@ func (s *Sidecar) reportUsageViaPaymentSession(
 	// Track raw usage locally for observability/debugging; cost is provider-authoritative in this flow.
 	session.AddUsage(usage.BlocksProcessed, usage.BytesTransferred, usage.Requests, nil)
 
-	roundtripCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	roundtripCtx, cancel := context.WithTimeout(ctx, s.paymentSessionRoundtripTimeout)
 	defer cancel()
 
-	client.mu.Lock()
-	defer client.mu.Unlock()
-
-	stream := client.ensureStreamLocked()
-	if err := stream.Send(&providerv1.PaymentSessionRequest{
-		SessionId: sessionID,
-		Message: &providerv1.PaymentSessionRequest_UsageReport{
-			UsageReport: &providerv1.UsageReport{Usage: usage},
-		},
-	}); err != nil {
-		client.closeLocked()
-		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("sending usage_report via PaymentSession: %w", err))
-	}
-
 	var pendingRAV *horizon.SignedRAV
+	var response *consumerv1.ReportUsageResponse
 
-	for {
-		msg, err := receivePaymentSessionResponse(roundtripCtx, stream)
-		if err != nil {
-			client.closeLocked()
-			return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("receiving PaymentSessionResponse: %w", err))
+	if err := client.WithStream(func(
+		stream *connect.BidiStreamForClient[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse],
+		receive func(context.Context) (*providerv1.PaymentSessionResponse, error),
+	) error {
+		if err := stream.Send(&providerv1.PaymentSessionRequest{
+			SessionId: sessionID,
+			Message: &providerv1.PaymentSessionRequest_UsageReport{
+				UsageReport: &providerv1.UsageReport{Usage: usage},
+			},
+		}); err != nil {
+			return connect.NewError(connect.CodeUnavailable, fmt.Errorf("sending usage_report via PaymentSession: %w", err))
 		}
 
-		if ravReq := msg.GetRavRequest(); ravReq != nil {
-			signed, err := s.signRAVForRequest(session, ravReq)
+		for {
+			msg, err := receive(roundtripCtx)
 			if err != nil {
-				client.closeLocked()
-				return nil, connect.NewError(connect.CodeInternal, err)
+				return connect.NewError(connect.CodeUnavailable, fmt.Errorf("receiving PaymentSessionResponse: %w", err))
 			}
 
-			if err := stream.Send(&providerv1.PaymentSessionRequest{
-				SessionId: sessionID,
-				Message: &providerv1.PaymentSessionRequest_RavSubmission{
-					RavSubmission: &providerv1.SignedRAVSubmission{
-						SignedRav: sidecarlib.HorizonSignedRAVToProto(signed),
-						Usage:     ravReq.GetUsage(),
+			if ravReq := msg.GetRavRequest(); ravReq != nil {
+				signed, err := s.signRAVForRequest(session, ravReq)
+				if err != nil {
+					return connect.NewError(connect.CodeInternal, err)
+				}
+
+				if err := stream.Send(&providerv1.PaymentSessionRequest{
+					SessionId: sessionID,
+					Message: &providerv1.PaymentSessionRequest_RavSubmission{
+						RavSubmission: &providerv1.SignedRAVSubmission{
+							SignedRav: sidecarlib.HorizonSignedRAVToProto(signed),
+							Usage:     ravReq.GetUsage(),
+						},
 					},
-				},
-			}); err != nil {
-				client.closeLocked()
-				return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("sending rav_submission via PaymentSession: %w", err))
+				}); err != nil {
+					return connect.NewError(connect.CodeUnavailable, fmt.Errorf("sending rav_submission via PaymentSession: %w", err))
+				}
+
+				pendingRAV = signed
+				continue
 			}
 
-			pendingRAV = signed
-			continue
-		}
-
-		if need := msg.GetNeedMoreFunds(); need != nil {
-			return &consumerv1.ReportUsageResponse{
-				ShouldContinue: false,
-				StopReason:     "need more funds",
-			}, nil
-		}
-
-		if ctrl := msg.GetSessionControl(); ctrl != nil {
-			shouldContinue := ctrl.GetAction() == providerv1.SessionControl_ACTION_CONTINUE
-			stopReason := ctrl.GetReason()
-
-			var updated *horizon.SignedRAV
-			if shouldContinue && pendingRAV != nil {
-				session.SetRAV(pendingRAV)
-				updated = pendingRAV
+			if need := msg.GetNeedMoreFunds(); need != nil {
+				response = &consumerv1.ReportUsageResponse{
+					ShouldContinue: false,
+					StopReason:     "need more funds",
+				}
+				return nil
 			}
 
-			return &consumerv1.ReportUsageResponse{
-				UpdatedRav:     sidecarlib.HorizonSignedRAVToProto(updated),
-				ShouldContinue: shouldContinue,
-				StopReason:     stopReason,
-			}, nil
+			if ctrl := msg.GetSessionControl(); ctrl != nil {
+				shouldContinue := ctrl.GetAction() == providerv1.SessionControl_ACTION_CONTINUE
+				stopReason := ctrl.GetReason()
+
+				var updated *horizon.SignedRAV
+				if shouldContinue && pendingRAV != nil {
+					session.SetRAV(pendingRAV)
+					updated = pendingRAV
+				}
+
+				response = &consumerv1.ReportUsageResponse{
+					UpdatedRav:     sidecarlib.HorizonSignedRAVToProto(updated),
+					ShouldContinue: shouldContinue,
+					StopReason:     stopReason,
+				}
+				return nil
+			}
 		}
-	}
-}
-
-func receivePaymentSessionResponse(
-	ctx context.Context,
-	stream *connect.BidiStreamForClient[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse],
-) (*providerv1.PaymentSessionResponse, error) {
-	type result struct {
-		msg *providerv1.PaymentSessionResponse
-		err error
+	}); err != nil {
+		return nil, err
 	}
 
-	ch := make(chan result, 1)
-	go func() {
-		msg, err := stream.Receive()
-		ch <- result{msg: msg, err: err}
-	}()
-
-	select {
-	case <-ctx.Done():
-		_ = stream.CloseRequest()
-		_ = stream.CloseResponse()
-		return nil, ctx.Err()
-	case res := <-ch:
-		return res.msg, res.err
-	}
+	return response, nil
 }
 
 func (s *Sidecar) signRAVForRequest(session *sidecarlib.Session, req *providerv1.RAVRequest) (*horizon.SignedRAV, error) {

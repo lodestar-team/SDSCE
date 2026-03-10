@@ -40,9 +40,72 @@ type GRT struct {
 	raw uint256.Int
 }
 
-// NewGRT creates a GRT from a uint64 value in base units.
+// NewGRT is a dynamic function that creates a GRT from various input types
+// (e.g., uint64, *big.Int, string). It uses type assertions to determine
+// the appropriate constructor. This provides a convenient API for creating GRT
+// values from different sources and is used more for testing and flexibility.
+func NewGRT(input any) (GRT, error) {
+	switch v := input.(type) {
+	case int:
+		return NewGRTFromInt64(int64(v)), nil
+	case int8:
+		return NewGRTFromInt64(int64(v)), nil
+	case int16:
+		return NewGRTFromInt64(int64(v)), nil
+	case int32:
+		return NewGRTFromInt64(int64(v)), nil
+	case int64:
+		return NewGRTFromInt64(v), nil
+	case uint:
+		return NewGRTFromUint64(uint64(v)), nil
+	case uint8:
+		return NewGRTFromUint64(uint64(v)), nil
+	case uint16:
+		return NewGRTFromUint64(uint64(v)), nil
+	case uint32:
+		return NewGRTFromUint64(uint64(v)), nil
+	case uint64:
+		return NewGRTFromUint64(v), nil
+	case *big.Int:
+		return NewGRTFromBigInt(v), nil
+	case *uint256.Int:
+		return NewGRTFromUint256(v), nil
+	case string:
+		return NewGRTFromString(v)
+	default:
+		return GRT{}, fmt.Errorf("unsupported input type: %T", input)
+	}
+}
+
+// MustNewGRT is like NewGRT but panics on error. Use when input is known to be valid (e.g., in tests).
+func MustNewGRT(input any) GRT {
+	grt, err := NewGRT(input)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create GRT from input %q: %w", input, err))
+	}
+
+	return grt
+}
+
+// NewGRTFromInt64 creates a GRT from an int64 value in base units.
 // This is more efficient than NewGRTFromBigInt for small values.
-func NewGRT(raw uint64) GRT {
+func NewGRTFromInt64(raw int64) GRT {
+	unsigned := raw
+	if raw < 0 {
+		unsigned = -raw
+	}
+
+	value := uint256.NewInt(uint64(unsigned))
+	if raw < 0 {
+		value.Neg(value)
+	}
+
+	return GRT{raw: *value}
+}
+
+// NewGRTFromUint64 creates a GRT from a uint64 value in base units.
+// This is more efficient than NewGRTFromBigInt for small values.
+func NewGRTFromUint64(raw uint64) GRT {
 	return GRT{raw: *uint256.NewInt(raw)}
 }
 
@@ -68,10 +131,8 @@ func NewGRTFromBigInt(raw *big.Int) GRT {
 	return GRT{raw: *v}
 }
 
-// NewGRTFromUint64 creates a GRT from a uint64 value in base units.
-// This is more efficient than NewGRTFromBigInt for small values.
-func NewGRTFromUint64(raw uint64) GRT {
-	return GRT{raw: *uint256.NewInt(raw)}
+func NewGRTFromString(s string) (GRT, error) {
+	return ParseGRT(s)
 }
 
 // ZeroGRT returns a zero-valued GRT.

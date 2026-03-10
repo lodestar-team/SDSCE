@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"time"
 
@@ -11,6 +12,10 @@ import (
 	"github.com/streamingfast/eth-go"
 )
 
+// ErrNotFound is returned by repository methods when a requested entity does not exist.
+// All repository implementations should return this error for consistency.
+var ErrNotFound = errors.New("not found")
+
 // GlobalRepository provides global state storage for live session/client tracking.
 // All methods are namespaced by domain (Session*, Client*, Quota*, etc.)
 // All implementations must be safe for concurrent use.
@@ -19,17 +24,13 @@ type GlobalRepository interface {
 	SessionCreate(ctx context.Context, session *Session) error
 	SessionGet(ctx context.Context, sessionID string) (*Session, error)
 	SessionUpdate(ctx context.Context, session *Session) error
-	SessionDelete(ctx context.Context, sessionID string) error
 	SessionList(ctx context.Context, filter SessionFilter) ([]*Session, error)
-	SessionGetByPayer(ctx context.Context, payer string) ([]*Session, error)
 	SessionCount(ctx context.Context) int
 
 	// Worker/connection tracking within sessions
 	WorkerCreate(ctx context.Context, worker *Worker) error
 	WorkerGet(ctx context.Context, workerKey string) (*Worker, error)
 	WorkerDelete(ctx context.Context, workerKey string) error
-	WorkerListBySession(ctx context.Context, sessionID string) ([]*Worker, error)
-	WorkerCountByPayer(ctx context.Context, payer string) (int, error)
 
 	// Quota tracking
 	QuotaGet(ctx context.Context, payer string) (*QuotaUsage, error)
@@ -38,7 +39,6 @@ type GlobalRepository interface {
 
 	// Usage accumulation (for metering)
 	UsageAdd(ctx context.Context, sessionID string, usage *UsageEvent) error
-	UsageGetTotal(ctx context.Context, sessionID string) (*UsageSummary, error)
 
 	// Health/lifecycle
 	Ping(ctx context.Context) error

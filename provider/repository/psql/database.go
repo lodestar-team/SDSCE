@@ -2,15 +2,12 @@ package psql
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 )
-
-var ErrNotFound = errors.New("not found")
 
 var preparedStmts = map[string]string{}
 

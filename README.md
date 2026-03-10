@@ -62,6 +62,42 @@ The `sds devenv` command starts an Anvil node and deploys Graph Protocol contrac
 sds devenv  # Prints contract addresses and test accounts
 ```
 
+#### Docker Compose Services
+
+The project includes Docker Compose for local development with PostgreSQL, Redis, and pgweb (database UI):
+
+```bash
+# Start all services (PostgreSQL 18, Redis, pgweb)
+docker compose up -d
+
+# Apply database migrations
+./devel/migrate.sh up
+
+# View database in browser
+open http://localhost:8081
+
+# Stop services
+docker compose down
+```
+
+**Services:**
+- **PostgreSQL 18**: localhost:5432 (credentials: `dev-node`/`changeme`)
+- **pgweb**: localhost:8081 (database web UI)
+- **Redis**: localhost:6379
+
+**Database Migrations:**
+
+The `devel/migrate.sh` script manages database schema migrations:
+
+```bash
+./devel/migrate.sh version       # Show current and target versions
+./devel/migrate.sh up             # Apply all pending migrations
+./devel/migrate.sh down           # Roll back one migration
+./devel/migrate.sh new my_change  # Create new migration files
+```
+
+Migrations are stored in `provider/repository/psql/migrations/` and use the [golang-migrate](https://github.com/golang-migrate/migrate) library.
+
 The devenv is deterministic. Key contract addresses:
 
 | Contract | Address |
@@ -168,10 +204,25 @@ Runs alongside the data provider (substreams-tier1) and handles:
 
 **Usage metering note:** the provider gateway does **not** meter bytes/blocks directly from the Substreams/Firehose stream. Usage is reported via `PaymentGatewayService.PaymentSession` `usage_report` or through the Firehose plugin services (`sds://` URI scheme). The Firehose provider plugins handle authentication, session management, and usage reporting for production integrations.
 
+**Repository Options:**
+
+The provider gateway supports two repository backends via the `--repository-dsn` flag:
+
+- **In-memory** (default): `--repository-dsn="inmemory://"` - For development/testing
+- **PostgreSQL**: `--repository-dsn="psql://user:pass@host:port/dbname?sslmode=disable"` - For production
+
 ```bash
-# Using devenv addresses
+# Using devenv addresses with in-memory repository (default)
 sds provider gateway \
   --plaintext \
+  --service-provider 0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
+  --collector-address 0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9 \
+  --escrow-address 0xfc7487a37ca8eac2e64cba61277aa109e9b8631e \
+  --rpc-endpoint <RPC_URL_FROM_DEVENV>
+
+# Using PostgreSQL repository
+sds provider gateway \
+  --repository-dsn "psql://dev-node:changeme@localhost:5432/dev-node?sslmode=disable" \
   --service-provider 0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
   --collector-address 0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9 \
   --escrow-address 0xfc7487a37ca8eac2e64cba61277aa109e9b8631e \

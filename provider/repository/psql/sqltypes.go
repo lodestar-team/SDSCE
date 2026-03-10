@@ -9,6 +9,16 @@ import (
 	eth "github.com/streamingfast/eth-go"
 )
 
+// mustValue converts a driver.Valuer to its database value, panicking on error.
+// This is safe for our custom types since they should never error after Scan validation.
+func mustValue(v driver.Valuer) driver.Value {
+	val, err := v.Value()
+	if err != nil {
+		panic(fmt.Errorf("unexpected error converting value to driver.Value: %w", err))
+	}
+	return val
+}
+
 // jsonbMap wraps map[string]string for JSONB storage
 type jsonbMap map[string]string
 

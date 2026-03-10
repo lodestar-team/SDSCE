@@ -88,6 +88,30 @@ if err != nil {
 - Add a short comment for non-obvious transport/network setup (for example, h2c/plaintext HTTP/2 client configuration).
 - Do not make insecure transport the default for code paths that may later be used outside local/demo workflows.
 - If plaintext or insecure TLS behavior is needed for local development, gate it behind explicit configuration and keep production-oriented defaults secure.
+## Coding Patterns
+
+Use the simplest abstraction form when creating new instance of "semi-primitives" types like GRT, Address, etc.
+
+**GOOD**:
+
+```
+sds.NewGRTFromUint64(100)
+```
+
+**BAD**:
+
+```
+sds.NewGRTFromBigInt(big.NewInt(100))
+```
+
+For tests, and "infrequent paths" (like flags parsing, one shot CLI tools, etc.) use the dynamic form when present and the Must version for tests:
+
+```
+grt, err := sds.NewGRT(<accepts all types>)
+
+# For tests
+sds.MustNewGRT(<accepts all types>)
+```
 
 ## Notes
 

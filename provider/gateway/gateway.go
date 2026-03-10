@@ -78,6 +78,10 @@ type Config struct {
 	// QuotaConfig configures per-payer worker quota limits for the session service.
 	// If nil, DefaultQuotaConfig() is used.
 	QuotaConfig *providersession.QuotaConfig
+
+	// Repository provides session/usage state storage.
+	// If nil, an in-memory repository is created.
+	Repository repository.GlobalRepository
 }
 
 type authCacheEntry struct {
@@ -101,8 +105,12 @@ func New(config *Config, logger *zap.Logger) *Gateway {
 		pricingConfig = sidecar.DefaultPricingConfig()
 	}
 
-	// Build the global repository and plugin services.
-	repo := repository.NewInMemoryRepository()
+	// Use provided repository or create an in-memory one as fallback
+	repo := config.Repository
+	if repo == nil {
+		logger.Info("no repository provided, using in-memory repository")
+		repo = repository.NewInMemoryRepository()
+	}
 
 	// The auth service needs to call IsAuthorized on the collector; reuse
 	// the collectorQuerier from the existing gateway if available.

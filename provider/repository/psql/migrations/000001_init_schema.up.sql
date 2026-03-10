@@ -85,10 +85,7 @@ CREATE TABLE quota_usage (
     last_updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TRIGGER quota_usage_updated_at
-BEFORE UPDATE ON quota_usage
-FOR EACH ROW
-EXECUTE FUNCTION update_updated_at_column();
+-- Note: No trigger needed since SQL explicitly sets last_updated = CURRENT_TIMESTAMP
 
 -- Usage events table
 CREATE TABLE usage_events (

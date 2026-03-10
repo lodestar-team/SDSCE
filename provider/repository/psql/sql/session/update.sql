@@ -1,0 +1,38 @@
+-- Update an existing session
+UPDATE sessions SET
+    updated_at = :updated_at,
+    last_keep_alive = :last_keep_alive,
+    status = :status,
+    metadata = :metadata,
+    ended_at = :ended_at,
+    end_reason = :end_reason,
+    blocks_processed = :blocks_processed,
+    bytes_transferred = :bytes_transferred,
+    requests = :requests,
+    total_cost = :total_cost,
+    baseline_blocks = :baseline_blocks,
+    baseline_bytes = :baseline_bytes,
+    baseline_reqs = :baseline_reqs,
+    baseline_cost = :baseline_cost
+WHERE id = :id
+RETURNING
+    id,
+    created_at,
+    updated_at,
+    last_keep_alive,
+    status,
+    metadata,
+    ended_at,
+    end_reason,
+    payer,
+    receiver,
+    data_service,
+    signer,
+    blocks_processed,
+    bytes_transferred,
+    requests,
+    total_cost,
+    baseline_blocks,
+    baseline_bytes,
+    baseline_reqs,
+    baseline_cost

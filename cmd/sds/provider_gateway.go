@@ -44,6 +44,7 @@ var providerGatewayCmd = Command(
 		flags.Bool("plaintext", false, "Serve plaintext h2c instead of TLS (local/demo only)")
 		flags.String("tls-cert-file", "", "Path to the TLS certificate PEM file")
 		flags.String("tls-key-file", "", "Path to the TLS private key PEM file")
+		flags.String("repository-dsn", "inmemory://", "Repository DSN (inmemory:// or psql://user:pass@host:port/dbname)")
 	}),
 )
 
@@ -58,6 +59,7 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 	plaintext := sflags.MustGetBool(cmd, "plaintext")
 	tlsCertFile := sflags.MustGetString(cmd, "tls-cert-file")
 	tlsKeyFile := sflags.MustGetString(cmd, "tls-key-file")
+	repositoryDSN := sflags.MustGetString(cmd, "repository-dsn")
 
 	cli.Ensure(serviceProviderHex != "", "<service-provider> is required")
 	serviceProviderAddr, err := eth.NewAddress(serviceProviderHex)
@@ -89,6 +91,10 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 		pricingConfig = sidecarlib.DefaultPricingConfig()
 	}
 
+	// Create repository from DSN
+	repo, err := gateway.NewRepositoryFromDSN(cmd.Context(), repositoryDSN, providerLog)
+	cli.NoError(err, "failed to create repository from DSN %q", repositoryDSN)
+
 	config := &gateway.Config{
 		ListenAddr:      listenAddr,
 		ServiceProvider: serviceProviderAddr,
@@ -98,6 +104,7 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 		RPCEndpoint:     rpcEndpoint,
 		PricingConfig:   pricingConfig,
 		TransportConfig: transportConfig,
+		Repository:      repo,
 	}
 
 	app := cli.NewApplication(cmd.Context())

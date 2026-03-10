@@ -36,6 +36,7 @@ type Sidecar struct {
 	domain    *horizon.Domain
 
 	paymentSessionRoundtripTimeout time.Duration
+	transportConfig                sidecar.ServerTransportConfig
 
 	// Provider gateway endpoint (set during Init)
 	// In production, this would be dynamically determined
@@ -46,6 +47,7 @@ type Config struct {
 	SignerKey                      *eth.PrivateKey
 	Domain                         *horizon.Domain
 	PaymentSessionRoundtripTimeout time.Duration
+	TransportConfig                sidecar.ServerTransportConfig
 }
 
 func New(config *Config, logger *zap.Logger) *Sidecar {
@@ -63,6 +65,7 @@ func New(config *Config, logger *zap.Logger) *Sidecar {
 		signerKey:                      config.SignerKey,
 		domain:                         config.Domain,
 		paymentSessionRoundtripTimeout: paymentSessionRoundtripTimeout,
+		transportConfig:                config.TransportConfig,
 	}
 }
 
@@ -73,9 +76,15 @@ func (s *Sidecar) Run() {
 		},
 	}
 
+	transportOpt, err := s.transportConfig.DGRPCOption("consumer sidecar")
+	if err != nil {
+		s.Shutdown(err)
+		return
+	}
+
 	s.server = connectrpc.New(
 		handlerGetters,
-		server.WithPlainTextServer(),
+		transportOpt,
 		server.WithLogger(s.logger),
 		server.WithHealthCheck(server.HealthCheckOverHTTP, s.healthCheck),
 		server.WithConnectPermissiveCORS(),

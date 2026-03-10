@@ -86,6 +86,8 @@ if err != nil {
 - For reproducible demo/dev workflows, prefer fail-fast required environment/config over silent hardcoded fallbacks.
 - Use defaults only when they are an intentional part of the user-facing UX, not as hidden implementation conveniences.
 - Add a short comment for non-obvious transport/network setup (for example, h2c/plaintext HTTP/2 client configuration).
+- Do not make insecure transport the default for code paths that may later be used outside local/demo workflows.
+- If plaintext or insecure TLS behavior is needed for local development, gate it behind explicit configuration and keep production-oriented defaults secure.
 
 ## Notes
 

@@ -9,76 +9,88 @@ import (
 
 func TestParseEndpoint(t *testing.T) {
 	tests := []struct {
-		name             string
-		endpoint         string
-		expectedURL      string
-		expectedInsecure bool
+		name              string
+		endpoint          string
+		expectedURL       string
+		expectedPlaintext bool
+		expectedInsecure  bool
 	}{
 		{
-			name:             "empty",
-			endpoint:         "",
-			expectedURL:      "",
-			expectedInsecure: false,
+			name:              "empty",
+			endpoint:          "",
+			expectedURL:       "",
+			expectedPlaintext: false,
+			expectedInsecure:  false,
 		},
 		{
-			name:             "host:port without scheme",
-			endpoint:         "localhost:9001",
-			expectedURL:      "http://localhost:9001",
-			expectedInsecure: false,
+			name:              "host:port without scheme",
+			endpoint:          "localhost:9001",
+			expectedURL:       "https://localhost:9001",
+			expectedPlaintext: false,
+			expectedInsecure:  false,
 		},
 		{
-			name:             "http URL",
-			endpoint:         "http://localhost:9001",
-			expectedURL:      "http://localhost:9001",
-			expectedInsecure: false,
+			name:              "http URL",
+			endpoint:          "http://localhost:9001",
+			expectedURL:       "http://localhost:9001",
+			expectedPlaintext: true,
+			expectedInsecure:  false,
 		},
 		{
-			name:             "https URL without insecure",
-			endpoint:         "https://localhost:9001",
-			expectedURL:      "https://localhost:9001",
-			expectedInsecure: false,
+			name:              "https URL without insecure",
+			endpoint:          "https://localhost:9001",
+			expectedURL:       "https://localhost:9001",
+			expectedPlaintext: false,
+			expectedInsecure:  false,
 		},
 		{
-			name:             "https URL with insecure=true",
-			endpoint:         "https://localhost:9001?insecure=true",
-			expectedURL:      "https://localhost:9001",
-			expectedInsecure: true,
+			name:              "https URL with insecure=true",
+			endpoint:          "https://localhost:9001?insecure=true",
+			expectedURL:       "https://localhost:9001",
+			expectedPlaintext: false,
+			expectedInsecure:  true,
 		},
 		{
-			name:             "https URL with insecure=True (case insensitive)",
-			endpoint:         "https://localhost:9001?insecure=True",
-			expectedURL:      "https://localhost:9001",
-			expectedInsecure: true,
+			name:              "https URL with insecure=True (case insensitive)",
+			endpoint:          "https://localhost:9001?insecure=True",
+			expectedURL:       "https://localhost:9001",
+			expectedPlaintext: false,
+			expectedInsecure:  true,
 		},
 		{
-			name:             "https URL with insecure=false",
-			endpoint:         "https://localhost:9001?insecure=false",
-			expectedURL:      "https://localhost:9001",
-			expectedInsecure: false,
+			name:              "https URL with insecure=false",
+			endpoint:          "https://localhost:9001?insecure=false",
+			expectedURL:       "https://localhost:9001",
+			expectedPlaintext: false,
+			expectedInsecure:  false,
 		},
 		{
-			name:             "https URL with other query params and insecure",
-			endpoint:         "https://localhost:9001?foo=bar&insecure=true&baz=qux",
-			expectedURL:      "https://localhost:9001?baz=qux&foo=bar",
-			expectedInsecure: true,
+			name:              "https URL with other query params and insecure",
+			endpoint:          "https://localhost:9001?foo=bar&insecure=true&baz=qux",
+			expectedURL:       "https://localhost:9001?baz=qux&foo=bar",
+			expectedPlaintext: false,
+			expectedInsecure:  true,
 		},
 		{
-			name:             "http URL with insecure (still parsed but http)",
-			endpoint:         "http://localhost:9001?insecure=true",
-			expectedURL:      "http://localhost:9001",
-			expectedInsecure: true,
+			name:              "http URL with insecure (still parsed but http)",
+			endpoint:          "http://localhost:9001?insecure=true",
+			expectedURL:       "http://localhost:9001",
+			expectedPlaintext: true,
+			expectedInsecure:  true,
 		},
 		{
-			name:             "URL with path",
-			endpoint:         "https://example.com/api/v1?insecure=true",
-			expectedURL:      "https://example.com/api/v1",
-			expectedInsecure: true,
+			name:              "URL with path",
+			endpoint:          "https://example.com/api/v1?insecure=true",
+			expectedURL:       "https://example.com/api/v1",
+			expectedPlaintext: false,
+			expectedInsecure:  true,
 		},
 		{
-			name:             "whitespace trimmed",
-			endpoint:         "  https://localhost:9001?insecure=true  ",
-			expectedURL:      "https://localhost:9001",
-			expectedInsecure: true,
+			name:              "whitespace trimmed",
+			endpoint:          "  https://localhost:9001?insecure=true  ",
+			expectedURL:       "https://localhost:9001",
+			expectedPlaintext: false,
+			expectedInsecure:  true,
 		},
 	}
 
@@ -86,6 +98,7 @@ func TestParseEndpoint(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			parsed := ParseEndpoint(tt.endpoint)
 			assert.Equal(t, tt.expectedURL, parsed.URL)
+			assert.Equal(t, tt.expectedPlaintext, parsed.Plaintext)
 			assert.Equal(t, tt.expectedInsecure, parsed.Insecure)
 		})
 	}
@@ -117,7 +130,22 @@ func TestParsedEndpoint_HTTPClient(t *testing.T) {
 	t.Run("returns default client for http with insecure flag", func(t *testing.T) {
 		parsed := ParseEndpoint("http://localhost:9001?insecure=true")
 		client := parsed.HTTPClient()
-		// For http, we use default client even if insecure is set
 		assert.Equal(t, http.DefaultClient, client)
+	})
+}
+
+func TestParsedEndpoint_GRPCClient(t *testing.T) {
+	t.Run("returns http2 cleartext transport for http", func(t *testing.T) {
+		parsed := ParseEndpoint("http://localhost:9001")
+		client := parsed.GRPCClient()
+		transport, ok := client.Transport.(interface{ CloseIdleConnections() })
+		assert.True(t, ok)
+		assert.NotNil(t, transport)
+	})
+
+	t.Run("returns tls transport for https", func(t *testing.T) {
+		parsed := ParseEndpoint("https://localhost:9001")
+		client := parsed.GRPCClient()
+		assert.NotNil(t, client.Transport)
 	})
 }

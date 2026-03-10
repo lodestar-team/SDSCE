@@ -33,6 +33,8 @@ Now `sds` invokes `devel/sds` directly. Use [reflex](https://github.com/cespare/
 reflex -c .reflex  # Starts both sidecars with debug logging
 ```
 
+Both reflex configs pass `--plaintext` explicitly for the local/demo sidecar↔gateway path. Outside local/demo usage, configure TLS certificate/key files instead of relying on plaintext defaults.
+
 To keep on-chain state stable while restarting the rest of the stack, run `devenv` separately and use the stack-only reflex config:
 
 ```bash
@@ -151,6 +153,7 @@ Runs alongside the Substreams client and handles:
 ```bash
 # Using devenv addresses (User1 as signer)
 sds consumer sidecar \
+  --plaintext \
   --signer-private-key 0xdd02564c0e9836fb570322be23f8355761d4d04ebccdc53f4f53325227680a9f \
   --collector-address 0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9
 ```
@@ -168,6 +171,7 @@ Runs alongside the data provider (substreams-tier1) and handles:
 ```bash
 # Using devenv addresses
 sds provider gateway \
+  --plaintext \
   --service-provider 0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
   --collector-address 0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9 \
   --escrow-address 0xfc7487a37ca8eac2e64cba61277aa109e9b8631e \

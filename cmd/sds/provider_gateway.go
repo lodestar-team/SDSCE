@@ -41,6 +41,9 @@ var providerGatewayCmd = Command(
 		flags.String("escrow-address", "", "PaymentsEscrow contract address for balance queries (required)")
 		flags.String("rpc-endpoint", "", "Ethereum RPC endpoint for on-chain queries (required)")
 		flags.String("pricing-config", "", "Path to pricing configuration YAML file (uses defaults if not provided)")
+		flags.Bool("plaintext", false, "Serve plaintext h2c instead of TLS (local/demo only)")
+		flags.String("tls-cert-file", "", "Path to the TLS certificate PEM file")
+		flags.String("tls-key-file", "", "Path to the TLS private key PEM file")
 	}),
 )
 
@@ -52,6 +55,9 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 	escrowHex := sflags.MustGetString(cmd, "escrow-address")
 	rpcEndpoint := sflags.MustGetString(cmd, "rpc-endpoint")
 	pricingConfigPath := sflags.MustGetString(cmd, "pricing-config")
+	plaintext := sflags.MustGetBool(cmd, "plaintext")
+	tlsCertFile := sflags.MustGetString(cmd, "tls-cert-file")
+	tlsKeyFile := sflags.MustGetString(cmd, "tls-key-file")
 
 	cli.Ensure(serviceProviderHex != "", "<service-provider> is required")
 	serviceProviderAddr, err := eth.NewAddress(serviceProviderHex)
@@ -66,6 +72,13 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 	cli.NoError(err, "invalid <escrow-address> %q", escrowHex)
 
 	cli.Ensure(rpcEndpoint != "", "<rpc-endpoint> is required")
+
+	transportConfig := sidecarlib.ServerTransportConfig{
+		Plaintext:   plaintext,
+		TLSCertFile: tlsCertFile,
+		TLSKeyFile:  tlsKeyFile,
+	}
+	cli.NoError(transportConfig.Validate("provider gateway"), "invalid transport configuration")
 
 	// Load pricing configuration
 	var pricingConfig *sidecarlib.PricingConfig
@@ -84,6 +97,7 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 		EscrowAddr:      escrowAddr,
 		RPCEndpoint:     rpcEndpoint,
 		PricingConfig:   pricingConfig,
+		TransportConfig: transportConfig,
 	}
 
 	app := cli.NewApplication(cmd.Context())

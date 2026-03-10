@@ -51,15 +51,17 @@ func TestConsumerSidecar_ReportUsage_WiresPaymentSessionLoop(t *testing.T) {
 		EscrowAddr:      env.Escrow.Address,
 		RPCEndpoint:     env.RPCURL,
 		PricingConfig:   pricingConfig,
+		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("provider"))
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)
 
 	consumerSidecar := consumersidecar.New(&consumersidecar.Config{
-		ListenAddr: ":19012",
-		SignerKey:  setup.SignerKey,
-		Domain:     domain,
+		ListenAddr:      ":19012",
+		SignerKey:       setup.SignerKey,
+		Domain:          domain,
+		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("consumer"))
 	go consumerSidecar.Run()
 	defer consumerSidecar.Shutdown(nil)

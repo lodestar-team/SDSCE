@@ -47,15 +47,17 @@ func TestSessionClose_ConsumerEndSession_MakesProviderInactive(t *testing.T) {
 			PricePerBlock: sds.NewGRTFromUint64(1),
 			PricePerByte:  sds.ZeroGRT(),
 		},
+		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("provider"))
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)
 
 	consumerSidecar := consumersidecar.New(&consumersidecar.Config{
-		ListenAddr: ":19015",
-		SignerKey:  setup.SignerKey,
-		Domain:     domain,
+		ListenAddr:      ":19015",
+		SignerKey:       setup.SignerKey,
+		Domain:          domain,
+		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("consumer"))
 	go consumerSidecar.Run()
 	defer consumerSidecar.Shutdown(nil)

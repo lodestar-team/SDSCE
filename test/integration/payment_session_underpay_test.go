@@ -52,6 +52,7 @@ func TestPaymentSession_RejectsUnderpayingRAV(t *testing.T) {
 		EscrowAddr:      env.Escrow.Address,
 		RPCEndpoint:     env.RPCURL,
 		PricingConfig:   pricingConfig,
+		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("provider"))
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)

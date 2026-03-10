@@ -47,9 +47,10 @@ func TestPaymentFlowBasic(t *testing.T) {
 
 	// Create consumer sidecar
 	consumerConfig := &consumersidecar.Config{
-		ListenAddr: ":19002",
-		SignerKey:  setup.SignerKey,
-		Domain:     domain,
+		ListenAddr:      ":19002",
+		SignerKey:       setup.SignerKey,
+		Domain:          domain,
+		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
 	}
 	consumerSidecar := consumersidecar.New(consumerConfig, zlog.Named("consumer"))
 	go consumerSidecar.Run()
@@ -64,6 +65,7 @@ func TestPaymentFlowBasic(t *testing.T) {
 		CollectorAddr:   env.Collector.Address,
 		EscrowAddr:      env.Escrow.Address,
 		RPCEndpoint:     env.RPCURL,
+		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
 	}
 	providerGateway := providergateway.New(providerConfig, zlog.Named("provider"))
 	go providerGateway.Run()
@@ -153,9 +155,10 @@ func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
 	domain := env.Domain()
 
 	consumerSidecar := consumersidecar.New(&consumersidecar.Config{
-		ListenAddr: ":19008",
-		SignerKey:  setup.SignerKey,
-		Domain:     domain,
+		ListenAddr:      ":19008",
+		SignerKey:       setup.SignerKey,
+		Domain:          domain,
+		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("consumer"))
 	go consumerSidecar.Run()
 	defer consumerSidecar.Shutdown(nil)
@@ -172,6 +175,7 @@ func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
 			PricePerBlock: sds.NewGRTFromUint64(1),
 			PricePerByte:  sds.ZeroGRT(),
 		},
+		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("provider"))
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)

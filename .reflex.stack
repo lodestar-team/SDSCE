@@ -7,6 +7,7 @@
    echo "Starting Consumer Sidecar ..." && \
    DLOG=".*=debug" ./devel/sds consumer sidecar \
        --grpc-listen-addr="$CONSUMER_LISTEN_ADDR" \
+       --plaintext \
        --signer-private-key="$SDS_DEMO_SIGNER_PRIVATE_KEY" \
        --collector-address="$SDS_DEMO_COLLECTOR_ADDRESS"'
 
@@ -22,6 +23,7 @@
     touch ./devel/.provider-gateway && \
     DLOG=".*=debug" ./devel/sds provider gateway \
         --grpc-listen-addr="$PROVIDER_LISTEN_ADDR" \
+        --plaintext \
         --service-provider="$SDS_DEMO_SERVICE_PROVIDER_ADDRESS" \
         --collector-address="$SDS_DEMO_COLLECTOR_ADDRESS" \
         --escrow-address="$SDS_DEMO_ESCROW_ADDRESS" \

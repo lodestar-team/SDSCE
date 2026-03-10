@@ -52,6 +52,7 @@ func TestPaymentSession_ProviderRequestsRAVOnUsage(t *testing.T) {
 		EscrowAddr:      env.Escrow.Address,
 		RPCEndpoint:     env.RPCURL,
 		PricingConfig:   pricingConfig,
+		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
 	}
 	providerGateway := providergateway.New(providerConfig, zlog.Named("provider"))
 	go providerGateway.Run()

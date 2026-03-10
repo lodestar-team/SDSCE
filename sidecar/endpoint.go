@@ -1,16 +1,22 @@
 package sidecar
 
 import (
+	"context"
 	"crypto/tls"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"golang.org/x/net/http2"
 )
 
 // ParsedEndpoint contains the parsed endpoint URL and connection settings.
 type ParsedEndpoint struct {
 	// URL is the endpoint URL with the insecure query parameter removed.
 	URL string
+	// Plaintext indicates whether the endpoint uses cleartext HTTP.
+	Plaintext bool
 	// Insecure indicates whether to skip TLS certificate verification.
 	// Only applicable for https:// URLs.
 	Insecure bool
@@ -23,7 +29,7 @@ type ParsedEndpoint struct {
 // This parameter is removed from the returned URL.
 //
 // Examples:
-//   - "localhost:9001" -> "http://localhost:9001", insecure=false
+//   - "localhost:9001" -> "https://localhost:9001", insecure=false
 //   - "http://localhost:9001" -> "http://localhost:9001", insecure=false
 //   - "https://localhost:9001?insecure=true" -> "https://localhost:9001", insecure=true
 //   - "https://localhost:9001?foo=bar&insecure=true" -> "https://localhost:9001?foo=bar", insecure=true
@@ -35,7 +41,7 @@ func ParseEndpoint(endpoint string) ParsedEndpoint {
 
 	// Add default scheme if missing
 	if !strings.Contains(endpoint, "://") {
-		endpoint = "http://" + endpoint
+		endpoint = "https://" + endpoint
 	}
 
 	parsed, err := url.Parse(endpoint)
@@ -53,8 +59,9 @@ func ParseEndpoint(endpoint string) ParsedEndpoint {
 	parsed.RawQuery = query.Encode()
 
 	return ParsedEndpoint{
-		URL:      parsed.String(),
-		Insecure: insecure,
+		URL:       parsed.String(),
+		Plaintext: strings.EqualFold(parsed.Scheme, "http"),
+		Insecure:  insecure,
 	}
 }
 
@@ -66,8 +73,7 @@ func (p ParsedEndpoint) HTTPClient() *http.Client {
 		return http.DefaultClient
 	}
 
-	// Only apply insecure settings for https URLs
-	if !strings.HasPrefix(strings.ToLower(p.URL), "https://") {
+	if p.Plaintext {
 		return http.DefaultClient
 	}
 
@@ -76,6 +82,34 @@ func (p ParsedEndpoint) HTTPClient() *http.Client {
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: true,
 			},
+		},
+	}
+}
+
+// GRPCClient returns an HTTP/2 client for Connect/gRPC calls.
+// Plaintext endpoints use h2c, while TLS endpoints use HTTPS with optional
+// certificate verification skipping when Insecure is set.
+func (p ParsedEndpoint) GRPCClient() *http.Client {
+	if p.Plaintext {
+		return &http.Client{
+			Transport: &http2.Transport{
+				AllowHTTP: true,
+				DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+					var d net.Dialer
+					return d.DialContext(ctx, network, addr)
+				},
+			},
+		}
+	}
+
+	tlsConfig := &tls.Config{}
+	if p.Insecure {
+		tlsConfig.InsecureSkipVerify = true
+	}
+
+	return &http.Client{
+		Transport: &http2.Transport{
+			TLSClientConfig: tlsConfig,
 		},
 	}
 }

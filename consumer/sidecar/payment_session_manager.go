@@ -2,15 +2,12 @@ package sidecar
 
 import (
 	"context"
-	"crypto/tls"
-	"net"
-	"net/http"
 	"sync"
 
 	"connectrpc.com/connect"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
-	"golang.org/x/net/http2"
+	sidecarlib "github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
 type paymentSessionManager struct {
@@ -194,19 +191,6 @@ func (c *paymentSessionClient) Close() {
 }
 
 func newPaymentGatewayClient(providerEndpoint string) providerv1connect.PaymentGatewayServiceClient {
-	return providerv1connect.NewPaymentGatewayServiceClient(newH2CClient(), providerEndpoint, connect.WithGRPC())
-}
-
-func newH2CClient() *http.Client {
-	return &http.Client{
-		Transport: &http2.Transport{
-			AllowHTTP: true,
-			// Connect's gRPC client expects HTTP/2, and our local/demo provider gateway serves
-			// plaintext h2c rather than TLS. This dialer enables HTTP/2 over cleartext TCP.
-			DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
-				var d net.Dialer
-				return d.DialContext(ctx, network, addr)
-			},
-		},
-	}
+	parsedEndpoint := sidecarlib.ParseEndpoint(providerEndpoint)
+	return providerv1connect.NewPaymentGatewayServiceClient(parsedEndpoint.GRPCClient(), parsedEndpoint.URL, connect.WithGRPC())
 }

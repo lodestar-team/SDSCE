@@ -37,6 +37,7 @@ Before writing code, run these quick checks:
 - **Domain type check**: is there already a repo-level type/helper for this domain (`sds.GRT`, address/signature helpers, etc.)?
 - **Ownership check**: if the change touches concurrency or streams, which type owns the resource, the locking, and the timeout/retry policy?
 - **Determinism check**: if the change touches demo/dev orchestration, should missing config fail fast instead of silently defaulting?
+- **Transport-security check**: if the change touches networking, is insecure/plaintext behavior explicitly scoped to local/dev and not the default for future production paths?
 - **Package-boundary check**: if runtime code is importing from a development-only package, should that dependency be promoted to shared infrastructure instead?
 
 ### Protobuf changes

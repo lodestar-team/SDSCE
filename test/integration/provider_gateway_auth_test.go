@@ -44,6 +44,7 @@ func TestPaymentGateway_OnChainAuthorization(t *testing.T) {
 		CollectorAddr:   env.Collector.Address,
 		EscrowAddr:      env.Escrow.Address,
 		RPCEndpoint:     env.RPCURL,
+		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
 	}
 	providerGateway := providergateway.New(providerConfig, zlog.Named("provider"))
 	go providerGateway.Run()

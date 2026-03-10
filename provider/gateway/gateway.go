@@ -51,7 +51,8 @@ type Gateway struct {
 	collectorQuerier sidecar.CollectorAuthorizer
 
 	// Pricing configuration
-	pricingConfig *sidecar.PricingConfig
+	pricingConfig   *sidecar.PricingConfig
+	transportConfig sidecar.ServerTransportConfig
 
 	authCache *haxmap.Map[string, authCacheEntry]
 
@@ -72,6 +73,7 @@ type Config struct {
 	EscrowAddr      eth.Address
 	RPCEndpoint     string
 	PricingConfig   *sidecar.PricingConfig
+	TransportConfig sidecar.ServerTransportConfig
 
 	// QuotaConfig configures per-payer worker quota limits for the session service.
 	// If nil, DefaultQuotaConfig() is used.
@@ -128,6 +130,7 @@ func New(config *Config, logger *zap.Logger) *Gateway {
 		escrowQuerier:    escrowQuerier,
 		collectorQuerier: collectorQuerier,
 		pricingConfig:    pricingConfig,
+		transportConfig:  config.TransportConfig,
 		authCache:        haxmap.New[string, authCacheEntry](),
 		repo:             repo,
 		authService:      authSvc,
@@ -182,9 +185,15 @@ func (s *Gateway) Run() {
 		},
 	}
 
+	transportOpt, err := s.transportConfig.DGRPCOption("provider gateway")
+	if err != nil {
+		s.Shutdown(err)
+		return
+	}
+
 	s.server = connectrpc.New(
 		handlerGetters,
-		server.WithPlainTextServer(),
+		transportOpt,
 		server.WithLogger(s.logger),
 		server.WithHealthCheck(server.HealthCheckOverHTTP, s.healthCheck),
 		server.WithConnectPermissiveCORS(),

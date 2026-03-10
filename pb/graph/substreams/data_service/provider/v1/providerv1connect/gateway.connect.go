@@ -36,6 +36,9 @@ const (
 	// PaymentGatewayServiceStartSessionProcedure is the fully-qualified name of the
 	// PaymentGatewayService's StartSession RPC.
 	PaymentGatewayServiceStartSessionProcedure = "/graph.substreams.data_service.provider.v1.PaymentGatewayService/StartSession"
+	// PaymentGatewayServiceGetSessionStatusProcedure is the fully-qualified name of the
+	// PaymentGatewayService's GetSessionStatus RPC.
+	PaymentGatewayServiceGetSessionStatusProcedure = "/graph.substreams.data_service.provider.v1.PaymentGatewayService/GetSessionStatus"
 	// PaymentGatewayServiceSubmitRAVProcedure is the fully-qualified name of the
 	// PaymentGatewayService's SubmitRAV RPC.
 	PaymentGatewayServiceSubmitRAVProcedure = "/graph.substreams.data_service.provider.v1.PaymentGatewayService/SubmitRAV"
@@ -51,6 +54,9 @@ type PaymentGatewayServiceClient interface {
 	// The consumer sidecar calls this to establish a session before
 	// the substreams client connects to the provider.
 	StartSession(context.Context, *connect.Request[v1.StartSessionRequest]) (*connect.Response[v1.StartSessionResponse], error)
+	// GetSessionStatus returns basic status for a session, intended for operator
+	// tooling and demo/integration flows.
+	GetSessionStatus(context.Context, *connect.Request[v1.GetSessionStatusRequest]) (*connect.Response[v1.GetSessionStatusResponse], error)
 	// SubmitRAV submits a signed RAV to the provider gateway.
 	// Called when the provider requests a new RAV for continued service.
 	SubmitRAV(context.Context, *connect.Request[v1.SubmitRAVRequest]) (*connect.Response[v1.SubmitRAVResponse], error)
@@ -78,6 +84,12 @@ func NewPaymentGatewayServiceClient(httpClient connect.HTTPClient, baseURL strin
 			connect.WithSchema(paymentGatewayServiceMethods.ByName("StartSession")),
 			connect.WithClientOptions(opts...),
 		),
+		getSessionStatus: connect.NewClient[v1.GetSessionStatusRequest, v1.GetSessionStatusResponse](
+			httpClient,
+			baseURL+PaymentGatewayServiceGetSessionStatusProcedure,
+			connect.WithSchema(paymentGatewayServiceMethods.ByName("GetSessionStatus")),
+			connect.WithClientOptions(opts...),
+		),
 		submitRAV: connect.NewClient[v1.SubmitRAVRequest, v1.SubmitRAVResponse](
 			httpClient,
 			baseURL+PaymentGatewayServiceSubmitRAVProcedure,
@@ -95,14 +107,21 @@ func NewPaymentGatewayServiceClient(httpClient connect.HTTPClient, baseURL strin
 
 // paymentGatewayServiceClient implements PaymentGatewayServiceClient.
 type paymentGatewayServiceClient struct {
-	startSession   *connect.Client[v1.StartSessionRequest, v1.StartSessionResponse]
-	submitRAV      *connect.Client[v1.SubmitRAVRequest, v1.SubmitRAVResponse]
-	paymentSession *connect.Client[v1.PaymentSessionRequest, v1.PaymentSessionResponse]
+	startSession     *connect.Client[v1.StartSessionRequest, v1.StartSessionResponse]
+	getSessionStatus *connect.Client[v1.GetSessionStatusRequest, v1.GetSessionStatusResponse]
+	submitRAV        *connect.Client[v1.SubmitRAVRequest, v1.SubmitRAVResponse]
+	paymentSession   *connect.Client[v1.PaymentSessionRequest, v1.PaymentSessionResponse]
 }
 
 // StartSession calls graph.substreams.data_service.provider.v1.PaymentGatewayService.StartSession.
 func (c *paymentGatewayServiceClient) StartSession(ctx context.Context, req *connect.Request[v1.StartSessionRequest]) (*connect.Response[v1.StartSessionResponse], error) {
 	return c.startSession.CallUnary(ctx, req)
+}
+
+// GetSessionStatus calls
+// graph.substreams.data_service.provider.v1.PaymentGatewayService.GetSessionStatus.
+func (c *paymentGatewayServiceClient) GetSessionStatus(ctx context.Context, req *connect.Request[v1.GetSessionStatusRequest]) (*connect.Response[v1.GetSessionStatusResponse], error) {
+	return c.getSessionStatus.CallUnary(ctx, req)
 }
 
 // SubmitRAV calls graph.substreams.data_service.provider.v1.PaymentGatewayService.SubmitRAV.
@@ -123,6 +142,9 @@ type PaymentGatewayServiceHandler interface {
 	// The consumer sidecar calls this to establish a session before
 	// the substreams client connects to the provider.
 	StartSession(context.Context, *connect.Request[v1.StartSessionRequest]) (*connect.Response[v1.StartSessionResponse], error)
+	// GetSessionStatus returns basic status for a session, intended for operator
+	// tooling and demo/integration flows.
+	GetSessionStatus(context.Context, *connect.Request[v1.GetSessionStatusRequest]) (*connect.Response[v1.GetSessionStatusResponse], error)
 	// SubmitRAV submits a signed RAV to the provider gateway.
 	// Called when the provider requests a new RAV for continued service.
 	SubmitRAV(context.Context, *connect.Request[v1.SubmitRAVRequest]) (*connect.Response[v1.SubmitRAVResponse], error)
@@ -145,6 +167,12 @@ func NewPaymentGatewayServiceHandler(svc PaymentGatewayServiceHandler, opts ...c
 		connect.WithSchema(paymentGatewayServiceMethods.ByName("StartSession")),
 		connect.WithHandlerOptions(opts...),
 	)
+	paymentGatewayServiceGetSessionStatusHandler := connect.NewUnaryHandler(
+		PaymentGatewayServiceGetSessionStatusProcedure,
+		svc.GetSessionStatus,
+		connect.WithSchema(paymentGatewayServiceMethods.ByName("GetSessionStatus")),
+		connect.WithHandlerOptions(opts...),
+	)
 	paymentGatewayServiceSubmitRAVHandler := connect.NewUnaryHandler(
 		PaymentGatewayServiceSubmitRAVProcedure,
 		svc.SubmitRAV,
@@ -161,6 +189,8 @@ func NewPaymentGatewayServiceHandler(svc PaymentGatewayServiceHandler, opts ...c
 		switch r.URL.Path {
 		case PaymentGatewayServiceStartSessionProcedure:
 			paymentGatewayServiceStartSessionHandler.ServeHTTP(w, r)
+		case PaymentGatewayServiceGetSessionStatusProcedure:
+			paymentGatewayServiceGetSessionStatusHandler.ServeHTTP(w, r)
 		case PaymentGatewayServiceSubmitRAVProcedure:
 			paymentGatewayServiceSubmitRAVHandler.ServeHTTP(w, r)
 		case PaymentGatewayServicePaymentSessionProcedure:
@@ -176,6 +206,10 @@ type UnimplementedPaymentGatewayServiceHandler struct{}
 
 func (UnimplementedPaymentGatewayServiceHandler) StartSession(context.Context, *connect.Request[v1.StartSessionRequest]) (*connect.Response[v1.StartSessionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("graph.substreams.data_service.provider.v1.PaymentGatewayService.StartSession is not implemented"))
+}
+
+func (UnimplementedPaymentGatewayServiceHandler) GetSessionStatus(context.Context, *connect.Request[v1.GetSessionStatusRequest]) (*connect.Response[v1.GetSessionStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("graph.substreams.data_service.provider.v1.PaymentGatewayService.GetSessionStatus is not implemented"))
 }
 
 func (UnimplementedPaymentGatewayServiceHandler) SubmitRAV(context.Context, *connect.Request[v1.SubmitRAVRequest]) (*connect.Response[v1.SubmitRAVResponse], error) {

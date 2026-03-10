@@ -169,6 +169,9 @@ func (s *Sidecar) Init(
 	if providerPricingConfig != nil {
 		session.SetPricingConfig(providerPricingConfig)
 	}
+	if parsedEndpoint.URL != "" {
+		s.paymentSessions.SetEndpoint(sessionID, parsedEndpoint.URL)
+	}
 
 	s.logger.Debug("created session",
 		zap.String("session_id", session.ID),

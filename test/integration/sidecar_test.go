@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	sds "github.com/graphprotocol/substreams-data-service"
 	consumersidecar "github.com/graphprotocol/substreams-data-service/consumer/sidecar"
 	"github.com/graphprotocol/substreams-data-service/horizon/devenv"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
@@ -46,9 +47,10 @@ func TestPaymentFlowBasic(t *testing.T) {
 
 	// Create consumer sidecar
 	consumerConfig := &consumersidecar.Config{
-		ListenAddr: ":19002",
-		SignerKey:  setup.SignerKey,
-		Domain:     domain,
+		ListenAddr:      ":19002",
+		SignerKey:       setup.SignerKey,
+		Domain:          domain,
+		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
 	}
 	consumerSidecar := consumersidecar.New(consumerConfig, zlog.Named("consumer"))
 	go consumerSidecar.Run()
@@ -63,6 +65,7 @@ func TestPaymentFlowBasic(t *testing.T) {
 		CollectorAddr:   env.Collector.Address,
 		EscrowAddr:      env.Escrow.Address,
 		RPCEndpoint:     env.RPCURL,
+		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
 	}
 	providerGateway := providergateway.New(providerConfig, zlog.Named("provider"))
 	go providerGateway.Run()
@@ -130,7 +133,7 @@ func TestPaymentFlowBasic(t *testing.T) {
 	assert.Equal(t, uint64(150), endResp.Msg.TotalUsage.BlocksProcessed, "expected 150 total blocks")
 
 	// Convert final RAV value
-	finalValue := endResp.Msg.FinalRav.Rav.ValueAggregate.ToNative()
+	finalValue := endResp.Msg.FinalRav.Rav.ValueAggregate.ToBigInt()
 	t.Logf("Session ended. Final RAV value: %s", finalValue.String())
 
 	t.Log("Payment flow test completed successfully!")
@@ -152,9 +155,10 @@ func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
 	domain := env.Domain()
 
 	consumerSidecar := consumersidecar.New(&consumersidecar.Config{
-		ListenAddr: ":19008",
-		SignerKey:  setup.SignerKey,
-		Domain:     domain,
+		ListenAddr:      ":19008",
+		SignerKey:       setup.SignerKey,
+		Domain:          domain,
+		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("consumer"))
 	go consumerSidecar.Run()
 	defer consumerSidecar.Shutdown(nil)
@@ -167,6 +171,11 @@ func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
 		CollectorAddr:   env.Collector.Address,
 		EscrowAddr:      env.Escrow.Address,
 		RPCEndpoint:     env.RPCURL,
+		PricingConfig: &sidecar.PricingConfig{
+			PricePerBlock: sds.NewGRTFromUint64(1),
+			PricePerByte:  sds.ZeroGRT(),
+		},
+		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("provider"))
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
@@ -188,17 +197,13 @@ func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
 	require.NotNil(t, initResp.Msg.PaymentRav)
 	require.NotEmpty(t, initResp.Msg.Session.GetSessionId())
 
-	// Consumer sidecar calculates cost from pricing config, so we need to use the expected calculated cost
-	defaultPricing := sidecar.DefaultPricingConfig()
-	expectedCost := defaultPricing.CalculateUsageCost(1, 1).BigInt() // 1 block, 1 byte
-
 	reportResp, err := consumerClient.ReportUsage(ctx, connect.NewRequest(&consumerv1.ReportUsageRequest{
 		SessionId: initResp.Msg.Session.GetSessionId(),
 		Usage: &commonv1.Usage{
 			BlocksProcessed:  1,
-			BytesTransferred: 1,
+			BytesTransferred: 0,
 			Requests:         1,
-			Cost:             commonv1.GRTFromBigInt(expectedCost), // Cost is ignored; sidecar calculates from pricing
+			Cost:             nil, // provider is cost-authoritative in PaymentSession loop
 		},
 	}))
 	require.NoError(t, err, "consumer ReportUsage failed")
@@ -206,8 +211,8 @@ func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
 	require.NotNil(t, reportResp.Msg.GetUpdatedRav().GetRav())
 
 	existingRAV := reportResp.Msg.GetUpdatedRav()
-	existingValue := existingRAV.GetRav().GetValueAggregate().ToNative()
-	require.Equal(t, 0, existingValue.BigInt().Cmp(expectedCost))
+	existingValue := existingRAV.GetRav().GetValueAggregate().ToBigInt()
+	require.Equal(t, 0, existingValue.Cmp(big.NewInt(1)))
 
 	// Resume by calling Init(existing_rav=...) and assert the returned payment_rav matches the existing state.
 	initResp2, err := consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{
@@ -219,8 +224,8 @@ func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
 	require.NotNil(t, initResp2.Msg.GetPaymentRav())
 	require.NotNil(t, initResp2.Msg.GetPaymentRav().GetRav())
 
-	resumedValue := initResp2.Msg.GetPaymentRav().GetRav().GetValueAggregate().ToNative()
-	require.Equal(t, 0, resumedValue.Cmp(&existingValue))
+	resumedValue := initResp2.Msg.GetPaymentRav().GetRav().GetValueAggregate().ToBigInt()
+	require.Equal(t, 0, resumedValue.Cmp(existingValue))
 
 	// Invalid resumption should fail clearly.
 	_, err = consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{

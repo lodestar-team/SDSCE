@@ -13,12 +13,18 @@ A Golang implementation of the payment infrastructure for Substreams Data Servic
 - [firecore](https://github.com/streamingfast/firehose-core)
 - [dummy-blockchain](https://github.com/streamingfast/dummy-blockchain)
 
+If you install `firecore`/`dummy-blockchain` with `go install`, ensure `$(go env GOPATH)/bin` is on your `PATH`.
+
 ### Quick Start
 
 The `devel/sds` wrapper automatically compiles and runs the CLI on each invocation. Using [direnv](https://direnv.net/), create an `.envrc` file to add it to your PATH:
 
 ```bash
-echo 'path_add PATH "`pwd`/devel"' > .envrc && direnv allow
+cat > .envrc <<'EOF'
+PATH_add "$(pwd)/devel"
+PATH_add "$(go env GOPATH)/bin"
+EOF
+direnv allow
 ```
 
 Now `sds` invokes `devel/sds` directly. Use [reflex](https://github.com/cespare/reflex) to start everything (`devenv`, Consumer Sidecar, Provider Gateway & Firehose Stack) and auto-restart services (Consuemr Sidecar and Provider Gateway) on code changes:
@@ -26,6 +32,18 @@ Now `sds` invokes `devel/sds` directly. Use [reflex](https://github.com/cespare/
 ```bash
 reflex -c .reflex
 ```
+
+Both reflex configs pass `--plaintext` explicitly for the local/demo sidecar↔gateway path. Outside local/demo usage, configure TLS certificate/key files instead of relying on plaintext defaults.
+
+To keep on-chain state stable while restarting the rest of the stack, run `devenv` separately and use the stack-only reflex config:
+
+```bash
+./devel/sds devenv
+./devel/sds demo setup  # writes devel/.demo.env required by `.reflex.stack`
+reflex -c .reflex.stack
+```
+
+`.reflex.stack` now fails fast if `devel/.demo.env` is missing or does not contain the required demo variables.
 
 We have `devel/sds_sink` helper that can be used to sink in data service mode (invokes `sds sink ...` configured for development environment):
 
@@ -75,15 +93,26 @@ To run the full Substreams Data Service stack with a Firehose provider, you need
 
 ```bash
 # Build firecore
-git clone https://github.com/streamingfast/firehose-core
-cd firehose-core && go install ./cmd/firecore && cd ..
+#
+# IMPORTANT: `firecore` must include SDS plugin registration support, otherwise the `sds://...` plugins
+# configured in `devel/firecore.config.yaml` won't load. Use at least this commit:
+#   536bcd99495f42a27b67b340ccf8416f0fc967bf
+go install github.com/streamingfast/firehose-core/cmd/firecore@536bcd99495f42a27b67b340ccf8416f0fc967bf
 
 # Build dummy-blockchain
-git clone https://github.com/streamingfast/dummy-blockchain
-cd dummy-blockchain && go install . && cd ..
+go install github.com/streamingfast/dummy-blockchain@latest
 ```
 
 A sample firecore configuration is provided in `devel/firecore.config.yaml` that uses dummy-blockchain as the reader node and configures the SDS plugins (auth, session, metering) to connect to the provider gateway on `:9001`.
+
+Sanity check (what to look for in logs):
+- Good:
+  - `auth plugin instantiation {"plugin_kind": "sds"}`
+  - `MeteringConfig:"sds://localhost:9001?..."`
+  - `processing block {"block_number": ...}` (dummy-blockchain is running)
+- Bad:
+  - `executable file not found in $PATH` for `dummy-blockchain` → ensure `$(go env GOPATH)/bin` is on `PATH`
+  - errors about unknown `sds` plugin kind/scheme → your `firecore` binary is too old
 
 ## Architecture
 
@@ -124,11 +153,12 @@ Runs alongside the Substreams client and handles:
 ```bash
 # Using devenv addresses (User1 as signer)
 sds consumer sidecar \
+  --plaintext \
   --signer-private-key 0xdd02564c0e9836fb570322be23f8355761d4d04ebccdc53f4f53325227680a9f \
   --collector-address 0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9
 ```
 
-#### Provider Gateway (`provider/sidecar`)
+#### Provider Gateway (`provider/gateway`)
 
 Runs alongside the data provider (substreams-tier1) and handles:
 - RAV validation and signature verification
@@ -141,6 +171,7 @@ Runs alongside the data provider (substreams-tier1) and handles:
 ```bash
 # Using devenv addresses
 sds provider gateway \
+  --plaintext \
   --service-provider 0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
   --collector-address 0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9 \
   --escrow-address 0xfc7487a37ca8eac2e64cba61277aa109e9b8631e \

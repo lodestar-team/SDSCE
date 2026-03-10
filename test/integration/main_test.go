@@ -22,7 +22,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "Failed to start development environment: %v\n", err)
 		os.Exit(1)
 	}
-	defer devenv.Shutdown()
-
-	os.Exit(m.Run())
+	code := m.Run()
+	devenv.Shutdown()
+	os.Exit(code)
 }

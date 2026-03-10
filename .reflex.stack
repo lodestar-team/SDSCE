@@ -1,0 +1,39 @@
+-r "\.(go|sql)$" -s -R "devel/.*" -- sh -c \
+   'test -f ./devel/.demo.env || { echo "Missing ./devel/.demo.env. Run ./devel/sds demo setup first."; exit 1; } && \
+   . ./devel/.demo.env && \
+   : "${SDS_DEMO_COLLECTOR_ADDRESS:?Missing SDS_DEMO_COLLECTOR_ADDRESS in ./devel/.demo.env}" && \
+   : "${SDS_DEMO_SIGNER_PRIVATE_KEY:?Missing SDS_DEMO_SIGNER_PRIVATE_KEY in ./devel/.demo.env}" && \
+   CONSUMER_LISTEN_ADDR="${SDS_DEMO_CONSUMER_LISTEN_ADDR:-:9002}" && \
+   echo "Starting Consumer Sidecar ..." && \
+   DLOG=".*=debug" ./devel/sds consumer sidecar \
+       --grpc-listen-addr="$CONSUMER_LISTEN_ADDR" \
+       --plaintext \
+       --signer-private-key="$SDS_DEMO_SIGNER_PRIVATE_KEY" \
+       --collector-address="$SDS_DEMO_COLLECTOR_ADDRESS"'
+
+-r "\.(go|sql)$" -s -R "devel/.*" -- sh -c \
+    'test -f ./devel/.demo.env || { echo "Missing ./devel/.demo.env. Run ./devel/sds demo setup first."; exit 1; } && \
+    . ./devel/.demo.env && \
+    : "${SDS_DEMO_SERVICE_PROVIDER_ADDRESS:?Missing SDS_DEMO_SERVICE_PROVIDER_ADDRESS in ./devel/.demo.env}" && \
+    : "${SDS_DEMO_COLLECTOR_ADDRESS:?Missing SDS_DEMO_COLLECTOR_ADDRESS in ./devel/.demo.env}" && \
+    : "${SDS_DEMO_ESCROW_ADDRESS:?Missing SDS_DEMO_ESCROW_ADDRESS in ./devel/.demo.env}" && \
+    : "${SDS_DEMO_RPC_ENDPOINT:?Missing SDS_DEMO_RPC_ENDPOINT in ./devel/.demo.env}" && \
+    PROVIDER_LISTEN_ADDR="${SDS_DEMO_PROVIDER_LISTEN_ADDR:-:9001}" && \
+    echo "Starting Provider Gateway ..." && \
+    touch ./devel/.provider-gateway && \
+    DLOG=".*=debug" ./devel/sds provider gateway \
+        --grpc-listen-addr="$PROVIDER_LISTEN_ADDR" \
+        --plaintext \
+        --service-provider="$SDS_DEMO_SERVICE_PROVIDER_ADDRESS" \
+        --collector-address="$SDS_DEMO_COLLECTOR_ADDRESS" \
+        --escrow-address="$SDS_DEMO_ESCROW_ADDRESS" \
+        --rpc-endpoint="$SDS_DEMO_RPC_ENDPOINT"'
+
+-r "(\.provider-gateway|firecore\.config\.yaml)$" -s -R "devel/.*" -- sh -c \
+    'echo "Restarting firehose-core instance (5s delay for provider gateway startup)..." && \
+    sleep 5 && \
+    rm -rf ./devel/.firehose && \
+    echo "Starting Firehose Core" && \
+    echo " Substreams: sds sink -e https://localhost:10016 --insecure" && \
+    echo "" && \
+    PATH="$(go env GOPATH)/bin:$PATH" DLOG="${DLOG:-error}" firecore -c devel/firecore.config.yaml -d ./devel/.firehose start'

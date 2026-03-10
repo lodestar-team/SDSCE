@@ -30,6 +30,7 @@ func (s *Sidecar) EndSession(
 		s.logger.Warn("session not found", zap.String("session_id", sessionID))
 		return nil, connect.NewError(connect.CodeNotFound, err)
 	}
+	defer s.paymentSessions.Close(sessionID)
 
 	// Add final usage if provided
 	finalUsage := req.Msg.FinalUsage

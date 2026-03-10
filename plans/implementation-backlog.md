@@ -1,6 +1,6 @@
 # Substreams Data Service — Implementation Backlog
 
-_Last updated: 2026-02-16_
+_Last updated: 2026-03-04_
 
 This repo already contains a working **Horizon V2 (TAP) signing/verification core** (`horizon/`) and a **development environment + integration tests** (`horizon/devenv/`, `test/integration/`).
 
@@ -53,7 +53,7 @@ See also: `docs/agent-workflow.md` for the step-by-step implementation/verificat
 
 1. **Sidecar↔Sidecar handshake + shared session ID**
 2. **Dynamic signer authorization (on-chain) + escrow enforcement**
-3. **RAV request policy + streaming loop (Continue/Stop)**
+3. **RAV request policy + streaming loop (Continue/Stop/Pause)**
 4. **Production hardening (authn/z, persistence, metrics, rate limits, etc.)**
 
 ---
@@ -88,6 +88,9 @@ Update process:
 | SDS-013 | P1 | done | Implement session resumption end-to-end |
 | SDS-014 | P2 | done | Bind `PaymentSession` stream to a specific session |
 | SDS-015 | P2 | done | Implement provider-driven RAV request policy |
+| SDS-034 | P2 | done | Wire consumer sidecar to provider `PaymentSession` loop |
+| SDS-035 | P2 | done | Enforce RAV submissions cover requested usage |
+| SDS-036 | P2 | done | Propagate session close across sidecars |
 | SDS-016 | P2 | not_started | Implement `NeedMoreFunds` loop + Continue/Stop/Pause |
 | SDS-017 | P2 | done | Verify signer authorization on-chain (`isAuthorized`) |
 | SDS-018 | P2 | done | Remove CLI/env allowlist override (rely on on-chain auth) |
@@ -100,7 +103,10 @@ Update process:
 | SDS-025 | P3 | not_started | Add transport security + authn/authz |
 | SDS-026 | P3 | not_started | Add observability (metrics/tracing/log correlation) |
 | SDS-027 | P3 | not_started | Add rate limiting / abuse protection |
-| SDS-031 | P3 | deferred | Add `sds demo flow` manual harness (optional) |
+| SDS-037 | P2 | done | Add CLI helper to prepare on-chain demo state (devenv) |
+| SDS-031 | P3 | done | Add `sds demo flow` manual harness (optional) |
+| SDS-038 | P2 | not_started | Make `sds sink run` the primary end-to-end demo (STOP-aware) |
+| SDS-039 | P2 | not_started | Document/enforce required firehose-core version for `sds://` plugins |
 | SDS-032 | P3 | not_started | Explore `protovalidate` for request validation |
 | SDS-033 | P3 | not_started | Reuse/caching for provider gateway clients |
 | SDS-028 | X | not_started | Define payment header format (client ↔ provider) |
@@ -260,11 +266,50 @@ The flow diagram in `docs/flowchart.txt` implies:
   - Proto has `RAVRequest` + `deadline` (`proto/.../gateway.proto`), but nothing triggers it today.
   - Target:
     - Provider sidecar requests a new RAV when usage/cost threshold is reached.
-    - Consumer sidecar responds with `SignedRAVSubmission`.
+    - A consumer client responds with `SignedRAVSubmission` (consumer-sidecar wiring is tracked separately).
   - Done when:
     - Provider triggers `rav_request` based on a deterministic policy and handles responses.
   - Verify:
     - `go test ./test/integration -run TestPaymentSession_ProviderRequestsRAVOnUsage` passes.
+- [x] SDS-034 Wire consumer sidecar to provider `PaymentSession` loop.
+  - Context:
+    - Provider sidecar implements `PaymentSession` and emits `rav_request`, but consumer sidecar does not open/manage the stream, so the sidecar↔sidecar negotiation loop is not demoable via `cmd/sds/*` today.
+  - Target:
+    - Maintain one `PaymentSession` stream per session (create at `Init` or lazily on first `ReportUsage`).
+    - On `ConsumerSidecarService.ReportUsage`, forward usage (blocks/bytes/requests) to provider via `PaymentSessionRequest{usage_report}`.
+    - Handle provider responses:
+      - `rav_request` → sign an updated RAV and send `PaymentSessionRequest{rav_submission}` (including the provider-provided `usage`).
+      - `session_control` / `need_more_funds` → propagate to `ReportUsageResponse.should_continue/stop_reason` and transition local session state (pause/stop) accordingly.
+    - Close the stream on `ConsumerSidecarService.EndSession`.
+  - Done when:
+    - Consumer `ReportUsage` causes provider `GetSessionStatus.payment_status.current_rav_value` to advance.
+  - Verify:
+    - Add/extend an integration test that starts both sidecars, calls consumer `ReportUsage`, and asserts provider `current_rav_value` increases.
+    - Manual: start `sds devenv`, start both sidecars, run `sds consumer fake-client`, and observe provider logs showing `rav_request` + `RAV accepted via stream`.
+- [x] SDS-035 Enforce that RAV submissions cover the requested usage.
+  - Context:
+    - Provider currently accepts any submission where `new_value >= current_value`, which allows “no payment” updates and makes `rav_request` ineffective.
+  - Target:
+    - For both `PaymentSession` (`handleRAVSubmission`) and unary `SubmitRAV`, enforce:
+      - `submitted_value >= current_value + expected_delta_cost`.
+    - Compute `expected_delta_cost` server-side (from usage tracked since baseline + pricing config), not from caller-provided `Usage.cost`.
+    - On violation, STOP/reject with a clear reason.
+  - Done when:
+    - Underpaying submissions are rejected/stopped and covered by tests.
+  - Verify:
+    - Extend `TestPaymentSession_ProviderRequestsRAVOnUsage` to submit an underpaying RAV and assert STOP/rejection.
+- [x] SDS-036 Propagate “session close” across sidecars.
+  - Context:
+    - Consumer `EndSession` ends local state, but provider sessions can remain active even if the `PaymentSession` stream is closed.
+  - Target:
+    - Define minimal close behavior for demo:
+      - Consumer closes `PaymentSession` on `EndSession`.
+      - Provider marks the session ended when the stream closes (EOF) and/or when it emits `SessionControl{STOP}`.
+    - Ensure final RAV is consistent on both sides.
+  - Done when:
+    - Ending the session on consumer results in provider `GetSessionStatus.active=false`.
+  - Verify:
+    - Integration test that runs `Init` + `ReportUsage` + `EndSession` and asserts provider becomes inactive.
 - [ ] SDS-016 Implement “NeedMoreFunds” loop.
   - Flowchart calls out periodic escrow checks (`docs/flowchart.txt`).
   - Provider sidecar already has a low-level escrow query (`sidecar/escrow_querier.go`); integrate it into stream control messages.
@@ -380,24 +425,76 @@ The flow diagram in `docs/flowchart.txt` implies:
 
 ---
 
-## P3 — Dev Tooling (Optional)
+## P3 — Dev Tooling (Demo Prereqs)
 
-- [ ] SDS-031 Add `sds demo flow` manual harness (optional).
+**Note on firehose-core compatibility:** the Firehose Core binary (`firecore`) must include the Substreams Data Service plugin registration (commit `536bcd99495f42a27b67b340ccf8416f0fc967bf` on `streamingfast/firehose-core`). Older binaries may start but fail to load/route `sds://` plugins. This affects `.reflex` and `devel/firecore.config.yaml`.
+
+- [x] SDS-037 Add a CLI helper to prepare on-chain demo state for devenv.
+  - Context:
+    - Integration tests call `Env.SetupTestWithSigner(...)` (mint/approve/deposit escrow, register service provider, authorize signer), but there is no CLI workflow for humans to do it when running sidecars manually.
+  - Target:
+    - Add a command (e.g. `sds devenv setup-test-state` or `sds demo setup`) that:
+      - connects to a running devenv RPC endpoint,
+      - funds payer escrow with a configurable amount,
+      - registers the service provider,
+      - authorizes a signer key (generate + print it, or accept `--signer-private-key`),
+      - prints the exact flags/env needed to start consumer/provider sidecars for a demo run.
+  - Done when:
+    - A user can run `sds devenv`, run the setup helper, then start both sidecars and observe on-chain `isAuthorized(payer, signer)=true`.
+  - Verify:
+    - Manual: run `sds devenv`, then the setup helper, then `go test ./test/integration -run TestProviderSidecar_OnChainAuthorization`.
+- [x] SDS-031 Add `sds demo flow` manual harness (optional).
   - Context:
     - We currently have good coverage in `test/integration/sidecar_test.go`, but it’s not a friendly “demo” entrypoint when iterating.
     - A CLI subcommand (or small binary under `examples/`) that runs the same flow makes it easy to manually validate behavior while implementing production wiring.
   - Target:
     - Provide a single command that:
       - calls consumer `Init`,
-      - calls provider `ValidatePayment`,
-      - sends usage updates, and
-      - ends the session, printing key IDs and RAV values.
+      - opens `PaymentSession`, exercises `rav_request`/`rav_submission`,
+      - sends usage updates (blocks/bytes),
+      - ends the session, printing key IDs and RAV values, and
+      - (optionally) queries provider gateway status for the session.
     - Prefer to reuse the already-running `sds devenv` and the running sidecars, rather than spinning up containers itself.
   - Done when:
     - `./devel/sds demo flow ...` (or an `examples/` program) can be run by a human to demonstrate the end-to-end RPC flow with clear output.
   - Verify:
     - Manual: start `./devel/sds devenv`, start both sidecars, run the demo harness, and confirm it exercises both sidecars and prints session IDs + final RAV value.
     - Automated (preferred): add a lightweight integration test asserting the harness completes successfully.
+
+- [ ] SDS-038 Make `sds sink run` the primary end-to-end demo (STOP-aware).
+  - Context:
+    - `sds demo flow` is a good RPC-level harness, but it does not stream real Substreams data nor exercise the real provider stack (firehose-core + plugins).
+    - We now have `sds sink run` (and `devel/sds_sink`) which is a “Data Service aware” sink runner: it initializes a payment session with the consumer sidecar, injects `x-sds-rav` headers, reports usage while streaming, and ends the session.
+  - Target:
+    - Make the “default demo” path be:
+      - `reflex -c .reflex` (provider gateway + consumer sidecar + firecore),
+      - `./devel/sds demo setup` (fund escrow + authorize signer),
+      - `./devel/sds_sink run common@v0.1.0 map_clocks -s -1` (or similar), observing RAV/value progression.
+    - Make `sds sink run` STOP-aware:
+      - If consumer sidecar `ReportUsage` returns `should_continue=false`, terminate the sink run promptly and return a non-zero exit code with the stop reason.
+      - Ensure session cleanup (`EndSession`) still runs (best-effort) on termination.
+  - Done when:
+    - The demo can be run end-to-end without manual “fake usage loops”, using a real Substreams endpoint.
+    - A STOP decision from the sidecar actually stops the sink run and is visible to the operator.
+  - Verify:
+    - Manual: with `.reflex` running, run `./devel/sds_sink run common@v0.1.0 map_clocks -s -1` and observe periodic usage reports + RAV updates.
+    - Manual: force a STOP (e.g. underpay test setup) and confirm `sds sink run` exits non-zero and prints the stop reason.
+
+- [ ] SDS-039 Document/enforce required firehose-core version for `sds://` plugins.
+  - Context:
+    - The demo stack uses firehose-core plugins (`sds://...`) configured in `devel/firecore.config.yaml`.
+    - Plugin registration for SDS in firehose-core landed in `streamingfast/firehose-core@536bcd99495f42a27b67b340ccf8416f0fc967bf`; older `firecore` builds may not recognize or route SDS plugin URIs.
+  - Target:
+    - Update docs to explicitly state the minimum `firecore` build/commit required for the demo stack.
+    - Optionally add a lightweight runtime check (or clearer failure message) in dev tooling:
+      - detect unsupported plugin registration early (before starting the full stack), and
+      - guide the developer to rebuild `firecore`.
+  - Done when:
+    - A developer running the documented demo commands either:
+      - has a compatible `firecore` and the stack boots cleanly, or
+      - gets an immediate, actionable error pointing to the required firehose-core version.
+  - Verify:
+    - Manual: run `.reflex` with an up-to-date `firecore` binary and confirm firehose-core starts with SDS plugins enabled.
 
 ---
 
@@ -436,4 +533,4 @@ These can’t be completed solely in this repo, but should be tracked here becau
 - [ ] SDS-030 Integrate consumer sidecar into the actual substreams client:
   - Call `Init` before connecting to provider.
   - Call `ReportUsage` / `EndSession`.
-  - Handle provider negotiation responses (RAV updates, funding requests).
+  - Handle provider negotiation responses (RAV updates, funding requests) and keep `x-sds-rav` up-to-date during long streams.

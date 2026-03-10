@@ -23,7 +23,7 @@ import (
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
-func TestPaymentSession_ProviderRequestsRAVOnUsage(t *testing.T) {
+func TestPaymentSession_RejectsUnderpayingRAV(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -38,14 +38,14 @@ func TestPaymentSession_ProviderRequestsRAVOnUsage(t *testing.T) {
 
 	domain := env.Domain()
 
-	// Make pricing deterministic: 1 base unit per block, 0 per byte.
+	// Make pricing deterministic: 1 wei per block, 0 per byte.
 	pricingConfig := &sidecar.PricingConfig{
 		PricePerBlock: sds.NewGRTFromUint64(1),
 		PricePerByte:  sds.ZeroGRT(),
 	}
 
-	providerConfig := &providergateway.Config{
-		ListenAddr:      ":19007",
+	providerGateway := providergateway.New(&providergateway.Config{
+		ListenAddr:      ":19014",
 		ServiceProvider: env.ServiceProvider.Address,
 		Domain:          domain,
 		CollectorAddr:   env.Collector.Address,
@@ -53,8 +53,7 @@ func TestPaymentSession_ProviderRequestsRAVOnUsage(t *testing.T) {
 		RPCEndpoint:     env.RPCURL,
 		PricingConfig:   pricingConfig,
 		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
-	}
-	providerGateway := providergateway.New(providerConfig, zlog.Named("provider"))
+	}, zlog.Named("provider"))
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)
@@ -68,7 +67,7 @@ func TestPaymentSession_ProviderRequestsRAVOnUsage(t *testing.T) {
 		},
 	}
 
-	gatewayClient := providerv1connect.NewPaymentGatewayServiceClient(h2cClient, "http://localhost:19007", connect.WithGRPC())
+	gatewayClient := providerv1connect.NewPaymentGatewayServiceClient(h2cClient, "http://localhost:19014", connect.WithGRPC())
 
 	rav0 := &horizon.RAV{
 		Payer:           env.Payer.Address,
@@ -95,16 +94,15 @@ func TestPaymentSession_ProviderRequestsRAVOnUsage(t *testing.T) {
 
 	stream := gatewayClient.PaymentSession(ctx)
 
-	// Send a usage report; provider should compute cost from pricing config and request a new RAV.
 	require.NoError(t, stream.Send(&providerv1.PaymentSessionRequest{
 		SessionId: startResp.Msg.SessionId,
 		Message: &providerv1.PaymentSessionRequest_UsageReport{
 			UsageReport: &providerv1.UsageReport{
 				Usage: &commonv1.Usage{
 					BlocksProcessed:  1,
-					BytesTransferred: 1,
+					BytesTransferred: 0,
 					Requests:         1,
-					Cost:             commonv1.GRTFromBigInt(big.NewInt(123)), // intentionally wrong; provider overrides
+					Cost:             nil, // provider computes cost
 				},
 			},
 		},
@@ -113,30 +111,27 @@ func TestPaymentSession_ProviderRequestsRAVOnUsage(t *testing.T) {
 	resp, err := stream.Receive()
 	require.NoError(t, err)
 	require.NotNil(t, resp.GetRavRequest(), "expected provider to emit a rav_request")
-	require.NotNil(t, resp.GetRavRequest().GetCurrentRav())
-	require.NotNil(t, resp.GetRavRequest().GetUsage())
-	require.Equal(t, uint64(1), resp.GetRavRequest().GetUsage().GetBlocksProcessed())
-	require.Equal(t, big.NewInt(1).Bytes(), resp.GetRavRequest().GetUsage().GetCost().GetBytes())
 
-	current := resp.GetRavRequest().GetCurrentRav().GetRav().GetValueAggregate().ToNative()
-	nextValue := new(big.Int).Add(current.BigInt(), big.NewInt(1))
+	current := resp.GetRavRequest().GetCurrentRav().GetRav().GetValueAggregate().ToBigInt()
+	require.Equal(t, 0, current.Cmp(big.NewInt(0)))
 
-	rav1 := &horizon.RAV{
+	// Underpay: keep same value even though usage delta is 1 wei.
+	ravUnderpay := &horizon.RAV{
 		Payer:           env.Payer.Address,
 		DataService:     env.DataService.Address,
 		ServiceProvider: env.ServiceProvider.Address,
 		TimestampNs:     uint64(time.Now().UnixNano()),
-		ValueAggregate:  nextValue,
+		ValueAggregate:  current,
 		Metadata:        nil,
 	}
-	signedRAV1, err := horizon.Sign(domain, rav1, setup.SignerKey)
+	signedUnderpay, err := horizon.Sign(domain, ravUnderpay, setup.SignerKey)
 	require.NoError(t, err)
 
 	require.NoError(t, stream.Send(&providerv1.PaymentSessionRequest{
 		SessionId: startResp.Msg.SessionId,
 		Message: &providerv1.PaymentSessionRequest_RavSubmission{
 			RavSubmission: &providerv1.SignedRAVSubmission{
-				SignedRav: sidecar.HorizonSignedRAVToProto(signedRAV1),
+				SignedRav: sidecar.HorizonSignedRAVToProto(signedUnderpay),
 				Usage:     resp.GetRavRequest().GetUsage(),
 			},
 		},
@@ -145,7 +140,15 @@ func TestPaymentSession_ProviderRequestsRAVOnUsage(t *testing.T) {
 	resp2, err := stream.Receive()
 	require.NoError(t, err)
 	require.NotNil(t, resp2.GetSessionControl())
-	require.Equal(t, providerv1.SessionControl_ACTION_CONTINUE, resp2.GetSessionControl().GetAction())
+	require.Equal(t, providerv1.SessionControl_ACTION_STOP, resp2.GetSessionControl().GetAction())
+	require.Contains(t, resp2.GetSessionControl().GetReason(), "underpays")
+
+	statusResp, err := gatewayClient.GetSessionStatus(ctx, connect.NewRequest(&providerv1.GetSessionStatusRequest{
+		SessionId: startResp.Msg.SessionId,
+	}))
+	require.NoError(t, err)
+	require.NotNil(t, statusResp.Msg.GetPaymentStatus())
+	require.Equal(t, 0, statusResp.Msg.GetPaymentStatus().GetCurrentRavValue().ToBigInt().Cmp(big.NewInt(0)))
 
 	require.NoError(t, stream.CloseRequest())
 	_ = stream.CloseResponse()

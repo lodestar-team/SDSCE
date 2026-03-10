@@ -11,6 +11,7 @@ import (
 	sessionv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/session/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/session/v1/sessionv1connect"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
+	"github.com/streamingfast/eth-go"
 	"github.com/streamingfast/logging"
 	"go.uber.org/zap"
 )
@@ -45,15 +46,20 @@ func (s *SessionService) BorrowWorker(
 	ctx context.Context,
 	req *connect.Request[sessionv1.BorrowWorkerRequest],
 ) (*connect.Response[sessionv1.BorrowWorkerResponse], error) {
-	payer := req.Msg.OrganizationId
+	payerStr := req.Msg.OrganizationId
 	traceID := req.Msg.TraceId
 
-	if payer == "" {
+	if payerStr == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("organization_id is required"))
 	}
 
+	payer, err := eth.NewAddress(payerStr)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid organization_id address: %w", err))
+	}
+
 	zlog.Debug("BorrowWorker called",
-		zap.String("payer", payer),
+		zap.Stringer("payer", payer),
 		zap.String("trace_id", traceID),
 		zap.String("service", req.Msg.Service),
 	)
@@ -64,11 +70,11 @@ func (s *SessionService) BorrowWorker(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reading quota: %w", err))
 	}
 
-	maxWorkers := s.quotas.MaxWorkersPerSession(payer) * s.quotas.MaxConcurrentSessions(payer)
+	maxWorkers := s.quotas.MaxWorkersPerSession(payerStr) * s.quotas.MaxConcurrentSessions(payerStr)
 
 	if quota.ActiveWorkers >= maxWorkers {
 		zlog.Warn("quota exceeded for payer",
-			zap.String("payer", payer),
+			zap.Stringer("payer", payer),
 			zap.Int("active_workers", quota.ActiveWorkers),
 			zap.Int("max_workers", maxWorkers),
 		)
@@ -82,13 +88,13 @@ func (s *SessionService) BorrowWorker(
 	}
 
 	// Create a session for this worker if trace_id implies one (one-to-one mapping).
-	sessionID := buildSessionID(payer, traceID)
+	sessionID := buildSessionID(payerStr, traceID)
 
 	// Ensure session exists.
 	if _, getErr := s.repo.SessionGet(ctx, sessionID); getErr != nil {
 		newSession := &repository.Session{
 			ID:            sessionID,
-			PayerAddress:  payer,
+			Payer:         payer,
 			Status:        repository.SessionStatusActive,
 			CreatedAt:     time.Now(),
 			LastKeepAlive: time.Now(),
@@ -103,13 +109,13 @@ func (s *SessionService) BorrowWorker(
 	}
 
 	// Create the worker entry.
-	workerKey := buildWorkerKey(payer, traceID, time.Now())
+	workerKey := buildWorkerKey(payerStr, traceID, time.Now())
 	worker := &repository.Worker{
-		Key:          workerKey,
-		SessionID:    sessionID,
-		PayerAddress: payer,
-		CreatedAt:    time.Now(),
-		TraceID:      traceID,
+		Key:       workerKey,
+		SessionID: sessionID,
+		Payer:     payer,
+		CreatedAt: time.Now(),
+		TraceID:   traceID,
 	}
 	if err := s.repo.WorkerCreate(ctx, worker); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("creating worker: %w", err))
@@ -118,13 +124,13 @@ func (s *SessionService) BorrowWorker(
 	// Increment quota.
 	if err := s.repo.QuotaIncrement(ctx, payer, 0, 1); err != nil {
 		// Non-fatal: log and continue (quota is eventually consistent in the in-memory model).
-		zlog.Warn("failed to increment quota", zap.String("payer", payer), zap.Error(err))
+		zlog.Warn("failed to increment quota", zap.Stringer("payer", payer), zap.Error(err))
 	}
 
 	zlog.Debug("worker borrowed",
 		zap.String("worker_key", workerKey),
 		zap.String("session_id", sessionID),
-		zap.String("payer", payer),
+		zap.Stringer("payer", payer),
 	)
 
 	return connect.NewResponse(&sessionv1.BorrowWorkerResponse{
@@ -157,7 +163,7 @@ func (s *SessionService) ReturnWorker(
 		return connect.NewResponse(&sessionv1.ReturnWorkerResponse{}), nil
 	}
 
-	payer := worker.PayerAddress
+	payer := worker.Payer
 
 	// Honor minimal_worker_life_duration: if the worker has not been alive
 	// long enough we simply wait before acknowledging the return.
@@ -185,10 +191,10 @@ func (s *SessionService) ReturnWorker(
 
 	// Decrement quota.
 	if err := s.repo.QuotaDecrement(ctx, payer, 0, 1); err != nil {
-		zlog.Warn("failed to decrement quota", zap.String("payer", payer), zap.Error(err))
+		zlog.Warn("failed to decrement quota", zap.Stringer("payer", payer), zap.Error(err))
 	}
 
-	zlog.Debug("worker returned", zap.String("worker_key", workerKey), zap.String("payer", payer))
+	zlog.Debug("worker returned", zap.String("worker_key", workerKey), zap.Stringer("payer", payer))
 
 	return connect.NewResponse(&sessionv1.ReturnWorkerResponse{}), nil
 }

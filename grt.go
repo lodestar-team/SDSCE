@@ -81,7 +81,7 @@ func NewGRT(input any) (GRT, error) {
 func MustNewGRT(input any) GRT {
 	grt, err := NewGRT(input)
 	if err != nil {
-		panic(fmt.Sprintf("failed to create GRT from input %q: %w", input, err))
+		panic(fmt.Sprintf("failed to create GRT from input %q: %v", input, err))
 	}
 
 	return grt

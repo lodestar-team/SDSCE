@@ -47,7 +47,7 @@ func TestCollectRAV(t *testing.T) {
 
 	// Call collect() via SubstreamsDataService
 	dataServiceCut := uint64(100000) // 10% in PPM
-	zlog.Info("calling SubstreamsDataService.collect() on chain", zap.String("data_service", env.DataService.Address.Pretty()), zap.Uint64("chain_id", env.ChainID))
+	zlog.Info("calling SubstreamsDataService.collect() on chain", zap.Stringer("data_service", env.DataService.Address), zap.Uint64("chain_id", env.ChainID))
 	tokensCollected, err := callDataServiceCollect(env, signedRAV, dataServiceCut)
 	require.NoError(t, err)
 	require.Equal(t, valueAggregate.Uint64(), tokensCollected)

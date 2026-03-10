@@ -12,6 +12,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Rename `provider/repository/psql/models.go` to `mappings.go` for clarity
 - Replace ignored errors in Value() calls with `mustValue()` helper
 - Use `sds.MustNewGRT(n)` in tests instead of `sds.NewGRTFromBigInt(big.NewInt(n))`
+- **Clean up Session, Worker, QuotaUsage, SessionFilter structs to use typed eth.Address instead of string duplicates**:
+  - Remove `PayerAddress`, `SignerAddress`, `ServiceProvider` string fields from `Session` (keep only `Payer`, `Receiver`, `DataService` eth.Address fields)
+  - Change `Worker.PayerAddress string` to `Worker.Payer eth.Address`
+  - Change `QuotaUsage.PayerAddress string` to `QuotaUsage.Payer eth.Address`
+  - Change `SessionFilter.PayerAddress *string` to `SessionFilter.Payer *eth.Address`
+  - Update `GlobalRepository` quota methods to use `eth.Address` instead of `string` for payer parameter
+  - Update all repository implementations and tests to use proper typed addresses
+- Add retry logic to PostgreSQL repository creation with automatic retries on connection failures (10 retries with fibonacci backoff up to 5 seconds)
+- Use `zap.Stringer()` instead of `zap.String(..., addr.Pretty())` for all eth.Address logging
+
+### Fixed
+
+- Fix `MustNewGRT` panic message using `%w` in `fmt.Sprintf` (should be `%v`)
 
 ### Removed
 

@@ -180,9 +180,8 @@ func TestSessionList(t *testing.T) {
 		assert.Len(t, sessions, 3)
 
 		// Filter by payer
-		payer1Addr := payer1.Pretty()
 		sessions, err = db.SessionList(ctx, repository.SessionFilter{
-			PayerAddress: &payer1Addr,
+			Payer: &payer1,
 		})
 		require.NoError(t, err)
 		assert.Len(t, sessions, 2)
@@ -234,11 +233,11 @@ func TestWorkerCreateAndGet(t *testing.T) {
 
 		// Create worker
 		worker := &repository.Worker{
-			Key:          "worker-1",
-			SessionID:    "worker-session-1",
-			PayerAddress: payer.Pretty(),
-			CreatedAt:    time.Now(),
-			TraceID:      "trace-123",
+			Key:       "worker-1",
+			SessionID: "worker-session-1",
+			Payer:     payer,
+			CreatedAt: time.Now(),
+			TraceID:   "trace-123",
 		}
 
 		err := db.WorkerCreate(ctx, worker)
@@ -270,10 +269,10 @@ func TestWorkerDelete(t *testing.T) {
 		require.NoError(t, db.SessionCreate(ctx, session))
 
 		worker := &repository.Worker{
-			Key:          "worker-del",
-			SessionID:    "worker-session-del",
-			PayerAddress: payer.Pretty(),
-			CreatedAt:    time.Now(),
+			Key:       "worker-del",
+			SessionID: "worker-session-del",
+			Payer:     payer,
+			CreatedAt: time.Now(),
 		}
 
 		require.NoError(t, db.WorkerCreate(ctx, worker))
@@ -295,26 +294,26 @@ func TestQuotaGetAndIncrement(t *testing.T) {
 		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
 
 		// Get initial quota (should be zero)
-		quota, err := db.QuotaGet(ctx, payer.Pretty())
+		quota, err := db.QuotaGet(ctx, payer)
 		require.NoError(t, err)
 		assert.Equal(t, 0, quota.ActiveSessions)
 		assert.Equal(t, 0, quota.ActiveWorkers)
 
 		// Increment quota
-		err = db.QuotaIncrement(ctx, payer.Pretty(), 2, 5)
+		err = db.QuotaIncrement(ctx, payer, 2, 5)
 		require.NoError(t, err)
 
 		// Verify quota
-		quota, err = db.QuotaGet(ctx, payer.Pretty())
+		quota, err = db.QuotaGet(ctx, payer)
 		require.NoError(t, err)
 		assert.Equal(t, 2, quota.ActiveSessions)
 		assert.Equal(t, 5, quota.ActiveWorkers)
 
 		// Increment again
-		err = db.QuotaIncrement(ctx, payer.Pretty(), 1, 3)
+		err = db.QuotaIncrement(ctx, payer, 1, 3)
 		require.NoError(t, err)
 
-		quota, err = db.QuotaGet(ctx, payer.Pretty())
+		quota, err = db.QuotaGet(ctx, payer)
 		require.NoError(t, err)
 		assert.Equal(t, 3, quota.ActiveSessions)
 		assert.Equal(t, 8, quota.ActiveWorkers)
@@ -328,24 +327,24 @@ func TestQuotaDecrement(t *testing.T) {
 		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
 
 		// Set initial quota
-		err := db.QuotaIncrement(ctx, payer.Pretty(), 5, 10)
+		err := db.QuotaIncrement(ctx, payer, 5, 10)
 		require.NoError(t, err)
 
 		// Decrement quota
-		err = db.QuotaDecrement(ctx, payer.Pretty(), 2, 3)
+		err = db.QuotaDecrement(ctx, payer, 2, 3)
 		require.NoError(t, err)
 
 		// Verify quota
-		quota, err := db.QuotaGet(ctx, payer.Pretty())
+		quota, err := db.QuotaGet(ctx, payer)
 		require.NoError(t, err)
 		assert.Equal(t, 3, quota.ActiveSessions)
 		assert.Equal(t, 7, quota.ActiveWorkers)
 
 		// Decrement below zero (should not go negative)
-		err = db.QuotaDecrement(ctx, payer.Pretty(), 10, 20)
+		err = db.QuotaDecrement(ctx, payer, 10, 20)
 		require.NoError(t, err)
 
-		quota, err = db.QuotaGet(ctx, payer.Pretty())
+		quota, err = db.QuotaGet(ctx, payer)
 		require.NoError(t, err)
 		assert.Equal(t, 0, quota.ActiveSessions)
 		assert.Equal(t, 0, quota.ActiveWorkers)

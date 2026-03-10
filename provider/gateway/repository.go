@@ -7,6 +7,7 @@ import (
 
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/graphprotocol/substreams-data-service/provider/repository/psql"
+	"github.com/streamingfast/derr"
 	"go.uber.org/zap"
 )
 
@@ -39,19 +40,29 @@ func NewRepositoryFromDSN(ctx context.Context, dsn string, logger *zap.Logger) (
 		postgresDSN := "postgres://" + rest
 		logger.Info("creating PostgreSQL repository", zap.String("dsn", sanitizeDSN(postgresDSN)))
 
-		// Create database connection
-		dbConn, err := psql.GetConnectionFromDSN(ctx, postgresDSN)
+		var repo *psql.Database
+		err := derr.RetryContext(ctx, 10, func(ctx context.Context) error {
+			// Create database connection
+			dbConn, err := psql.GetConnectionFromDSN(ctx, postgresDSN)
+			if err != nil {
+				logger.Warn("failed to connect to PostgreSQL, retrying", zap.Error(err))
+				return fmt.Errorf("failed to connect to PostgreSQL: %w", err)
+			}
+
+			// Create repository
+			repo = psql.NewRepository(dbConn, logger)
+
+			// Setup prepared statements
+			if err := repo.Setup(); err != nil {
+				dbConn.Close()
+				logger.Warn("failed to setup PostgreSQL repository, retrying", zap.Error(err))
+				return fmt.Errorf("failed to setup PostgreSQL repository: %w", err)
+			}
+
+			return nil
+		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to connect to PostgreSQL: %w", err)
-		}
-
-		// Create repository
-		repo := psql.NewRepository(dbConn, logger)
-
-		// Setup prepared statements
-		if err := repo.Setup(); err != nil {
-			dbConn.Close()
-			return nil, fmt.Errorf("failed to setup PostgreSQL repository: %w", err)
+			return nil, err
 		}
 
 		return repo, nil

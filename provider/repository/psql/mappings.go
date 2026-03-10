@@ -111,9 +111,6 @@ func (row *sessionRow) toRepository(rav *horizon.SignedRAV, pricingConfig reposi
 
 	return &repository.Session{
 		ID:               row.ID,
-		PayerAddress:     payerAddr.Pretty(),
-		SignerAddress:    row.Signer.Address().Pretty(),
-		ServiceProvider:  receiverAddr.Pretty(),
 		CreatedAt:        row.CreatedAt,
 		UpdatedAt:        row.UpdatedAt,
 		LastKeepAlive:    row.LastKeepAlive,
@@ -155,15 +152,6 @@ func fromSession(session *repository.Session) *sessionRow {
 		metadata = make(jsonbMap)
 	}
 
-	// Handle optional signer address
-	var signerAddr address
-	if session.SignerAddress != "" {
-		signerAddr = newAddress(eth.MustNewAddress(session.SignerAddress))
-	} else {
-		// Use zero address if signer is not set
-		signerAddr = newAddress(eth.Address{})
-	}
-
 	return &sessionRow{
 		ID:               session.ID,
 		CreatedAt:        session.CreatedAt,
@@ -176,7 +164,7 @@ func fromSession(session *repository.Session) *sessionRow {
 		Payer:            newAddress(session.Payer),
 		Receiver:         newAddress(session.Receiver),
 		DataService:      newAddress(session.DataService),
-		Signer:           signerAddr,
+		Signer:           newAddress(eth.Address{}), // Zero address for signer
 		BlocksProcessed:  int64(session.BlocksProcessed),
 		BytesTransferred: int64(session.BytesTransferred),
 		Requests:         int64(session.Requests),
@@ -236,11 +224,11 @@ func (row *workerRow) toRepository() *repository.Worker {
 	}
 
 	return &repository.Worker{
-		Key:          row.Key,
-		SessionID:    row.SessionID,
-		PayerAddress: row.Payer.Address().Pretty(),
-		CreatedAt:    row.CreatedAt,
-		TraceID:      traceID,
+		Key:       row.Key,
+		SessionID: row.SessionID,
+		Payer:     row.Payer.Address(),
+		CreatedAt: row.CreatedAt,
+		TraceID:   traceID,
 	}
 }
 
@@ -254,7 +242,7 @@ func fromWorker(worker *repository.Worker) *workerRow {
 	return &workerRow{
 		Key:       worker.Key,
 		SessionID: worker.SessionID,
-		Payer:     newAddress(eth.MustNewAddress(worker.PayerAddress)),
+		Payer:     newAddress(worker.Payer),
 		CreatedAt: worker.CreatedAt,
 		TraceID:   traceID,
 	}
@@ -263,7 +251,7 @@ func fromWorker(worker *repository.Worker) *workerRow {
 // toRepository converts quotaUsageRow to repository.QuotaUsage
 func (row *quotaUsageRow) toRepository() *repository.QuotaUsage {
 	return &repository.QuotaUsage{
-		PayerAddress:   row.Payer.Address().Pretty(),
+		Payer:          row.Payer.Address(),
 		ActiveSessions: row.ActiveSessions,
 		ActiveWorkers:  row.ActiveWorkers,
 		LastUpdated:    row.LastUpdated,

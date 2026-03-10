@@ -5,7 +5,6 @@ import (
 
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
-	"github.com/streamingfast/eth-go"
 )
 
 func init() {
@@ -200,9 +199,8 @@ func (r *Database) SessionList(ctx context.Context, filter repository.SessionFil
 	sessions := make([]*repository.Session, 0, len(rows))
 	for _, row := range rows {
 		// Apply filters
-		if filter.PayerAddress != nil {
-			addr := eth.MustNewAddress(*filter.PayerAddress)
-			if row.Payer.Address().Pretty() != addr.Pretty() {
+		if filter.Payer != nil {
+			if row.Payer.Address().Pretty() != filter.Payer.Pretty() {
 				continue
 			}
 		}

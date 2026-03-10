@@ -8,6 +8,7 @@ import (
 	sessionv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/session/v1"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/graphprotocol/substreams-data-service/provider/session"
+	"github.com/streamingfast/eth-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +26,7 @@ func TestSessionService_BorrowWorker_Success(t *testing.T) {
 
 	resp, err := svc.BorrowWorker(context.Background(), connect.NewRequest(&sessionv1.BorrowWorkerRequest{
 		Service:        "substreams",
-		OrganizationId: "0xpayer1",
+		OrganizationId: "0x1111111111111111111111111111111111111111",
 		TraceId:        "trace-001",
 	}))
 	require.NoError(t, err)
@@ -33,7 +34,7 @@ func TestSessionService_BorrowWorker_Success(t *testing.T) {
 	assert.NotEmpty(t, resp.Msg.WorkerKey)
 
 	// Quota should have been incremented.
-	quota, err := repo.QuotaGet(context.Background(), "0xpayer1")
+	quota, err := repo.QuotaGet(context.Background(), eth.MustNewAddress("0x1111111111111111111111111111111111111111"))
 	require.NoError(t, err)
 	assert.Equal(t, 1, quota.ActiveWorkers)
 }
@@ -63,7 +64,7 @@ func TestSessionService_BorrowWorker_QuotaExceeded(t *testing.T) {
 	// Borrow first worker - should succeed.
 	resp1, err := svc.BorrowWorker(context.Background(), connect.NewRequest(&sessionv1.BorrowWorkerRequest{
 		Service:        "substreams",
-		OrganizationId: "0xpayer1",
+		OrganizationId: "0x1111111111111111111111111111111111111111",
 		TraceId:        "trace-001",
 	}))
 	require.NoError(t, err)
@@ -72,7 +73,7 @@ func TestSessionService_BorrowWorker_QuotaExceeded(t *testing.T) {
 	// Borrow second worker - should be exhausted.
 	resp2, err := svc.BorrowWorker(context.Background(), connect.NewRequest(&sessionv1.BorrowWorkerRequest{
 		Service:        "substreams",
-		OrganizationId: "0xpayer1",
+		OrganizationId: "0x1111111111111111111111111111111111111111",
 		TraceId:        "trace-002",
 	}))
 	require.NoError(t, err)
@@ -85,7 +86,7 @@ func TestSessionService_BorrowWorker_PerPayerOverride(t *testing.T) {
 		DefaultMaxConcurrentSessions: 1,
 		DefaultMaxWorkersPerSession:  1,
 		PerPayerOverrides: map[string]*session.PayerQuota{
-			"0xpayer1": {MaxConcurrentSessions: 5, MaxWorkersPerSession: 2},
+			"0x1111111111111111111111111111111111111111": {MaxConcurrentSessions: 5, MaxWorkersPerSession: 2},
 		},
 	}
 	svc, _ := newTestService(quotas)
@@ -94,7 +95,7 @@ func TestSessionService_BorrowWorker_PerPayerOverride(t *testing.T) {
 	for i := range 5 {
 		resp, err := svc.BorrowWorker(context.Background(), connect.NewRequest(&sessionv1.BorrowWorkerRequest{
 			Service:        "substreams",
-			OrganizationId: "0xpayer1",
+			OrganizationId: "0x1111111111111111111111111111111111111111",
 			TraceId:        "trace-" + string(rune('0'+i)),
 		}))
 		require.NoError(t, err)
@@ -108,7 +109,7 @@ func TestSessionService_ReturnWorker_Success(t *testing.T) {
 	svc, repo := newTestService(nil)
 
 	borrowResp, err := svc.BorrowWorker(context.Background(), connect.NewRequest(&sessionv1.BorrowWorkerRequest{
-		OrganizationId: "0xpayer1",
+		OrganizationId: "0x1111111111111111111111111111111111111111",
 		TraceId:        "trace-001",
 	}))
 	require.NoError(t, err)
@@ -121,7 +122,7 @@ func TestSessionService_ReturnWorker_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	// Quota should be back to 0.
-	quota, err := repo.QuotaGet(context.Background(), "0xpayer1")
+	quota, err := repo.QuotaGet(context.Background(), eth.MustNewAddress("0x1111111111111111111111111111111111111111"))
 	require.NoError(t, err)
 	assert.Equal(t, 0, quota.ActiveWorkers)
 }
@@ -152,7 +153,7 @@ func TestSessionService_KeepAlive_Success(t *testing.T) {
 	svc, repo := newTestService(nil)
 
 	borrowResp, err := svc.BorrowWorker(context.Background(), connect.NewRequest(&sessionv1.BorrowWorkerRequest{
-		OrganizationId: "0xpayer1",
+		OrganizationId: "0x1111111111111111111111111111111111111111",
 		TraceId:        "trace-001",
 	}))
 	require.NoError(t, err)

@@ -16,9 +16,8 @@ func init() {
 }
 
 // QuotaGet retrieves quota usage for a payer
-func (r *Database) QuotaGet(ctx context.Context, payer string) (*repository.QuotaUsage, error) {
-	addr := eth.MustNewAddress(payer)
-	payerAddr := newAddress(addr)
+func (r *Database) QuotaGet(ctx context.Context, payer eth.Address) (*repository.QuotaUsage, error) {
+	payerAddr := newAddress(payer)
 	payerVal := mustValue(payerAddr)
 
 	row, err := getOne[quotaUsageRow](ctx, r, "quota/get.sql", map[string]any{
@@ -28,7 +27,7 @@ func (r *Database) QuotaGet(ctx context.Context, payer string) (*repository.Quot
 		if err == repository.ErrNotFound {
 			// Return zero usage if not found
 			return &repository.QuotaUsage{
-				PayerAddress:   payer,
+				Payer:          payer,
 				ActiveSessions: 0,
 				ActiveWorkers:  0,
 			}, nil
@@ -40,9 +39,8 @@ func (r *Database) QuotaGet(ctx context.Context, payer string) (*repository.Quot
 }
 
 // QuotaIncrement increments quota usage for a payer
-func (r *Database) QuotaIncrement(ctx context.Context, payer string, sessions int, workers int) error {
-	addr := eth.MustNewAddress(payer)
-	payerAddr := newAddress(addr)
+func (r *Database) QuotaIncrement(ctx context.Context, payer eth.Address, sessions int, workers int) error {
+	payerAddr := newAddress(payer)
 	payerVal := mustValue(payerAddr)
 
 	_, err := execOne[quotaUsageRow](ctx, r, "quota/increment.sql", map[string]any{
@@ -55,9 +53,8 @@ func (r *Database) QuotaIncrement(ctx context.Context, payer string, sessions in
 }
 
 // QuotaDecrement decrements quota usage for a payer
-func (r *Database) QuotaDecrement(ctx context.Context, payer string, sessions int, workers int) error {
-	addr := eth.MustNewAddress(payer)
-	payerAddr := newAddress(addr)
+func (r *Database) QuotaDecrement(ctx context.Context, payer eth.Address, sessions int, workers int) error {
+	payerAddr := newAddress(payer)
 	payerVal := mustValue(payerAddr)
 
 	_, err := execOne[quotaUsageRow](ctx, r, "quota/decrement.sql", map[string]any{

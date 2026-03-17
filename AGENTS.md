@@ -113,6 +113,15 @@ grt, err := sds.NewGRT(<accepts all types>)
 sds.MustNewGRT(<accepts all types>)
 ```
 
+## MVP Planning References
+
+For MVP-scoped work:
+
+- Use `docs/mvp-scope.md` as the target-state definition.
+- Use `plans/mvp-gap-analysis.md` for current-state assessment.
+- Use `plans/mvp-implementation-backlog.md` as the active execution backlog.
+- Treat `plans/implementation-backlog.md` as historical context unless explicitly requested.
+
 ## Notes
 
 - All builds must pass before committing

@@ -316,7 +316,13 @@ The scenarios below are the primary definition of done for the MVP.
 
 ## Open Questions
 
-- Should chain/network be derived automatically from the Substreams package, or supplied explicitly to the oracle query path?
+- The chain/network discovery input contract is narrowed for MVP:
+  - consumer sidecar derives network from the Substreams package by default
+  - if a package/module resolves a specific `networks` entry, that takes precedence over top-level `network`
+  - explicit user-supplied network input remains supported only as fallback when package derivation is unavailable
+  - if both explicit input and package-derived network exist and differ after normalization, the request fails fast
+  - if neither source yields a usable network, the request fails fast
+  - SDS uses the same canonical network keys as the Graph networks registry for MVP, with repo-owned/pinned mappings rather than live runtime registry lookups
 - What is the pricing authority contract between oracle metadata and provider handshake responses?
 - What is the exact canonical payment identity and `collection_id` reuse policy for fresh workloads versus reconnects?
 - How much of the reconnect/recovery state should be keyed by session versus on-chain payment identity?

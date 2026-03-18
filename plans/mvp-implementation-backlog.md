@@ -42,9 +42,13 @@ Unless otherwise scoped, the baseline validation for code changes remains:
 
 These assumptions are referenced by task ID so it is clear where unresolved decisions still matter.
 
-- `A1` Chain/network discovery input is still open.
-  - MVP work should support an explicit chain/network input path now.
-  - Automatic derivation from the Substreams package remains optional/open.
+- `A1` Chain/network discovery input is narrowed for MVP, but implementation details still matter.
+  - Consumer sidecar derives network from the Substreams package by default.
+  - If a package/module resolves a specific `networks` entry, that takes precedence over top-level `network`.
+  - Explicit input remains supported as fallback when package derivation is unavailable.
+  - If both explicit input and derived package network exist and differ after normalization, fail fast.
+  - If neither source yields a usable network, fail fast.
+  - SDS should use repo-owned/pinned mappings to the Graph networks registry keys for MVP rather than live runtime registry lookups.
 
 - `A2` Pricing authority between oracle metadata and provider handshake is still open.
   - MVP work should avoid hard-coding a final authority rule unless/until aligned with StreamingFast.
@@ -110,7 +114,7 @@ These assumptions are referenced by task ID so it is clear where unresolved deci
 | MVP-030 | `not_started` | provider-integration | none | `MVP-014`, `MVP-017` | `A`, `G` | Add runtime compatibility and preflight checks for real provider/plugin deployments |
 | MVP-031 | `not_started` | runtime-payment | none | `MVP-004`, `MVP-012`, `MVP-014`, `MVP-017` | `A`, `C` | Wire the live PaymentSession and RAV-control loop into the real client/provider runtime path |
 | MVP-032 | `not_started` | operations | `A3`, `A4`, `A5` | `MVP-003`, `MVP-008`, `MVP-010`, `MVP-022` | `B`, `C`, `D`, `F`, `G` | Expose operator runtime/session/payment inspection APIs and CLI/status flows |
-| MVP-033 | `open_question` | protocol | `A1` | none | `A` | Freeze the chain/network discovery input contract across client, sidecar, and oracle |
+| MVP-033 | `done` | protocol | `A1` | none | `A` | Freeze the chain/network discovery input contract across client, sidecar, and oracle |
 
 ## Protocol and Contract Tasks
 
@@ -127,7 +131,7 @@ These assumptions are referenced by task ID so it is clear where unresolved deci
     - Update `docs/mvp-scope.md` open question if unresolved, or close it if decided.
     - Add or update integration/manual verification notes for whichever pricing source is actually consumed at runtime.
 
-- [ ] MVP-033 Freeze the chain/network discovery input contract across client, sidecar, and oracle.
+- [x] MVP-033 Freeze the chain/network discovery input contract across client, sidecar, and oracle.
   - Context:
     - The MVP requires oracle-backed provider discovery keyed by chain/network context, but the source of that context is still open.
     - Leaving this only as an assumption risks incompatible implementations across the real client path, sidecar API, and oracle API.
@@ -135,12 +139,17 @@ These assumptions are referenced by task ID so it is clear where unresolved deci
     - `A1`
   - Done when:
     - The repo defines the canonical chain/network identifier shape used by the oracle query path.
-    - It is explicit whether the real client must supply chain/network directly, whether the sidecar may derive it, and what fallback behavior is allowed when derivation is unavailable.
-    - Validation and error behavior are documented for missing, invalid, or unsupported chain/network inputs.
+    - Consumer sidecar derives network from the Substreams package by default.
+    - If a package/module resolves a specific `networks` entry, that takes precedence over top-level `network`.
+    - Explicit input remains supported only as fallback when package derivation is unavailable.
+    - If both explicit input and package-derived network exist and differ after normalization, the request fails fast.
+    - If neither source yields a usable network, the request fails fast.
+    - SDS uses the same canonical network keys as the Graph networks registry for MVP, with repo-owned/pinned mappings rather than live runtime registry lookups.
+    - Consumer sidecar owns derivation, normalization, validation, and conflict detection.
     - MVP-005, MVP-007, and MVP-017 all point to the same contract.
   - Verify:
-    - Update `docs/mvp-scope.md` open question if unresolved, or close/narrow it if decided.
-    - Add contract-level tests or documented manual verification for valid, missing, and unsupported chain/network inputs.
+    - Update `docs/mvp-scope.md` open question to reflect the narrowed contract.
+    - Add contract-level tests or documented manual verification for package-derived network success, explicit-input fallback, mismatch rejection, and missing-network rejection.
 
 - [ ] MVP-002 Freeze reconnect handshake semantics so provider can return fresh or latest-known resumable RAV during normal session init.
   - Context:

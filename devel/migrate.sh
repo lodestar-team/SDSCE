@@ -64,12 +64,14 @@ main() {
 
       offset=$(($target - $actual))
       if [[ $offset -le 0 ]]; then
-        echo "The actual version is $actual_raw but your requested to go up to $target which is before or equal the actual version, this is invalid."
         if [[ $actual_raw =~ .*\(dirty\) ]]; then
+          echo "The actual version is $actual_raw which is in a dirty state. Your requested target is $target."
           echo "You are in a dirty state, if this happened due to wrong migration, you can force the version with 'force $(($target - 1))'"
+          exit 1
         fi
 
-        exit 1
+        echo "Database is already migrated to version $actual_raw (target: $target). Nothing to do."
+        exit 0
       fi
 
       printf "Are you sure you want to go up from $actual_raw to $target? [y/N] "

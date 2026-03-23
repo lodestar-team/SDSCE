@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"math/big"
 	"testing"
@@ -11,9 +12,11 @@ import (
 	authv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/auth/v1"
 	"github.com/graphprotocol/substreams-data-service/provider/auth"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
+	"github.com/streamingfast/dauth"
 	"github.com/streamingfast/eth-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 // testDomain is a fixed EIP-712 domain used across tests.
@@ -35,7 +38,7 @@ func newTestKey(seed byte) *eth.PrivateKey {
 	return key
 }
 
-// buildSignedRAV creates a proto SignedRAV signed by key with payer, serviceProvider = testServiceProvider.
+// buildSignedRAV creates a ValidateAuthRequest with a signed RAV in headers.
 func buildSignedRAV(t *testing.T, payerKey *eth.PrivateKey, signerKey *eth.PrivateKey, serviceProvider eth.Address) *authv1.ValidateAuthRequest {
 	t.Helper()
 
@@ -58,10 +61,20 @@ func buildSignedRAV(t *testing.T, payerKey *eth.PrivateKey, signerKey *eth.Priva
 
 	protoRAV := sidecar.HorizonSignedRAVToProto(signedRAV)
 
+	// Encode RAV as base64
+	protoBytes, err := proto.Marshal(protoRAV)
+	require.NoError(t, err)
+	ravHeader := base64.StdEncoding.EncodeToString(protoBytes)
+
+	// Build untrusted headers map
+	untrustedHeaders := map[string]*authv1.HeaderValues{
+		"x-sds-rav": {Values: []string{ravHeader}},
+	}
+
 	return &authv1.ValidateAuthRequest{
-		PaymentRav: protoRAV,
-		IpAddress:  "127.0.0.1",
-		Path:       "/sf.substreams.rpc.v2/Blocks",
+		UntrustedHeaders: untrustedHeaders,
+		IpAddress:        "127.0.0.1",
+		Path:             "/sf.substreams.rpc.v2/Blocks",
 	}
 }
 
@@ -72,20 +85,23 @@ func TestAuthService_ValidateAuth_SelfSigned(t *testing.T) {
 	payerKey := newTestKey(0x01)
 	payerAddr := payerKey.PublicKey().Address()
 
-	svc := auth.NewAuthService(testServiceProvider, testDomain, nil)
+	svc := auth.NewAuthService(testServiceProvider, testDomain, nil, nil)
 
 	req := buildSignedRAV(t, payerKey, payerKey, testServiceProvider)
 	resp, err := svc.ValidateAuth(context.Background(), connect.NewRequest(req))
 
 	require.NoError(t, err)
-	assert.Equal(t, payerAddr.Pretty(), resp.Msg.OrganizationId)
+	assert.Equal(t, payerAddr.Pretty(), resp.Msg.TrustedHeaders[dauth.HeaderOrganizationID])
+	assert.NotEmpty(t, resp.Msg.TrustedHeaders["x-sds-session-id"])
 }
 
 func TestAuthService_ValidateAuth_MissingRAV(t *testing.T) {
-	svc := auth.NewAuthService(testServiceProvider, testDomain, nil)
+	svc := auth.NewAuthService(testServiceProvider, testDomain, nil, nil)
 
 	_, err := svc.ValidateAuth(context.Background(), connect.NewRequest(&authv1.ValidateAuthRequest{
-		PaymentRav: nil,
+		UntrustedHeaders: map[string]*authv1.HeaderValues{},
+		IpAddress:        "127.0.0.1",
+		Path:             "/test",
 	}))
 
 	require.Error(t, err)
@@ -98,7 +114,7 @@ func TestAuthService_ValidateAuth_WrongServiceProvider(t *testing.T) {
 	payerKey := newTestKey(0x02)
 	differentProvider := eth.MustNewAddress("0x9999999999999999999999999999999999999999")
 
-	svc := auth.NewAuthService(testServiceProvider, testDomain, nil)
+	svc := auth.NewAuthService(testServiceProvider, testDomain, nil, nil)
 
 	// Build RAV targeting a *different* service provider.
 	req := buildSignedRAV(t, payerKey, payerKey, differentProvider)
@@ -115,7 +131,7 @@ func TestAuthService_ValidateAuth_UnauthorizedSigner(t *testing.T) {
 	signerKey := newTestKey(0x04) // different from payer, not authorized
 
 	// collectorQuerier that always returns false (unauthorized).
-	svc := auth.NewAuthService(testServiceProvider, testDomain, &mockAuthorizer{authorized: false})
+	svc := auth.NewAuthService(testServiceProvider, testDomain, &mockAuthorizer{authorized: false}, nil)
 
 	req := buildSignedRAV(t, payerKey, signerKey, testServiceProvider)
 	_, err := svc.ValidateAuth(context.Background(), connect.NewRequest(req))
@@ -133,14 +149,14 @@ func TestAuthService_ValidateAuth_AuthorizedDelegateSigner(t *testing.T) {
 	payerAddr := payerKey.PublicKey().Address()
 
 	// collectorQuerier that always returns true (authorized).
-	svc := auth.NewAuthService(testServiceProvider, testDomain, &mockAuthorizer{authorized: true})
+	svc := auth.NewAuthService(testServiceProvider, testDomain, &mockAuthorizer{authorized: true}, nil)
 
 	req := buildSignedRAV(t, payerKey, signerKey, testServiceProvider)
 	resp, err := svc.ValidateAuth(context.Background(), connect.NewRequest(req))
 
 	require.NoError(t, err)
-	assert.Equal(t, payerAddr.Pretty(), resp.Msg.OrganizationId)
-	assert.NotEmpty(t, resp.Msg.Metadata["signer"])
+	assert.Equal(t, payerAddr.Pretty(), resp.Msg.TrustedHeaders[dauth.HeaderOrganizationID])
+	assert.NotEmpty(t, resp.Msg.TrustedHeaders["x-sds-session-id"])
 }
 
 func TestAuthService_ValidateAuth_NilCollectorQuerier_UnauthorizedSigner(t *testing.T) {
@@ -148,7 +164,7 @@ func TestAuthService_ValidateAuth_NilCollectorQuerier_UnauthorizedSigner(t *test
 	payerKey := newTestKey(0x07)
 	signerKey := newTestKey(0x08)
 
-	svc := auth.NewAuthService(testServiceProvider, testDomain, nil)
+	svc := auth.NewAuthService(testServiceProvider, testDomain, nil, nil)
 
 	req := buildSignedRAV(t, payerKey, signerKey, testServiceProvider)
 	_, err := svc.ValidateAuth(context.Background(), connect.NewRequest(req))
@@ -163,7 +179,7 @@ func TestAuthService_ValidateAuth_AuthorizerError(t *testing.T) {
 	payerKey := newTestKey(0x09)
 	signerKey := newTestKey(0x0a)
 
-	svc := auth.NewAuthService(testServiceProvider, testDomain, &mockAuthorizer{err: assert.AnError})
+	svc := auth.NewAuthService(testServiceProvider, testDomain, &mockAuthorizer{err: assert.AnError}, nil)
 
 	req := buildSignedRAV(t, payerKey, signerKey, testServiceProvider)
 	_, err := svc.ValidateAuth(context.Background(), connect.NewRequest(req))

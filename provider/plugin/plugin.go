@@ -8,9 +8,12 @@
 //
 // Usage in firehose-core:
 //
-//	common-auth-plugin: "sds://localhost:9001?plaintext=true"
-//	common-session-plugin: "sds://localhost:9001?plaintext=true"
-//	common-metering-plugin: "sds://localhost:9001?plaintext=true&network=my-network"
+//	common-auth-plugin: "sds://localhost:9003?plaintext=true"
+//	common-session-plugin: "sds://localhost:9003?plaintext=true"
+//	common-metering-plugin: "sds://localhost:9003?plaintext=true&network=my-network"
+//
+// Note: Port 9003 is the Plugin Gateway (PRIVATE internal services).
+// Port 9001 is the Payment Gateway (PUBLIC for consumer sidecars).
 package plugin
 
 import (

@@ -1,4 +1,5 @@
 -- Reusable trigger function for updated_at
+-- CURRENT_TIMESTAMP returns TIMESTAMPTZ which is automatically stored in UTC
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -10,12 +11,12 @@ $$ LANGUAGE plpgsql;
 -- Sessions table (NO string address fields - BYTEA only)
 CREATE TABLE sessions (
     id VARCHAR(255) PRIMARY KEY,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_keep_alive TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_keep_alive TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status VARCHAR(50) NOT NULL,
     metadata JSONB,
-    ended_at TIMESTAMP,
+    ended_at TIMESTAMPTZ,
     end_reason INTEGER,
 
     -- Escrow addresses - BYTEA with CHECK constraints
@@ -62,7 +63,7 @@ CREATE TABLE ravs (
     -- Signature (always present)
     signature BYTEA NOT NULL CHECK (length(signature) = 65),
 
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Workers table
@@ -70,7 +71,7 @@ CREATE TABLE workers (
     key VARCHAR(255) PRIMARY KEY,
     session_id VARCHAR(255) NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     payer BYTEA NOT NULL CHECK (length(payer) = 20),
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     trace_id VARCHAR(255)
 );
 
@@ -82,7 +83,7 @@ CREATE TABLE quota_usage (
     payer BYTEA PRIMARY KEY CHECK (length(payer) = 20),
     active_sessions INTEGER NOT NULL DEFAULT 0,
     active_workers INTEGER NOT NULL DEFAULT 0,
-    last_updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    last_updated TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Note: No trigger needed since SQL explicitly sets last_updated = CURRENT_TIMESTAMP
@@ -91,7 +92,7 @@ CREATE TABLE quota_usage (
 CREATE TABLE usage_events (
     id SERIAL PRIMARY KEY,
     session_id VARCHAR(255) NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     blocks BIGINT NOT NULL DEFAULT 0,
     bytes BIGINT NOT NULL DEFAULT 0,
     requests BIGINT NOT NULL DEFAULT 0

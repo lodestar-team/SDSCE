@@ -18,7 +18,7 @@
 
 -r "\.(go|sql)$" -s -R "devel/.*" -- sh -c \
     'echo "Starting Provider Gateway (with PostgreSQL)..." && \
-    touch ./devel/.provider-gateway && \
+    head -c 8 /dev/urandom | xxd -p -c 16 > ./devel/.provider-gateway && \
     DLOG=".*=debug" ./devel/sds provider gateway \
         --repository-dsn="psql://dev-node:changeme@localhost:5432/dev-node?sslmode=disable" \
         --grpc-listen-addr=:9001 \
@@ -28,9 +28,8 @@
         --escrow-address=0xfc7487a37ca8eac2e64cba61277aa109e9b8631e \
         --rpc-endpoint=http://localhost:58545'
 
--r "(\.provider-gateway|firecore\.config\.yaml)$" -s -R "devel/.*" -- sh -c \
-    'echo "Restarting firehose-core instance (5s delay for provider gateway startup)..." && \
-    sleep 5 && \
+-r "devel/(\.provider-gateway|firecore\.config\.yaml)$" -s -R "devel/.firehose" -- sh -c \
+    'echo "Restarting firehose-core instance..." && \
     rm -rf ./devel/.firehose && \
     echo "Starting Firehose Core" && \
     echo " Substreams: sds sink -e https://localhost:10016 --insecure" && \

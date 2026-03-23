@@ -49,9 +49,15 @@ func (s *UsageService) Report(
 			continue
 		}
 
-		// Derive a session key from the payer + endpoint combination.
-		// api_key_id may carry a session ID or signer address in future revisions.
-		sessionID := deriveSessionID(event)
+		// Session ID is set by the metering plugin from auth context
+		sessionID := event.SdsSessionId
+		if sessionID == "" {
+			zlog.Warn("event missing sds_session_id, skipping",
+				zap.String("organization_id", event.OrganizationId),
+				zap.String("endpoint", event.Endpoint),
+			)
+			continue
+		}
 
 		usageEvent := protoEventToUsageEvent(event)
 
@@ -68,17 +74,6 @@ func (s *UsageService) Report(
 	return connect.NewResponse(&usagev1.ReportResponse{
 		Revoked: false,
 	}), nil
-}
-
-// deriveSessionID returns a stable key for aggregating usage by payer.
-// When api_key_id is provided (it may carry the session or signer ID in
-// future protocol versions), it is used as the session ID.
-// Otherwise we fall back to the organization_id (payer address).
-func deriveSessionID(event *usagev1.Event) string {
-	if event.ApiKeyId != "" {
-		return event.ApiKeyId
-	}
-	return event.OrganizationId
 }
 
 // protoEventToUsageEvent converts a proto metering Event to the internal

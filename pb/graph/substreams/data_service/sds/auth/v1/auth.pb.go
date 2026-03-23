@@ -7,7 +7,7 @@
 package authv1
 
 import (
-	v1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
+	_ "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -22,21 +22,73 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Header value(s) for a single header name
+type HeaderValues struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Values        []string               `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HeaderValues) Reset() {
+	*x = HeaderValues{}
+	mi := &file_graph_substreams_data_service_sds_auth_v1_auth_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HeaderValues) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HeaderValues) ProtoMessage() {}
+
+func (x *HeaderValues) ProtoReflect() protoreflect.Message {
+	mi := &file_graph_substreams_data_service_sds_auth_v1_auth_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HeaderValues.ProtoReflect.Descriptor instead.
+func (*HeaderValues) Descriptor() ([]byte, []int) {
+	return file_graph_substreams_data_service_sds_auth_v1_auth_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *HeaderValues) GetValues() []string {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
 type ValidateAuthRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// SignedRAV extracted from the `x-sds-rav` gRPC header
-	PaymentRav *v1.SignedRAV `protobuf:"bytes,1,opt,name=payment_rav,json=paymentRav,proto3" json:"payment_rav,omitempty"`
-	// Client IP address (optional, for logging/rate-limiting)
-	IpAddress string `protobuf:"bytes,2,opt,name=ip_address,json=ipAddress,proto3" json:"ip_address,omitempty"`
-	// Request path/endpoint (optional)
-	Path          string `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
+	// Untrusted headers from the incoming request.
+	//
+	// These headers come directly from the client and MUST NOT be trusted.
+	// The service will extract x-sds-rav, x-sds-session-id, and any other
+	// auth-related headers from this map and validate them before trusting any values.
+	//
+	// SECURITY: Never use these headers directly without validation. Always extract
+	// and validate before using in any security-sensitive context.
+	UntrustedHeaders map[string]*HeaderValues `protobuf:"bytes,1,rep,name=untrusted_headers,json=untrustedHeaders,proto3" json:"untrusted_headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Request path/endpoint (e.g., "/sf.substreams.rpc.v2.Stream/Blocks")
+	Path string `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+	// Client IP address (for logging/rate-limiting)
+	IpAddress     string `protobuf:"bytes,3,opt,name=ip_address,json=ipAddress,proto3" json:"ip_address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ValidateAuthRequest) Reset() {
 	*x = ValidateAuthRequest{}
-	mi := &file_graph_substreams_data_service_sds_auth_v1_auth_proto_msgTypes[0]
+	mi := &file_graph_substreams_data_service_sds_auth_v1_auth_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -48,7 +100,7 @@ func (x *ValidateAuthRequest) String() string {
 func (*ValidateAuthRequest) ProtoMessage() {}
 
 func (x *ValidateAuthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_sds_auth_v1_auth_proto_msgTypes[0]
+	mi := &file_graph_substreams_data_service_sds_auth_v1_auth_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61,21 +113,14 @@ func (x *ValidateAuthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateAuthRequest.ProtoReflect.Descriptor instead.
 func (*ValidateAuthRequest) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_sds_auth_v1_auth_proto_rawDescGZIP(), []int{0}
+	return file_graph_substreams_data_service_sds_auth_v1_auth_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *ValidateAuthRequest) GetPaymentRav() *v1.SignedRAV {
+func (x *ValidateAuthRequest) GetUntrustedHeaders() map[string]*HeaderValues {
 	if x != nil {
-		return x.PaymentRav
+		return x.UntrustedHeaders
 	}
 	return nil
-}
-
-func (x *ValidateAuthRequest) GetIpAddress() string {
-	if x != nil {
-		return x.IpAddress
-	}
-	return ""
 }
 
 func (x *ValidateAuthRequest) GetPath() string {
@@ -85,21 +130,30 @@ func (x *ValidateAuthRequest) GetPath() string {
 	return ""
 }
 
+func (x *ValidateAuthRequest) GetIpAddress() string {
+	if x != nil {
+		return x.IpAddress
+	}
+	return ""
+}
+
 type ValidateAuthResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Payer Ethereum address (0x...) → maps to x-user-id / x-organization-id
-	OrganizationId string `protobuf:"bytes,1,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
-	// Optional identifier for sub-key or signer; empty for now
-	ApiKeyId string `protobuf:"bytes,2,opt,name=api_key_id,json=apiKeyId,proto3" json:"api_key_id,omitempty"`
-	// Additional context to pass through as trusted headers
-	Metadata      map[string]string `protobuf:"bytes,3,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Trusted headers to inject into the request context.
+	// The dauth plugin will add these as trusted headers that cannot be
+	// spoofed by the client. Common headers include:
+	//   - x-user-id / x-organization-id: Payer address
+	//   - x-api-key-id: Optional API key identifier
+	//   - x-sds-session-id: Session ID
+	//   - x-real-ip: Client IP address
+	TrustedHeaders map[string]string `protobuf:"bytes,1,rep,name=trusted_headers,json=trustedHeaders,proto3" json:"trusted_headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ValidateAuthResponse) Reset() {
 	*x = ValidateAuthResponse{}
-	mi := &file_graph_substreams_data_service_sds_auth_v1_auth_proto_msgTypes[1]
+	mi := &file_graph_substreams_data_service_sds_auth_v1_auth_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -111,7 +165,7 @@ func (x *ValidateAuthResponse) String() string {
 func (*ValidateAuthResponse) ProtoMessage() {}
 
 func (x *ValidateAuthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_sds_auth_v1_auth_proto_msgTypes[1]
+	mi := &file_graph_substreams_data_service_sds_auth_v1_auth_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -124,26 +178,12 @@ func (x *ValidateAuthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateAuthResponse.ProtoReflect.Descriptor instead.
 func (*ValidateAuthResponse) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_sds_auth_v1_auth_proto_rawDescGZIP(), []int{1}
+	return file_graph_substreams_data_service_sds_auth_v1_auth_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *ValidateAuthResponse) GetOrganizationId() string {
+func (x *ValidateAuthResponse) GetTrustedHeaders() map[string]string {
 	if x != nil {
-		return x.OrganizationId
-	}
-	return ""
-}
-
-func (x *ValidateAuthResponse) GetApiKeyId() string {
-	if x != nil {
-		return x.ApiKeyId
-	}
-	return ""
-}
-
-func (x *ValidateAuthResponse) GetMetadata() map[string]string {
-	if x != nil {
-		return x.Metadata
+		return x.TrustedHeaders
 	}
 	return nil
 }
@@ -152,19 +192,20 @@ var File_graph_substreams_data_service_sds_auth_v1_auth_proto protoreflect.FileD
 
 const file_graph_substreams_data_service_sds_auth_v1_auth_proto_rawDesc = "" +
 	"\n" +
-	"4graph/substreams/data_service/sds/auth/v1/auth.proto\x12)graph.substreams.data_service.sds.auth.v1\x1a3graph/substreams/data_service/common/v1/types.proto\"\x9d\x01\n" +
-	"\x13ValidateAuthRequest\x12S\n" +
-	"\vpayment_rav\x18\x01 \x01(\v22.graph.substreams.data_service.common.v1.SignedRAVR\n" +
-	"paymentRav\x12\x1d\n" +
+	"4graph/substreams/data_service/sds/auth/v1/auth.proto\x12)graph.substreams.data_service.sds.auth.v1\x1a3graph/substreams/data_service/common/v1/types.proto\"&\n" +
+	"\fHeaderValues\x12\x16\n" +
+	"\x06values\x18\x01 \x03(\tR\x06values\"\xca\x02\n" +
+	"\x13ValidateAuthRequest\x12\x81\x01\n" +
+	"\x11untrusted_headers\x18\x01 \x03(\v2T.graph.substreams.data_service.sds.auth.v1.ValidateAuthRequest.UntrustedHeadersEntryR\x10untrustedHeaders\x12\x12\n" +
+	"\x04path\x18\x02 \x01(\tR\x04path\x12\x1d\n" +
 	"\n" +
-	"ip_address\x18\x02 \x01(\tR\tipAddress\x12\x12\n" +
-	"\x04path\x18\x03 \x01(\tR\x04path\"\x85\x02\n" +
-	"\x14ValidateAuthResponse\x12'\n" +
-	"\x0forganization_id\x18\x01 \x01(\tR\x0eorganizationId\x12\x1c\n" +
-	"\n" +
-	"api_key_id\x18\x02 \x01(\tR\bapiKeyId\x12i\n" +
-	"\bmetadata\x18\x03 \x03(\v2M.graph.substreams.data_service.sds.auth.v1.ValidateAuthResponse.MetadataEntryR\bmetadata\x1a;\n" +
-	"\rMetadataEntry\x12\x10\n" +
+	"ip_address\x18\x03 \x01(\tR\tipAddress\x1a|\n" +
+	"\x15UntrustedHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12M\n" +
+	"\x05value\x18\x02 \x01(\v27.graph.substreams.data_service.sds.auth.v1.HeaderValuesR\x05value:\x028\x01\"\xd7\x01\n" +
+	"\x14ValidateAuthResponse\x12|\n" +
+	"\x0ftrusted_headers\x18\x01 \x03(\v2S.graph.substreams.data_service.sds.auth.v1.ValidateAuthResponse.TrustedHeadersEntryR\x0etrustedHeaders\x1aA\n" +
+	"\x13TrustedHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x012\x9f\x01\n" +
 	"\vAuthService\x12\x8f\x01\n" +
@@ -183,23 +224,25 @@ func file_graph_substreams_data_service_sds_auth_v1_auth_proto_rawDescGZIP() []b
 	return file_graph_substreams_data_service_sds_auth_v1_auth_proto_rawDescData
 }
 
-var file_graph_substreams_data_service_sds_auth_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_graph_substreams_data_service_sds_auth_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_graph_substreams_data_service_sds_auth_v1_auth_proto_goTypes = []any{
-	(*ValidateAuthRequest)(nil),  // 0: graph.substreams.data_service.sds.auth.v1.ValidateAuthRequest
-	(*ValidateAuthResponse)(nil), // 1: graph.substreams.data_service.sds.auth.v1.ValidateAuthResponse
-	nil,                          // 2: graph.substreams.data_service.sds.auth.v1.ValidateAuthResponse.MetadataEntry
-	(*v1.SignedRAV)(nil),         // 3: graph.substreams.data_service.common.v1.SignedRAV
+	(*HeaderValues)(nil),         // 0: graph.substreams.data_service.sds.auth.v1.HeaderValues
+	(*ValidateAuthRequest)(nil),  // 1: graph.substreams.data_service.sds.auth.v1.ValidateAuthRequest
+	(*ValidateAuthResponse)(nil), // 2: graph.substreams.data_service.sds.auth.v1.ValidateAuthResponse
+	nil,                          // 3: graph.substreams.data_service.sds.auth.v1.ValidateAuthRequest.UntrustedHeadersEntry
+	nil,                          // 4: graph.substreams.data_service.sds.auth.v1.ValidateAuthResponse.TrustedHeadersEntry
 }
 var file_graph_substreams_data_service_sds_auth_v1_auth_proto_depIdxs = []int32{
-	3, // 0: graph.substreams.data_service.sds.auth.v1.ValidateAuthRequest.payment_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
-	2, // 1: graph.substreams.data_service.sds.auth.v1.ValidateAuthResponse.metadata:type_name -> graph.substreams.data_service.sds.auth.v1.ValidateAuthResponse.MetadataEntry
-	0, // 2: graph.substreams.data_service.sds.auth.v1.AuthService.ValidateAuth:input_type -> graph.substreams.data_service.sds.auth.v1.ValidateAuthRequest
-	1, // 3: graph.substreams.data_service.sds.auth.v1.AuthService.ValidateAuth:output_type -> graph.substreams.data_service.sds.auth.v1.ValidateAuthResponse
-	3, // [3:4] is the sub-list for method output_type
-	2, // [2:3] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	3, // 0: graph.substreams.data_service.sds.auth.v1.ValidateAuthRequest.untrusted_headers:type_name -> graph.substreams.data_service.sds.auth.v1.ValidateAuthRequest.UntrustedHeadersEntry
+	4, // 1: graph.substreams.data_service.sds.auth.v1.ValidateAuthResponse.trusted_headers:type_name -> graph.substreams.data_service.sds.auth.v1.ValidateAuthResponse.TrustedHeadersEntry
+	0, // 2: graph.substreams.data_service.sds.auth.v1.ValidateAuthRequest.UntrustedHeadersEntry.value:type_name -> graph.substreams.data_service.sds.auth.v1.HeaderValues
+	1, // 3: graph.substreams.data_service.sds.auth.v1.AuthService.ValidateAuth:input_type -> graph.substreams.data_service.sds.auth.v1.ValidateAuthRequest
+	2, // 4: graph.substreams.data_service.sds.auth.v1.AuthService.ValidateAuth:output_type -> graph.substreams.data_service.sds.auth.v1.ValidateAuthResponse
+	4, // [4:5] is the sub-list for method output_type
+	3, // [3:4] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_graph_substreams_data_service_sds_auth_v1_auth_proto_init() }
@@ -213,7 +256,7 @@ func file_graph_substreams_data_service_sds_auth_v1_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_graph_substreams_data_service_sds_auth_v1_auth_proto_rawDesc), len(file_graph_substreams_data_service_sds_auth_v1_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

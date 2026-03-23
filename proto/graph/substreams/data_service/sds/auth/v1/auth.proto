@@ -5,29 +5,46 @@ package graph.substreams.data_service.sds.auth.v1;
 import "graph/substreams/data_service/common/v1/types.proto";
 
 // AuthService validates incoming payment RAVs for firehose-core plugins.
-// The sds:// dauth plugin calls ValidateAuth with the RAV extracted from
-// the x-sds-rav gRPC header and receives back auth context (payer address, etc.)
-// to populate trusted headers.
+// The sds:// dauth plugin is a lightweight shim that forwards all request context
+// to this service, which performs the actual authentication logic.
 service AuthService {
-  // ValidateAuth validates a SignedRAV and returns auth context for the caller.
-  // Called by the sds:// dauth plugin when a client connects with an x-sds-rav header.
+  // ValidateAuth validates authentication and returns trusted headers.
+  // Called by the sds:// dauth plugin for every authenticated request.
+  // The plugin forwards raw headers, path, and IP - this service extracts
+  // and validates the RAV, session ID, and any other auth context.
   rpc ValidateAuth(ValidateAuthRequest) returns (ValidateAuthResponse);
 }
 
+// Header value(s) for a single header name
+message HeaderValues {
+  repeated string values = 1;
+}
+
 message ValidateAuthRequest {
-  // SignedRAV extracted from the `x-sds-rav` gRPC header
-  common.v1.SignedRAV payment_rav = 1;
-  // Client IP address (optional, for logging/rate-limiting)
-  string ip_address = 2;
-  // Request path/endpoint (optional)
-  string path = 3;
+  // Untrusted headers from the incoming request.
+  //
+  // These headers come directly from the client and MUST NOT be trusted.
+  // The service will extract x-sds-rav, x-sds-session-id, and any other
+  // auth-related headers from this map and validate them before trusting any values.
+  //
+  // SECURITY: Never use these headers directly without validation. Always extract
+  // and validate before using in any security-sensitive context.
+  map<string, HeaderValues> untrusted_headers = 1;
+
+  // Request path/endpoint (e.g., "/sf.substreams.rpc.v2.Stream/Blocks")
+  string path = 2;
+
+  // Client IP address (for logging/rate-limiting)
+  string ip_address = 3;
 }
 
 message ValidateAuthResponse {
-  // Payer Ethereum address (0x...) → maps to x-user-id / x-organization-id
-  string organization_id = 1;
-  // Optional identifier for sub-key or signer; empty for now
-  string api_key_id = 2;
-  // Additional context to pass through as trusted headers
-  map<string, string> metadata = 3;
+  // Trusted headers to inject into the request context.
+  // The dauth plugin will add these as trusted headers that cannot be
+  // spoofed by the client. Common headers include:
+  //   - x-user-id / x-organization-id: Payer address
+  //   - x-api-key-id: Optional API key identifier
+  //   - x-sds-session-id: Session ID
+  //   - x-real-ip: Client IP address
+  map<string, string> trusted_headers = 1;
 }

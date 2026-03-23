@@ -47,7 +47,6 @@ func (s *SessionService) BorrowWorker(
 	req *connect.Request[sessionv1.BorrowWorkerRequest],
 ) (*connect.Response[sessionv1.BorrowWorkerResponse], error) {
 	payerStr := req.Msg.OrganizationId
-	traceID := req.Msg.TraceId
 
 	if payerStr == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("organization_id is required"))
@@ -58,9 +57,15 @@ func (s *SessionService) BorrowWorker(
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid organization_id address: %w", err))
 	}
 
-	zlog.Debug("BorrowWorker called",
+	// Get the SDS session ID from the request (set by session plugin from auth context).
+	sessionID := req.Msg.SessionId
+	if sessionID == "" {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("session_id not provided in request"))
+	}
+
+	zlog.Debug("BorrowWorker service called",
 		zap.Stringer("payer", payer),
-		zap.String("trace_id", traceID),
+		zap.String("session_id", sessionID),
 		zap.String("service", req.Msg.Service),
 	)
 
@@ -87,9 +92,6 @@ func (s *SessionService) BorrowWorker(
 		}), nil
 	}
 
-	// Create a session for this worker if trace_id implies one (one-to-one mapping).
-	sessionID := buildSessionID(payerStr, traceID)
-
 	// Ensure session exists.
 	if _, getErr := s.repo.SessionGet(ctx, sessionID); getErr != nil {
 		newSession := &repository.Session{
@@ -109,13 +111,14 @@ func (s *SessionService) BorrowWorker(
 	}
 
 	// Create the worker entry.
-	workerKey := buildWorkerKey(payerStr, traceID, time.Now())
+	// Worker key is unique per request, built from payer and timestamp.
+	workerKey := buildWorkerKey(payerStr, sessionID, time.Now())
 	worker := &repository.Worker{
 		Key:       workerKey,
 		SessionID: sessionID,
 		Payer:     payer,
 		CreatedAt: time.Now(),
-		TraceID:   traceID,
+		TraceID:   "", // No trace ID - workers are identified by their unique key
 	}
 	if err := s.repo.WorkerCreate(ctx, worker); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("creating worker: %w", err))
@@ -232,14 +235,6 @@ func (s *SessionService) KeepAlive(
 	}
 
 	return connect.NewResponse(&sessionv1.KeepAliveResponse{}), nil
-}
-
-// buildSessionID constructs a stable session ID for a (payer, traceID) pair.
-func buildSessionID(payer, traceID string) string {
-	if traceID != "" {
-		return fmt.Sprintf("%s|%s", payer, traceID)
-	}
-	return payer
 }
 
 // buildWorkerKey constructs a unique worker key.

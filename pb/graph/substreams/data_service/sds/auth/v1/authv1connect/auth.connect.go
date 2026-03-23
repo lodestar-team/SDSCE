@@ -41,8 +41,10 @@ const (
 // AuthServiceClient is a client for the graph.substreams.data_service.sds.auth.v1.AuthService
 // service.
 type AuthServiceClient interface {
-	// ValidateAuth validates a SignedRAV and returns auth context for the caller.
-	// Called by the sds:// dauth plugin when a client connects with an x-sds-rav header.
+	// ValidateAuth validates authentication and returns trusted headers.
+	// Called by the sds:// dauth plugin for every authenticated request.
+	// The plugin forwards raw headers, path, and IP - this service extracts
+	// and validates the RAV, session ID, and any other auth context.
 	ValidateAuth(context.Context, *connect.Request[v1.ValidateAuthRequest]) (*connect.Response[v1.ValidateAuthResponse], error)
 }
 
@@ -80,8 +82,10 @@ func (c *authServiceClient) ValidateAuth(ctx context.Context, req *connect.Reque
 // AuthServiceHandler is an implementation of the
 // graph.substreams.data_service.sds.auth.v1.AuthService service.
 type AuthServiceHandler interface {
-	// ValidateAuth validates a SignedRAV and returns auth context for the caller.
-	// Called by the sds:// dauth plugin when a client connects with an x-sds-rav header.
+	// ValidateAuth validates authentication and returns trusted headers.
+	// Called by the sds:// dauth plugin for every authenticated request.
+	// The plugin forwards raw headers, path, and IP - this service extracts
+	// and validates the RAV, session ID, and any other auth context.
 	ValidateAuth(context.Context, *connect.Request[v1.ValidateAuthRequest]) (*connect.Response[v1.ValidateAuthResponse], error)
 }
 

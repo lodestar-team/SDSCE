@@ -6,9 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Unreleased
 
+### Added
+
+- Add E2E Substreams request execution to `TestFirecore` using `sds sink run` command with `common@v0.1.0` manifest
+- Add `runSDSSink()` helper function to execute sds sink commands from integration tests
+- Add consumer sidecar startup to `TestFirecore` E2E integration test
+- Add `impl.StartProviderGateway()` helper function for starting provider gateway programmatically (useful for testing)
+- Add full E2E integration test with dummy-blockchain container, Substreams tier1, SDS plugins, and consumer sidecar (`TestFirecore`)
+- Add automatic database migrations in integration test setup using golang-migrate
+- Add `waitForSidecarHealth()` helper function for integration tests
+
 ### Changed
 
+- Refactor session and usage services to use lightweight plugin pattern with session ID as first-class protobuf field instead of HTTP headers
+  - Session service: Added `sds_session_id` field to `BorrowWorkerRequest`, plugin extracts from auth context and sets in request
+  - Usage service: Added `sds_session_id` field to `Event` message, metering plugin populates from auth context Meta
+  - Both services now read session ID from request fields instead of HTTP headers, making the flow explicit and type-safe
+  - Removed `propagateTrustedHeaders` function from session plugin as it's no longer needed
+- Refactor integration tests to use `impl.StartProviderGateway()` instead of direct gateway instantiation
+- Refactor integration test helpers: extract `startDummyBlockchainContainer()` to encapsulate container setup, port retrieval, and health verification
+- Remove unused functions from integration tests (`startFirecore`, `waitForSubstreamsTier1Ready`) and simplify `newDummyBlockchainContainer` signature
+- Rename session protocol fields for clarity: `trace_id` → `session_id` and `max_worker_for_trace_id` → `max_workers_per_session` in BorrowWorkerRequest
 - Move `ErrNotFound` from psql package to repository package for interface-level error handling
+
+### Fixed
+
+- Fix PostgreSQL timezone handling by changing all TIMESTAMP columns to TIMESTAMPTZ in schema migration, preventing 4-hour session timeout errors caused by timezone interpretation issues
+- Fix Anvil container startup failures in dev environment by adding retry logic (up to 5 attempts with exponential backoff) to handle "port is already allocated" errors when previous container hasn't fully terminated
+- Fix session ID propagation to usage events by setting session ID as Meta in auth plugin trusted headers, ensuring dmetering middleware includes correct session ID in usage events instead of falling back to organization ID
+- Fix session ID retrieval in session service by reading directly from HTTP request headers (`x-sds-session-id`) instead of context, ensuring proper session ID propagation from auth service through session plugin
+- Fix PostgreSQL DSN scheme conversion in integration tests to handle both `postgresql://` and `postgres://` schemes from testcontainers
+- Fix session ID propagation from auth plugin to session service by adding trusted headers interceptor to gateway and propagating trusted headers in session plugin HTTP requests
 - Rename `provider/repository/psql/models.go` to `mappings.go` for clarity
 - Replace ignored errors in Value() calls with `mustValue()` helper
 - Use `sds.MustNewGRT(n)` in tests instead of `sds.NewGRTFromBigInt(big.NewInt(n))`
@@ -21,10 +49,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Update all repository implementations and tests to use proper typed addresses
 - Add retry logic to PostgreSQL repository creation with automatic retries on connection failures (10 retries with fibonacci backoff up to 5 seconds)
 - Use `zap.Stringer()` instead of `zap.String(..., addr.Pretty())` for all eth.Address logging
+- **Fix session ID correlation between session creation and usage tracking**:
+  - Add explicit `session_id` field to `ValidateAuthResponse` protobuf message
+  - Auth service generates unique UUID session ID and returns it in `session_id` field
+  - Auth plugin explicitly sets `dauth.HeaderMeta` with session ID and validates it's present
+  - **Remove dangerous metadata loop** that allowed arbitrary trusted header overrides
+  - Session service reads session ID from trusted headers context (`x-meta` field)
+  - **Remove fallback session ID generation** - session service now returns error if auth service doesn't provide session ID
+  - Metering plugin copies `Meta` field from `dmetering.Event` to proto event
+  - Usage service derives session ID from `event.Meta` (falls back to `api_key_id` or `organization_id`)
+  - This ensures session IDs match across auth, session creation, and usage events
 
 ### Fixed
 
 - Fix `MustNewGRT` panic message using `%w` in `fmt.Sprintf` (should be `%v`)
+- Fix PostgreSQL SessionList payer filter returning inverted results (was skipping matching payers instead of non-matching payers)
 
 ### Removed
 

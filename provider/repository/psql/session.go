@@ -1,6 +1,7 @@
 package psql
 
 import (
+	"bytes"
 	"context"
 
 	"github.com/graphprotocol/substreams-data-service/horizon"
@@ -200,7 +201,7 @@ func (r *Database) SessionList(ctx context.Context, filter repository.SessionFil
 	for _, row := range rows {
 		// Apply filters
 		if filter.Payer != nil {
-			if row.Payer.Address().Pretty() != filter.Payer.Pretty() {
+			if !bytes.Equal(row.Payer.Address(), *filter.Payer) {
 				continue
 			}
 		}

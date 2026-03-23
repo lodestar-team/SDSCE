@@ -8,8 +8,10 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/alphadose/haxmap"
+	sds "github.com/graphprotocol/substreams-data-service"
 	sessionv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/session/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/session/v1/sessionv1connect"
+	"github.com/streamingfast/dauth"
 	"github.com/streamingfast/dsession"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -84,7 +86,7 @@ func newSessionPool(cfg *baseConfig, keepAliveDelay, minimalWorkerLifeDuration t
 
 	return &sessionPool{
 		client:                    client,
-		logger:                    logger.Named("sds-session"),
+		logger:                    logger.Named("sds-session-plugin"),
 		keepAliveDelay:            keepAliveDelay,
 		minimalWorkerLifeDuration: minimalWorkerLifeDuration,
 		sessions:                  haxmap.New[string, *sessionInfo](),
@@ -93,11 +95,28 @@ func newSessionPool(cfg *baseConfig, keepAliveDelay, minimalWorkerLifeDuration t
 
 // Get implements dsession.SessionPool.
 func (p *sessionPool) Get(ctx context.Context, serviceName string, organizationID string, apiKeyID string, traceID string, onError func(error)) (string, error) {
+	p.logger.Debug("session plugin Get() called",
+		zap.String("service", serviceName),
+		zap.String("org_id", organizationID),
+		zap.String("trace_id", traceID),
+	)
+
+	// Extract SDS session ID from trusted headers in context (set by auth plugin)
+	trustedHeaders := dauth.FromContext(ctx)
+	var sdsSessionID string
+	if trustedHeaders != nil {
+		sdsSessionID = trustedHeaders.Get(sds.HeaderSessionID)
+	}
+
+	if sdsSessionID == "" {
+		return "", fmt.Errorf("sds session ID not found in auth context")
+	}
+
 	req := connect.NewRequest(&sessionv1.BorrowWorkerRequest{
 		Service:        serviceName,
 		OrganizationId: organizationID,
 		ApiKeyId:       apiKeyID,
-		TraceId:        traceID,
+		SessionId:      sdsSessionID,
 	})
 
 	resp, err := p.client.BorrowWorker(ctx, req)
@@ -117,12 +136,12 @@ func (p *sessionPool) Get(ctx context.Context, serviceName string, organizationI
 	workerKey := resp.Msg.WorkerKey
 	workerStatus := resp.Msg.Status
 
-	details := ""
-	if maxWorkers := resp.Msg.WorkerState.GetMaxWorkers(); maxWorkers != 0 {
-		details = fmt.Sprintf(" (active sessions: %d/%d)", resp.Msg.WorkerState.GetActiveWorkers(), maxWorkers)
-	}
-
 	if workerStatus == sessionv1.BorrowStatus_BORROW_STATUS_RESOURCE_EXHAUSTED {
+		details := ""
+		if maxWorkers := resp.Msg.WorkerState.GetMaxWorkers(); maxWorkers != 0 {
+			details = fmt.Sprintf(" (active sessions: %d/%d)", resp.Msg.WorkerState.GetActiveWorkers(), maxWorkers)
+		}
+
 		p.logger.Debug("session pool is exhausted", zap.String("status", workerStatus.String()), zap.String("details", details))
 		return "", fmt.Errorf("%w%s", dsession.ErrConcurrentStreamLimitExceeded, details)
 	}
@@ -185,6 +204,12 @@ func (p *sessionPool) Release(sessionKey string) {
 
 // GetWorker implements dsession.SessionPool.
 func (p *sessionPool) GetWorker(ctx context.Context, serviceName string, sessionKey string, maxWorkersPerSession int) (string, error) {
+	p.logger.Info("session plugin GetWorker() called",
+		zap.String("service", serviceName),
+		zap.String("session_key", sessionKey),
+		zap.Int("max_workers", maxWorkersPerSession),
+	)
+
 	// Look up session info
 	info, ok := p.sessions.Get(sessionKey)
 	if !ok {
@@ -194,12 +219,24 @@ func (p *sessionPool) GetWorker(ctx context.Context, serviceName string, session
 	apiKeyID := info.apiKeyID
 	traceID := info.traceID
 
+	// Extract SDS session ID from trusted headers in context (set by auth plugin)
+	trustedHeaders := dauth.FromContext(ctx)
+	var sdsSessionID string
+	if trustedHeaders != nil {
+		sdsSessionID = trustedHeaders.Get(sds.HeaderSessionID)
+	}
+
+	if sdsSessionID == "" {
+		p.logger.Warn("no SDS session ID found in trusted headers")
+		return "", fmt.Errorf("sds session ID not found in auth context")
+	}
+
 	req := connect.NewRequest(&sessionv1.BorrowWorkerRequest{
-		Service:             serviceName,
-		OrganizationId:      organizationID,
-		ApiKeyId:            apiKeyID,
-		TraceId:             traceID,
-		MaxWorkerForTraceId: int64(maxWorkersPerSession),
+		Service:              serviceName,
+		OrganizationId:       organizationID,
+		ApiKeyId:             apiKeyID,
+		SessionId:            sdsSessionID,
+		MaxWorkersPerSession: int64(maxWorkersPerSession),
 	})
 
 	resp, err := p.client.BorrowWorker(ctx, req)

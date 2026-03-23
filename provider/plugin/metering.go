@@ -174,6 +174,11 @@ func (e *meteringEmitter) emit(events []*usagev1.Event) {
 		Events: events,
 	})
 
+	// Note: We don't have a context with trusted headers here since metering
+	// events are collected asynchronously in a background goroutine.
+	// The usage service will read the session ID from each event's Meta field,
+	// which is populated by the dmetering middleware in firehose-core.
+
 	_, err := e.client.Report(context.Background(), req)
 	if err != nil {
 		e.logger.Warn("failed to emit events", zap.Error(err))
@@ -187,6 +192,7 @@ func (e *meteringEmitter) eventToProto(ev dmetering.Event) *usagev1.Event {
 		ApiKeyId:       ev.ApiKeyID,
 		Endpoint:       ev.Endpoint,
 		Network:        ev.Network,
+		SdsSessionId:   ev.Meta, // Session ID from auth context (set by auth plugin via dauth.HeaderMeta)
 		Timestamp:      timestamppb.New(ev.Timestamp),
 		Metrics:        make([]*usagev1.Metric, 0, len(ev.Metrics)),
 	}

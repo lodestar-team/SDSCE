@@ -19,16 +19,33 @@ func newTestService(quotas *session.QuotaConfig) (*session.SessionService, *repo
 	return svc, repo
 }
 
+// newTestRequest creates a request with the session ID field set.
+func newTestRequest(msg *sessionv1.BorrowWorkerRequest, sessionID string) *connect.Request[sessionv1.BorrowWorkerRequest] {
+	msg.SessionId = sessionID
+	return connect.NewRequest(msg)
+}
+
+// newTestReturnWorkerRequest creates a return worker request.
+func newTestReturnWorkerRequest(msg *sessionv1.ReturnWorkerRequest) *connect.Request[sessionv1.ReturnWorkerRequest] {
+	return connect.NewRequest(msg)
+}
+
+// newTestKeepAliveRequest creates a keep alive request.
+func newTestKeepAliveRequest(msg *sessionv1.KeepAliveRequest) *connect.Request[sessionv1.KeepAliveRequest] {
+	return connect.NewRequest(msg)
+}
+
 // --- BorrowWorker ---
 
 func TestSessionService_BorrowWorker_Success(t *testing.T) {
 	svc, repo := newTestService(nil)
 
-	resp, err := svc.BorrowWorker(context.Background(), connect.NewRequest(&sessionv1.BorrowWorkerRequest{
+	req := newTestRequest(&sessionv1.BorrowWorkerRequest{
 		Service:        "substreams",
 		OrganizationId: "0x1111111111111111111111111111111111111111",
-		TraceId:        "trace-001",
-	}))
+		SessionId:      "trace-001",
+	}, "test-session-001")
+	resp, err := svc.BorrowWorker(context.Background(), req)
 	require.NoError(t, err)
 	assert.Equal(t, sessionv1.BorrowStatus_BORROW_STATUS_BORROWED, resp.Msg.Status)
 	assert.NotEmpty(t, resp.Msg.WorkerKey)
@@ -42,14 +59,31 @@ func TestSessionService_BorrowWorker_Success(t *testing.T) {
 func TestSessionService_BorrowWorker_MissingOrganizationId(t *testing.T) {
 	svc, _ := newTestService(nil)
 
-	_, err := svc.BorrowWorker(context.Background(), connect.NewRequest(&sessionv1.BorrowWorkerRequest{
-		Service: "substreams",
-		TraceId: "trace-001",
-	}))
+	req := newTestRequest(&sessionv1.BorrowWorkerRequest{
+		Service:   "substreams",
+		SessionId: "trace-001",
+	}, "test-session-002")
+	_, err := svc.BorrowWorker(context.Background(), req)
 	require.Error(t, err)
 	var connectErr *connect.Error
 	require.ErrorAs(t, err, &connectErr)
 	assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+}
+
+func TestSessionService_BorrowWorker_MissingSessionID(t *testing.T) {
+	svc, _ := newTestService(nil)
+
+	// Missing session_id field - should fail
+	_, err := svc.BorrowWorker(context.Background(), connect.NewRequest(&sessionv1.BorrowWorkerRequest{
+		Service:        "substreams",
+		OrganizationId: "0x1111111111111111111111111111111111111111",
+		// SessionId intentionally not set
+	}))
+	require.Error(t, err)
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeInternal, connectErr.Code())
+	assert.Contains(t, connectErr.Message(), "session_id not provided")
 }
 
 func TestSessionService_BorrowWorker_QuotaExceeded(t *testing.T) {
@@ -62,20 +96,22 @@ func TestSessionService_BorrowWorker_QuotaExceeded(t *testing.T) {
 	svc, _ := newTestService(quotas)
 
 	// Borrow first worker - should succeed.
-	resp1, err := svc.BorrowWorker(context.Background(), connect.NewRequest(&sessionv1.BorrowWorkerRequest{
+	req1 := newTestRequest(&sessionv1.BorrowWorkerRequest{
 		Service:        "substreams",
 		OrganizationId: "0x1111111111111111111111111111111111111111",
-		TraceId:        "trace-001",
-	}))
+		SessionId:      "trace-001",
+	}, "test-session-003")
+	resp1, err := svc.BorrowWorker(context.Background(), req1)
 	require.NoError(t, err)
 	assert.Equal(t, sessionv1.BorrowStatus_BORROW_STATUS_BORROWED, resp1.Msg.Status)
 
 	// Borrow second worker - should be exhausted.
-	resp2, err := svc.BorrowWorker(context.Background(), connect.NewRequest(&sessionv1.BorrowWorkerRequest{
+	req2 := newTestRequest(&sessionv1.BorrowWorkerRequest{
 		Service:        "substreams",
 		OrganizationId: "0x1111111111111111111111111111111111111111",
-		TraceId:        "trace-002",
-	}))
+		SessionId:      "trace-002",
+	}, "test-session-004")
+	resp2, err := svc.BorrowWorker(context.Background(), req2)
 	require.NoError(t, err)
 	assert.Equal(t, sessionv1.BorrowStatus_BORROW_STATUS_RESOURCE_EXHAUSTED, resp2.Msg.Status)
 }
@@ -93,11 +129,12 @@ func TestSessionService_BorrowWorker_PerPayerOverride(t *testing.T) {
 
 	// Should be able to borrow multiple workers for payer1 (10 max).
 	for i := range 5 {
-		resp, err := svc.BorrowWorker(context.Background(), connect.NewRequest(&sessionv1.BorrowWorkerRequest{
+		req := newTestRequest(&sessionv1.BorrowWorkerRequest{
 			Service:        "substreams",
 			OrganizationId: "0x1111111111111111111111111111111111111111",
-			TraceId:        "trace-" + string(rune('0'+i)),
-		}))
+			SessionId:      "trace-" + string(rune('0'+i)),
+		}, "test-session-"+string(rune('0'+i)))
+		resp, err := svc.BorrowWorker(context.Background(), req)
 		require.NoError(t, err)
 		assert.Equal(t, sessionv1.BorrowStatus_BORROW_STATUS_BORROWED, resp.Msg.Status)
 	}
@@ -108,10 +145,11 @@ func TestSessionService_BorrowWorker_PerPayerOverride(t *testing.T) {
 func TestSessionService_ReturnWorker_Success(t *testing.T) {
 	svc, repo := newTestService(nil)
 
-	borrowResp, err := svc.BorrowWorker(context.Background(), connect.NewRequest(&sessionv1.BorrowWorkerRequest{
+	borrowReq := newTestRequest(&sessionv1.BorrowWorkerRequest{
 		OrganizationId: "0x1111111111111111111111111111111111111111",
-		TraceId:        "trace-001",
-	}))
+		SessionId:      "trace-001",
+	}, "test-session-return-001")
+	borrowResp, err := svc.BorrowWorker(context.Background(), borrowReq)
 	require.NoError(t, err)
 	workerKey := borrowResp.Msg.WorkerKey
 
@@ -152,10 +190,11 @@ func TestSessionService_ReturnWorker_UnknownKey(t *testing.T) {
 func TestSessionService_KeepAlive_Success(t *testing.T) {
 	svc, repo := newTestService(nil)
 
-	borrowResp, err := svc.BorrowWorker(context.Background(), connect.NewRequest(&sessionv1.BorrowWorkerRequest{
+	borrowReq := newTestRequest(&sessionv1.BorrowWorkerRequest{
 		OrganizationId: "0x1111111111111111111111111111111111111111",
-		TraceId:        "trace-001",
-	}))
+		SessionId:      "trace-001",
+	}, "test-session-keepalive-001")
+	borrowResp, err := svc.BorrowWorker(context.Background(), borrowReq)
 	require.NoError(t, err)
 	workerKey := borrowResp.Msg.WorkerKey
 

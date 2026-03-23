@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 
@@ -105,6 +106,7 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 	dataService := mustLoadContract("SubstreamsDataService")
 
 	// Start Anvil container with fixed port binding
+	// Retry logic handles cases where port is still allocated from previous run
 	report("Starting Anvil container...")
 	anvilReq := testcontainers.ContainerRequest{
 		Image: "ghcr.io/foundry-rs/foundry:latest",
@@ -116,14 +118,37 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 			WithStartupTimeout(60 * time.Second),
 	}
 
-	anvilContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: anvilReq,
-		Started:          true,
-	})
-	if err != nil {
-		zlog.Error("failed to start Anvil container", zap.Error(err))
-		cancel()
-		return nil, fmt.Errorf("starting anvil container: %w", err)
+	var anvilContainer testcontainers.Container
+	var err error
+	maxRetries := 5
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		anvilContainer, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+			ContainerRequest: anvilReq,
+			Started:          true,
+		})
+		if err == nil {
+			break
+		}
+
+		// Check if this is a port allocation error
+		errMsg := err.Error()
+		isPortError := ctx.Err() == nil && (strings.Contains(errMsg, "port is already allocated") || strings.Contains(errMsg, "address already in use"))
+
+		if !isPortError || attempt == maxRetries {
+			zlog.Error("failed to start Anvil container", zap.Error(err), zap.Int("attempt", attempt))
+			cancel()
+			return nil, fmt.Errorf("starting anvil container: %w", err)
+		}
+
+		// Port allocation error - wait and retry
+		waitTime := time.Duration(attempt) * time.Second
+		zlog.Warn("port allocation error, waiting before retry",
+			zap.Error(err),
+			zap.Int("attempt", attempt),
+			zap.Int("max_retries", maxRetries),
+			zap.Duration("wait_time", waitTime),
+		)
+		time.Sleep(waitTime)
 	}
 
 	// Use the fixed port from config for the RPC URL

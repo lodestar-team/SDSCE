@@ -27,10 +27,11 @@ message BorrowWorkerRequest {
   string organization_id = 2;
   // Optional sub-key or signer identifier; empty for now
   string api_key_id = 3;
-  // Trace ID of the incoming request for deduplication
-  string trace_id = 4;
-  // Maximum concurrent workers allowed for this trace ID
-  int64 max_worker_for_trace_id = 5;
+  // SDS session ID from auth service (used for tracking payment sessions)
+  // This is the actual session ID that links workers to payment sessions in the database.
+  string session_id = 4;
+  // Maximum concurrent workers allowed for this session
+  int64 max_workers_per_session = 5;
 }
 
 message BorrowWorkerResponse {

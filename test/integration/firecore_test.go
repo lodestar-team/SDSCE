@@ -56,6 +56,11 @@ func TestFirecore(t *testing.T) {
 		env.Escrow.Address,
 		env.RPCURL,
 		PostgresTestDSN,
+		sidecarlib.ServerTransportConfig{
+			Plaintext:   true,
+			TLSCertFile: "",
+			TLSKeyFile:  "",
+		},
 		sidecarlib.DefaultPricingConfig(),
 	)
 	require.NoError(t, err, "failed to start provider gateways")

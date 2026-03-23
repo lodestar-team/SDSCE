@@ -35,8 +35,11 @@ message Event {
   string endpoint = 4;
   // Network identifier, e.g., "eth-mainnet"
   string network = 5;
-  // Arbitrary metadata
-  string meta = 7;
+  // SDS session ID from auth service (for linking usage to payment sessions)
+  string sds_session_id = 6;
+  // Field 7 reserved (was: meta - deprecated in favor of sds_session_id)
+  reserved 7;
+  reserved "meta";
   // Provider Ethereum address
   string provider = 8;
   // Output module hash (for Substreams)

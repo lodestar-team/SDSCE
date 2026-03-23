@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
+	"github.com/graphprotocol/substreams-data-service/internal/session"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
@@ -117,27 +118,52 @@ func (s *Gateway) StartSession(
 		}
 	}
 
-	// Create session using GlobalRepository
-	sessionID := generateSessionID()
-	session := repository.NewSession(sessionID, payer, s.serviceProvider, dataService, toRepoPricingConfig(s.pricingConfig))
-	if initialRAV != nil {
-		session.CurrentRAV = initialRAV
+	// Terminate any existing active sessions for this payer to prevent stale sessions
+	// This handles cases where previous sessions weren't properly cleaned up
+	existingSessions, err := s.repo.SessionList(ctx, repository.SessionFilter{
+		Payer:  &payer,
+		Status: func() *repository.SessionStatus { s := repository.SessionStatusActive; return &s }(),
+	})
+	if err != nil {
+		s.logger.Warn("failed to list existing sessions", zap.Error(err))
+		// Continue anyway - this is not critical
+	} else if len(existingSessions) > 0 {
+		s.logger.Info("terminating existing active sessions for payer",
+			zap.Stringer("payer", payer),
+			zap.Int("count", len(existingSessions)),
+		)
+		for _, existingSession := range existingSessions {
+			existingSession.End(commonv1.EndReason_END_REASON_CLIENT_DISCONNECT)
+			if updateErr := s.repo.SessionUpdate(ctx, existingSession); updateErr != nil {
+				s.logger.Warn("failed to terminate existing session",
+					zap.String("session_id", existingSession.ID),
+					zap.Error(updateErr),
+				)
+			}
+		}
 	}
-	session.MarkBaseline()
 
-	if err := s.repo.SessionCreate(ctx, session); err != nil {
+	// Create session using GlobalRepository
+	sessionID := session.GenerateID()
+	consumerSession := repository.NewSession(sessionID, payer, s.serviceProvider, dataService, toRepoPricingConfig(s.pricingConfig))
+	if initialRAV != nil {
+		consumerSession.CurrentRAV = initialRAV
+	}
+	consumerSession.MarkBaseline()
+
+	if err := s.repo.SessionCreate(ctx, consumerSession); err != nil {
 		s.logger.Error("failed to create session", zap.Error(err))
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to create session: %w", err))
 	}
 
 	s.logger.Info("StartSession succeeded",
-		zap.String("session_id", session.ID),
+		zap.String("session_id", consumerSession.ID),
 		zap.Stringer("payer", payer),
 	)
 
 	// Return the RAV to use (same as initial for now)
 	response := &providerv1.StartSessionResponse{
-		SessionId:     session.ID,
+		SessionId:     consumerSession.ID,
 		UseRav:        req.Msg.InitialRav, // Use the same RAV
 		Accepted:      true,
 		PricingConfig: commonv1.PricingConfigFromNative(s.pricingConfig),

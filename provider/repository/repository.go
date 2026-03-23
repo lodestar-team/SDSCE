@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"time"
 
@@ -11,6 +12,10 @@ import (
 	"github.com/streamingfast/eth-go"
 )
 
+// ErrNotFound is returned by repository methods when a requested entity does not exist.
+// All repository implementations should return this error for consistency.
+var ErrNotFound = errors.New("not found")
+
 // GlobalRepository provides global state storage for live session/client tracking.
 // All methods are namespaced by domain (Session*, Client*, Quota*, etc.)
 // All implementations must be safe for concurrent use.
@@ -19,26 +24,21 @@ type GlobalRepository interface {
 	SessionCreate(ctx context.Context, session *Session) error
 	SessionGet(ctx context.Context, sessionID string) (*Session, error)
 	SessionUpdate(ctx context.Context, session *Session) error
-	SessionDelete(ctx context.Context, sessionID string) error
 	SessionList(ctx context.Context, filter SessionFilter) ([]*Session, error)
-	SessionGetByPayer(ctx context.Context, payer string) ([]*Session, error)
 	SessionCount(ctx context.Context) int
 
 	// Worker/connection tracking within sessions
 	WorkerCreate(ctx context.Context, worker *Worker) error
 	WorkerGet(ctx context.Context, workerKey string) (*Worker, error)
 	WorkerDelete(ctx context.Context, workerKey string) error
-	WorkerListBySession(ctx context.Context, sessionID string) ([]*Worker, error)
-	WorkerCountByPayer(ctx context.Context, payer string) (int, error)
 
 	// Quota tracking
-	QuotaGet(ctx context.Context, payer string) (*QuotaUsage, error)
-	QuotaIncrement(ctx context.Context, payer string, sessions int, workers int) error
-	QuotaDecrement(ctx context.Context, payer string, sessions int, workers int) error
+	QuotaGet(ctx context.Context, payer eth.Address) (*QuotaUsage, error)
+	QuotaIncrement(ctx context.Context, payer eth.Address, sessions int, workers int) error
+	QuotaDecrement(ctx context.Context, payer eth.Address, sessions int, workers int) error
 
 	// Usage accumulation (for metering)
 	UsageAdd(ctx context.Context, sessionID string, usage *UsageEvent) error
-	UsageGetTotal(ctx context.Context, sessionID string) (*UsageSummary, error)
 
 	// Health/lifecycle
 	Ping(ctx context.Context) error
@@ -58,17 +58,14 @@ const (
 // This unified session model supports both firehose-core plugins (auth/session/metering)
 // and the provider gateway payment flow.
 type Session struct {
-	ID              string
-	PayerAddress    string
-	SignerAddress   string
-	ServiceProvider string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	LastKeepAlive   time.Time
-	Status          SessionStatus
-	Metadata        map[string]string
-	EndedAt         *time.Time
-	EndReason       commonv1.EndReason
+	ID            string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	LastKeepAlive time.Time
+	Status        SessionStatus
+	Metadata      map[string]string
+	EndedAt       *time.Time
+	EndReason     commonv1.EndReason
 
 	// Escrow account details (eth.Address for precise type handling)
 	Payer       eth.Address
@@ -103,20 +100,18 @@ type PricingConfig = sds.PricingConfig
 func NewSession(id string, payer, receiver, dataService eth.Address, pricingConfig PricingConfig) *Session {
 	now := time.Now()
 	return &Session{
-		ID:              id,
-		PayerAddress:    payer.Pretty(),
-		ServiceProvider: receiver.Pretty(),
-		Payer:           payer,
-		Receiver:        receiver,
-		DataService:     dataService,
-		Status:          SessionStatusActive,
-		CreatedAt:       now,
-		UpdatedAt:       now,
-		LastKeepAlive:   now,
-		TotalCost:       big.NewInt(0),
-		BaselineCost:    big.NewInt(0),
-		PricingConfig:   pricingConfig,
-		Metadata:        make(map[string]string),
+		ID:            id,
+		Payer:         payer,
+		Receiver:      receiver,
+		DataService:   dataService,
+		Status:        SessionStatusActive,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		LastKeepAlive: now,
+		TotalCost:     big.NewInt(0),
+		BaselineCost:  big.NewInt(0),
+		PricingConfig: pricingConfig,
+		Metadata:      make(map[string]string),
 	}
 }
 
@@ -207,16 +202,16 @@ func (s *Session) GetUsage() *commonv1.Usage {
 
 // Worker represents a single streaming connection (worker) within a session.
 type Worker struct {
-	Key          string
-	SessionID    string
-	PayerAddress string
-	CreatedAt    time.Time
-	TraceID      string
+	Key       string
+	SessionID string
+	Payer     eth.Address
+	CreatedAt time.Time
+	TraceID   string
 }
 
 // QuotaUsage tracks the current quota consumption for a payer address.
 type QuotaUsage struct {
-	PayerAddress   string
+	Payer          eth.Address
 	ActiveSessions int
 	ActiveWorkers  int
 	LastUpdated    time.Time
@@ -239,7 +234,7 @@ type UsageSummary struct {
 
 // SessionFilter specifies criteria for filtering sessions in a list operation.
 type SessionFilter struct {
-	PayerAddress *string
+	Payer        *eth.Address
 	Status       *SessionStatus
 	CreatedAfter *time.Time
 }

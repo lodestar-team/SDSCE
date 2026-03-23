@@ -83,12 +83,13 @@ type BorrowWorkerRequest struct {
 	OrganizationId string `protobuf:"bytes,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
 	// Optional sub-key or signer identifier; empty for now
 	ApiKeyId string `protobuf:"bytes,3,opt,name=api_key_id,json=apiKeyId,proto3" json:"api_key_id,omitempty"`
-	// Trace ID of the incoming request for deduplication
-	TraceId string `protobuf:"bytes,4,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
-	// Maximum concurrent workers allowed for this trace ID
-	MaxWorkerForTraceId int64 `protobuf:"varint,5,opt,name=max_worker_for_trace_id,json=maxWorkerForTraceId,proto3" json:"max_worker_for_trace_id,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// SDS session ID from auth service (used for tracking payment sessions)
+	// This is the actual session ID that links workers to payment sessions in the database.
+	SessionId string `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// Maximum concurrent workers allowed for this session
+	MaxWorkersPerSession int64 `protobuf:"varint,5,opt,name=max_workers_per_session,json=maxWorkersPerSession,proto3" json:"max_workers_per_session,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *BorrowWorkerRequest) Reset() {
@@ -142,16 +143,16 @@ func (x *BorrowWorkerRequest) GetApiKeyId() string {
 	return ""
 }
 
-func (x *BorrowWorkerRequest) GetTraceId() string {
+func (x *BorrowWorkerRequest) GetSessionId() string {
 	if x != nil {
-		return x.TraceId
+		return x.SessionId
 	}
 	return ""
 }
 
-func (x *BorrowWorkerRequest) GetMaxWorkerForTraceId() int64 {
+func (x *BorrowWorkerRequest) GetMaxWorkersPerSession() int64 {
 	if x != nil {
-		return x.MaxWorkerForTraceId
+		return x.MaxWorkersPerSession
 	}
 	return 0
 }
@@ -461,14 +462,15 @@ var File_graph_substreams_data_service_sds_session_v1_session_proto protoreflect
 
 const file_graph_substreams_data_service_sds_session_v1_session_proto_rawDesc = "" +
 	"\n" +
-	":graph/substreams/data_service/sds/session/v1/session.proto\x12,graph.substreams.data_service.sds.session.v1\x1a\x1egoogle/protobuf/duration.proto\"\xc7\x01\n" +
+	":graph/substreams/data_service/sds/session/v1/session.proto\x12,graph.substreams.data_service.sds.session.v1\x1a\x1egoogle/protobuf/duration.proto\"\xcc\x01\n" +
 	"\x13BorrowWorkerRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12'\n" +
 	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12\x1c\n" +
 	"\n" +
-	"api_key_id\x18\x03 \x01(\tR\bapiKeyId\x12\x19\n" +
-	"\btrace_id\x18\x04 \x01(\tR\atraceId\x124\n" +
-	"\x17max_worker_for_trace_id\x18\x05 \x01(\x03R\x13maxWorkerForTraceId\"\xe7\x01\n" +
+	"api_key_id\x18\x03 \x01(\tR\bapiKeyId\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x04 \x01(\tR\tsessionId\x125\n" +
+	"\x17max_workers_per_session\x18\x05 \x01(\x03R\x14maxWorkersPerSession\"\xe7\x01\n" +
 	"\x14BorrowWorkerResponse\x12\x1d\n" +
 	"\n" +
 	"worker_key\x18\x01 \x01(\tR\tworkerKey\x12R\n" +

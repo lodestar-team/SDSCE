@@ -11,6 +11,7 @@ import (
 	sessionv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/session/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/session/v1/sessionv1connect"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
+	"github.com/streamingfast/eth-go"
 	"github.com/streamingfast/logging"
 	"go.uber.org/zap"
 )
@@ -45,16 +46,26 @@ func (s *SessionService) BorrowWorker(
 	ctx context.Context,
 	req *connect.Request[sessionv1.BorrowWorkerRequest],
 ) (*connect.Response[sessionv1.BorrowWorkerResponse], error) {
-	payer := req.Msg.OrganizationId
-	traceID := req.Msg.TraceId
+	payerStr := req.Msg.OrganizationId
 
-	if payer == "" {
+	if payerStr == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("organization_id is required"))
 	}
 
-	zlog.Debug("BorrowWorker called",
-		zap.String("payer", payer),
-		zap.String("trace_id", traceID),
+	payer, err := eth.NewAddress(payerStr)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid organization_id address: %w", err))
+	}
+
+	// Get the SDS session ID from the request (set by session plugin from auth context).
+	sessionID := req.Msg.SessionId
+	if sessionID == "" {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("session_id not provided in request"))
+	}
+
+	zlog.Debug("BorrowWorker service called",
+		zap.Stringer("payer", payer),
+		zap.String("session_id", sessionID),
 		zap.String("service", req.Msg.Service),
 	)
 
@@ -64,11 +75,11 @@ func (s *SessionService) BorrowWorker(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reading quota: %w", err))
 	}
 
-	maxWorkers := s.quotas.MaxWorkersPerSession(payer) * s.quotas.MaxConcurrentSessions(payer)
+	maxWorkers := s.quotas.MaxWorkersPerSession(payerStr) * s.quotas.MaxConcurrentSessions(payerStr)
 
 	if quota.ActiveWorkers >= maxWorkers {
 		zlog.Warn("quota exceeded for payer",
-			zap.String("payer", payer),
+			zap.Stringer("payer", payer),
 			zap.Int("active_workers", quota.ActiveWorkers),
 			zap.Int("max_workers", maxWorkers),
 		)
@@ -81,14 +92,11 @@ func (s *SessionService) BorrowWorker(
 		}), nil
 	}
 
-	// Create a session for this worker if trace_id implies one (one-to-one mapping).
-	sessionID := buildSessionID(payer, traceID)
-
 	// Ensure session exists.
 	if _, getErr := s.repo.SessionGet(ctx, sessionID); getErr != nil {
 		newSession := &repository.Session{
 			ID:            sessionID,
-			PayerAddress:  payer,
+			Payer:         payer,
 			Status:        repository.SessionStatusActive,
 			CreatedAt:     time.Now(),
 			LastKeepAlive: time.Now(),
@@ -103,13 +111,14 @@ func (s *SessionService) BorrowWorker(
 	}
 
 	// Create the worker entry.
-	workerKey := buildWorkerKey(payer, traceID, time.Now())
+	// Worker key is unique per request, built from payer and timestamp.
+	workerKey := buildWorkerKey(payerStr, sessionID, time.Now())
 	worker := &repository.Worker{
-		Key:          workerKey,
-		SessionID:    sessionID,
-		PayerAddress: payer,
-		CreatedAt:    time.Now(),
-		TraceID:      traceID,
+		Key:       workerKey,
+		SessionID: sessionID,
+		Payer:     payer,
+		CreatedAt: time.Now(),
+		TraceID:   "", // No trace ID - workers are identified by their unique key
 	}
 	if err := s.repo.WorkerCreate(ctx, worker); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("creating worker: %w", err))
@@ -118,13 +127,13 @@ func (s *SessionService) BorrowWorker(
 	// Increment quota.
 	if err := s.repo.QuotaIncrement(ctx, payer, 0, 1); err != nil {
 		// Non-fatal: log and continue (quota is eventually consistent in the in-memory model).
-		zlog.Warn("failed to increment quota", zap.String("payer", payer), zap.Error(err))
+		zlog.Warn("failed to increment quota", zap.Stringer("payer", payer), zap.Error(err))
 	}
 
 	zlog.Debug("worker borrowed",
 		zap.String("worker_key", workerKey),
 		zap.String("session_id", sessionID),
-		zap.String("payer", payer),
+		zap.Stringer("payer", payer),
 	)
 
 	return connect.NewResponse(&sessionv1.BorrowWorkerResponse{
@@ -157,7 +166,7 @@ func (s *SessionService) ReturnWorker(
 		return connect.NewResponse(&sessionv1.ReturnWorkerResponse{}), nil
 	}
 
-	payer := worker.PayerAddress
+	payer := worker.Payer
 
 	// Honor minimal_worker_life_duration: if the worker has not been alive
 	// long enough we simply wait before acknowledging the return.
@@ -185,10 +194,10 @@ func (s *SessionService) ReturnWorker(
 
 	// Decrement quota.
 	if err := s.repo.QuotaDecrement(ctx, payer, 0, 1); err != nil {
-		zlog.Warn("failed to decrement quota", zap.String("payer", payer), zap.Error(err))
+		zlog.Warn("failed to decrement quota", zap.Stringer("payer", payer), zap.Error(err))
 	}
 
-	zlog.Debug("worker returned", zap.String("worker_key", workerKey), zap.String("payer", payer))
+	zlog.Debug("worker returned", zap.String("worker_key", workerKey), zap.Stringer("payer", payer))
 
 	return connect.NewResponse(&sessionv1.ReturnWorkerResponse{}), nil
 }
@@ -226,14 +235,6 @@ func (s *SessionService) KeepAlive(
 	}
 
 	return connect.NewResponse(&sessionv1.KeepAliveResponse{}), nil
-}
-
-// buildSessionID constructs a stable session ID for a (payer, traceID) pair.
-func buildSessionID(payer, traceID string) string {
-	if traceID != "" {
-		return fmt.Sprintf("%s|%s", payer, traceID)
-	}
-	return payer
 }
 
 // buildWorkerKey constructs a unique worker key.

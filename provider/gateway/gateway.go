@@ -9,15 +9,8 @@ import (
 	"connectrpc.com/connect"
 	"github.com/alphadose/haxmap"
 	"github.com/graphprotocol/substreams-data-service/horizon"
-	"github.com/graphprotocol/substreams-data-service/internal/session"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
-	authv1connect "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/auth/v1/authv1connect"
-	sessionv1connect "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/session/v1/sessionv1connect"
-	usagev1connect "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/usage/v1/usagev1connect"
-	providerauth "github.com/graphprotocol/substreams-data-service/provider/auth"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
-	providersession "github.com/graphprotocol/substreams-data-service/provider/session"
-	providerusage "github.com/graphprotocol/substreams-data-service/provider/usage"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 	"github.com/streamingfast/dgrpc/server"
 	"github.com/streamingfast/dgrpc/server/connectrpc"
@@ -28,6 +21,15 @@ import (
 
 var _ providerv1connect.PaymentGatewayServiceHandler = (*Gateway)(nil)
 
+// Gateway is the Payment Gateway server that handles payment session management
+// and RAV exchange for consumer sidecars.
+//
+// This is the PUBLIC-facing gateway that should be exposed to the internet for
+// consumers to connect to. It handles the payment protocol between consumers
+// and providers.
+//
+// Note: This gateway does NOT include the plugin services (auth, session, usage)
+// which are handled by the separate PluginGateway for internal firehose-core use.
 type Gateway struct {
 	*shutter.Shutter
 
@@ -56,11 +58,6 @@ type Gateway struct {
 
 	authCache *haxmap.Map[string, authCacheEntry]
 
-	// Plugin services (serve firehose-core sds:// plugins via Connect)
-	authService    *providerauth.AuthService
-	usageService   *providerusage.UsageService
-	sessionService *providersession.SessionService
-
 	// Global repository for session/usage state (shared across all components)
 	repo repository.GlobalRepository
 }
@@ -75,9 +72,9 @@ type Config struct {
 	PricingConfig   *sidecar.PricingConfig
 	TransportConfig sidecar.ServerTransportConfig
 
-	// QuotaConfig configures per-payer worker quota limits for the session service.
-	// If nil, DefaultQuotaConfig() is used.
-	QuotaConfig *providersession.QuotaConfig
+	// Repository provides session/usage state storage.
+	// If nil, an in-memory repository is created.
+	Repository repository.GlobalRepository
 }
 
 type authCacheEntry struct {
@@ -101,23 +98,12 @@ func New(config *Config, logger *zap.Logger) *Gateway {
 		pricingConfig = sidecar.DefaultPricingConfig()
 	}
 
-	// Build the global repository and plugin services.
-	repo := repository.NewInMemoryRepository()
-
-	// The auth service needs to call IsAuthorized on the collector; reuse
-	// the collectorQuerier from the existing gateway if available.
-	var authCollectorQuerier providerauth.CollectorAuthorizer
-	if collectorQuerier != nil {
-		authCollectorQuerier = collectorQuerier
+	// Use provided repository or create an in-memory one as fallback
+	repo := config.Repository
+	if repo == nil {
+		logger.Info("no repository provided, using in-memory repository")
+		repo = repository.NewInMemoryRepository()
 	}
-
-	authSvc := providerauth.NewAuthService(
-		config.ServiceProvider,
-		config.Domain,
-		authCollectorQuerier,
-	)
-	usageSvc := providerusage.NewUsageService(repo)
-	sessionSvc := providersession.NewSessionService(repo, config.QuotaConfig)
 
 	return &Gateway{
 		Shutter:          shutter.New(),
@@ -133,9 +119,6 @@ func New(config *Config, logger *zap.Logger) *Gateway {
 		transportConfig:  config.TransportConfig,
 		authCache:        haxmap.New[string, authCacheEntry](),
 		repo:             repo,
-		authService:      authSvc,
-		usageService:     usageSvc,
-		sessionService:   sessionSvc,
 	}
 }
 
@@ -148,11 +131,6 @@ func toRepoPricingConfig(pc *sidecar.PricingConfig) repository.PricingConfig {
 		PricePerBlock: pc.PricePerBlock,
 		PricePerByte:  pc.PricePerByte,
 	}
-}
-
-// generateSessionID creates a unique session ID.
-func generateSessionID() string {
-	return session.GenerateID()
 }
 
 // GetEscrowBalance queries the on-chain escrow balance for a payer
@@ -168,20 +146,10 @@ func (s *Gateway) SessionCount() int {
 }
 
 func (s *Gateway) Run() {
-	// Connect/HTTP server for SDS services
+	// Connect/HTTP server for Payment Gateway service
 	handlerGetters := []connectrpc.HandlerGetter{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return providerv1connect.NewPaymentGatewayServiceHandler(s, opts...)
-		},
-		// Plugin services for sds:// firehose-core plugins
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return authv1connect.NewAuthServiceHandler(s.authService, opts...)
-		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return usagev1connect.NewUsageServiceHandler(s.usageService, opts...)
-		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return sessionv1connect.NewSessionServiceHandler(s.sessionService, opts...)
 		},
 	}
 
@@ -198,9 +166,7 @@ func (s *Gateway) Run() {
 		server.WithHealthCheck(server.HealthCheckOverHTTP, s.healthCheck),
 		server.WithConnectPermissiveCORS(),
 		server.WithConnectReflection(providerv1connect.PaymentGatewayServiceName),
-		server.WithConnectReflection(authv1connect.AuthServiceName),
-		server.WithConnectReflection(usagev1connect.UsageServiceName),
-		server.WithConnectReflection(sessionv1connect.SessionServiceName),
+		server.WithConnectInterceptor(newTrustedHeadersInterceptor(s.logger)),
 	)
 
 	s.server.OnTerminated(func(err error) {

@@ -1,0 +1,43 @@
+services:
+  postgres-sds:
+    container_name: postgres-sds
+    image: postgres:18-alpine
+    ports:
+      - "5432:5432"
+    command: ["postgres", "-cshared_preload_libraries=pg_stat_statements"]
+    environment:
+      POSTGRES_USER: dev-node
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: dev-node
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
+      POSTGRES_HOST_AUTH_METHOD: md5
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5432"]
+      interval: 30s
+      timeout: 10s
+      retries: 15
+  pgweb-sds:
+    container_name: pgweb-sds
+    image: sosedoff/pgweb:0.11.12
+    restart: on-failure
+    ports:
+      - "8081:8081"
+    command: ["pgweb", "--bind=0.0.0.0", "--listen=8081", "--binary-codec=hex"]
+    links:
+      - postgres-sds:postgres
+    environment:
+      - DATABASE_URL=postgres://dev-node:changeme@postgres-sds:5432/dev-node?sslmode=disable
+    depends_on:
+      - postgres-sds
+  redis-sds:
+    container_name: redis-sds
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

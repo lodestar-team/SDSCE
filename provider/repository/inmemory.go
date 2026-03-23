@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/alphadose/haxmap"
+	"github.com/streamingfast/eth-go"
 )
 
 // newStringMap creates a new haxmap keyed by string.
@@ -76,20 +77,11 @@ func (r *InMemoryRepository) SessionUpdate(_ context.Context, session *Session) 
 	return nil
 }
 
-// SessionDelete removes a session by ID.
-func (r *InMemoryRepository) SessionDelete(_ context.Context, sessionID string) error {
-	if _, ok := r.sessions.Get(sessionID); !ok {
-		return fmt.Errorf("session %q not found", sessionID)
-	}
-	r.sessions.Del(sessionID)
-	return nil
-}
-
 // SessionList returns all sessions that match the given filter.
 func (r *InMemoryRepository) SessionList(_ context.Context, filter SessionFilter) ([]*Session, error) {
 	var result []*Session
 	r.sessions.ForEach(func(_ string, s *Session) bool {
-		if filter.PayerAddress != nil && s.PayerAddress != *filter.PayerAddress {
+		if filter.Payer != nil && s.Payer.Pretty() != filter.Payer.Pretty() {
 			return true
 		}
 		if filter.Status != nil && s.Status != *filter.Status {
@@ -102,11 +94,6 @@ func (r *InMemoryRepository) SessionList(_ context.Context, filter SessionFilter
 		return true
 	})
 	return result, nil
-}
-
-// SessionGetByPayer returns all sessions for the given payer address.
-func (r *InMemoryRepository) SessionGetByPayer(ctx context.Context, payer string) ([]*Session, error) {
-	return r.SessionList(ctx, SessionFilter{PayerAddress: &payer})
 }
 
 // SessionCount returns the total number of sessions.
@@ -148,61 +135,40 @@ func (r *InMemoryRepository) WorkerDelete(_ context.Context, workerKey string) e
 	return nil
 }
 
-// WorkerListBySession returns all workers associated with a session.
-func (r *InMemoryRepository) WorkerListBySession(_ context.Context, sessionID string) ([]*Worker, error) {
-	var result []*Worker
-	r.workers.ForEach(func(_ string, w *Worker) bool {
-		if w.SessionID == sessionID {
-			result = append(result, w)
-		}
-		return true
-	})
-	return result, nil
-}
-
-// WorkerCountByPayer returns the number of active workers for a given payer address.
-func (r *InMemoryRepository) WorkerCountByPayer(_ context.Context, payer string) (int, error) {
-	count := 0
-	r.workers.ForEach(func(_ string, w *Worker) bool {
-		if w.PayerAddress == payer {
-			count++
-		}
-		return true
-	})
-	return count, nil
-}
-
 // --- Quota management ---
 
 // QuotaGet returns the current quota usage for a payer. Returns a zero-value
 // QuotaUsage (not an error) when no entry exists yet.
-func (r *InMemoryRepository) QuotaGet(_ context.Context, payer string) (*QuotaUsage, error) {
-	q, ok := r.quotas.Get(payer)
+func (r *InMemoryRepository) QuotaGet(_ context.Context, payer eth.Address) (*QuotaUsage, error) {
+	payerKey := payer.Pretty()
+	q, ok := r.quotas.Get(payerKey)
 	if !ok {
 		return &QuotaUsage{
-			PayerAddress: payer,
-			LastUpdated:  time.Now(),
+			Payer:       payer,
+			LastUpdated: time.Now(),
 		}, nil
 	}
 	return q, nil
 }
 
 // QuotaIncrement atomically increments the quota counters for a payer.
-func (r *InMemoryRepository) QuotaIncrement(_ context.Context, payer string, sessions int, workers int) error {
-	q, _ := r.quotas.GetOrCompute(payer, func() *QuotaUsage {
-		return &QuotaUsage{PayerAddress: payer}
+func (r *InMemoryRepository) QuotaIncrement(_ context.Context, payer eth.Address, sessions int, workers int) error {
+	payerKey := payer.Pretty()
+	q, _ := r.quotas.GetOrCompute(payerKey, func() *QuotaUsage {
+		return &QuotaUsage{Payer: payer}
 	})
 	q.ActiveSessions += sessions
 	q.ActiveWorkers += workers
 	q.LastUpdated = time.Now()
-	r.quotas.Set(payer, q)
+	r.quotas.Set(payerKey, q)
 	return nil
 }
 
 // QuotaDecrement atomically decrements the quota counters for a payer.
 // Counters are clamped to zero to prevent underflow.
-func (r *InMemoryRepository) QuotaDecrement(_ context.Context, payer string, sessions int, workers int) error {
-	q, ok := r.quotas.Get(payer)
+func (r *InMemoryRepository) QuotaDecrement(_ context.Context, payer eth.Address, sessions int, workers int) error {
+	payerKey := payer.Pretty()
+	q, ok := r.quotas.Get(payerKey)
 	if !ok {
 		return nil
 	}
@@ -215,7 +181,7 @@ func (r *InMemoryRepository) QuotaDecrement(_ context.Context, payer string, ses
 		q.ActiveWorkers = 0
 	}
 	q.LastUpdated = time.Now()
-	r.quotas.Set(payer, q)
+	r.quotas.Set(payerKey, q)
 	return nil
 }
 
@@ -235,25 +201,6 @@ func (r *InMemoryRepository) UsageAdd(_ context.Context, sessionID string, usage
 	events = append(events, usage)
 	r.usage.Set(sessionID, events)
 	return nil
-}
-
-// UsageGetTotal returns a summary of all usage events for a session.
-func (r *InMemoryRepository) UsageGetTotal(_ context.Context, sessionID string) (*UsageSummary, error) {
-	r.usageMu.Lock()
-	defer r.usageMu.Unlock()
-
-	events, ok := r.usage.Get(sessionID)
-	if !ok {
-		return &UsageSummary{}, nil
-	}
-
-	summary := &UsageSummary{}
-	for _, e := range events {
-		summary.TotalBlocks += e.Blocks
-		summary.TotalBytes += e.Bytes
-		summary.TotalRequests += e.Requests
-	}
-	return summary, nil
 }
 
 // --- Health/lifecycle ---

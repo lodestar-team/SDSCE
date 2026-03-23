@@ -10,12 +10,13 @@ start:
     advertise-block-id-encoding: "hex"
     advertise-chain-name: "acme-dummy-blockchain"
 
-    # SDS Provider Gateway plugin configuration
-    # The provider gateway runs on :9001 (Connect) and serves all SDS services
+    # SDS Plugin Gateway configuration (PRIVATE internal services)
+    # The plugin gateway runs on :9003 and serves Auth/Session/Usage for firehose-core
     # Dev API key allows bypassing RAV authentication for local testing
-    common-auth-plugin: "sds://localhost:9001?plaintext=true&dev-api-key=dev-test-key"
-    common-session-plugin: "sds://localhost:9001?plaintext=true"
-    common-metering-plugin: "sds://localhost:9001?plaintext=true&network=sds-dummy-blockchain"
+    # Note: Payment Gateway (:9001) is separate and for consumer sidecars only
+    common-auth-plugin: "sds://localhost:9003?plaintext=true"
+    common-session-plugin: "sds://localhost:9003?plaintext=true"
+    common-metering-plugin: "sds://localhost:9003?plaintext=true&network=sds-dummy-blockchain"
 
     # Install dummy-blockchain with: go install github.com/streamingfast/dummy-blockchain@latest
     reader-node-path: "dummy-blockchain"
@@ -25,7 +26,7 @@ start:
       --tracer=firehose
       --store-dir="{node-data-dir}"
       --block-rate=15
-      --genesis-block-burst=2
+      --genesis-block-burst=125
       --genesis-height=0
       --server-addr=:9777
 

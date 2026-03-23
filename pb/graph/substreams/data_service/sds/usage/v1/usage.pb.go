@@ -134,8 +134,8 @@ type Event struct {
 	Endpoint string `protobuf:"bytes,4,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
 	// Network identifier, e.g., "eth-mainnet"
 	Network string `protobuf:"bytes,5,opt,name=network,proto3" json:"network,omitempty"`
-	// Arbitrary metadata
-	Meta string `protobuf:"bytes,7,opt,name=meta,proto3" json:"meta,omitempty"`
+	// SDS session ID from auth service (for linking usage to payment sessions)
+	SdsSessionId string `protobuf:"bytes,6,opt,name=sds_session_id,json=sdsSessionId,proto3" json:"sds_session_id,omitempty"`
 	// Provider Ethereum address
 	Provider string `protobuf:"bytes,8,opt,name=provider,proto3" json:"provider,omitempty"`
 	// Output module hash (for Substreams)
@@ -213,9 +213,9 @@ func (x *Event) GetNetwork() string {
 	return ""
 }
 
-func (x *Event) GetMeta() string {
+func (x *Event) GetSdsSessionId() string {
 	if x != nil {
-		return x.Meta
+		return x.SdsSessionId
 	}
 	return ""
 }
@@ -310,7 +310,7 @@ const file_graph_substreams_data_service_sds_usage_v1_usage_proto_rawDesc = "" +
 	"\x06events\x18\x01 \x03(\v21.graph.substreams.data_service.sds.usage.v1.EventR\x06events\"W\n" +
 	"\x0eReportResponse\x12\x18\n" +
 	"\arevoked\x18\x01 \x01(\bR\arevoked\x12+\n" +
-	"\x11revocation_reason\x18\x02 \x01(\tR\x10revocationReason\"\x89\x03\n" +
+	"\x11revocation_reason\x18\x02 \x01(\tR\x10revocationReason\"\xa7\x03\n" +
 	"\x05Event\x12'\n" +
 	"\x0forganization_id\x18\x01 \x01(\tR\x0eorganizationId\x12\x1c\n" +
 	"\n" +
@@ -318,12 +318,12 @@ const file_graph_substreams_data_service_sds_usage_v1_usage_proto_rawDesc = "" +
 	"\n" +
 	"ip_address\x18\x03 \x01(\tR\tipAddress\x12\x1a\n" +
 	"\bendpoint\x18\x04 \x01(\tR\bendpoint\x12\x18\n" +
-	"\anetwork\x18\x05 \x01(\tR\anetwork\x12\x12\n" +
-	"\x04meta\x18\a \x01(\tR\x04meta\x12\x1a\n" +
+	"\anetwork\x18\x05 \x01(\tR\anetwork\x12$\n" +
+	"\x0esds_session_id\x18\x06 \x01(\tR\fsdsSessionId\x12\x1a\n" +
 	"\bprovider\x18\b \x01(\tR\bprovider\x12,\n" +
 	"\x12output_module_hash\x18\t \x01(\tR\x10outputModuleHash\x12L\n" +
 	"\ametrics\x18\x14 \x03(\v22.graph.substreams.data_service.sds.usage.v1.MetricR\ametrics\x128\n" +
-	"\ttimestamp\x18\x1e \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\"2\n" +
+	"\ttimestamp\x18\x1e \x01(\v2\x1a.google.protobuf.TimestampR\ttimestampJ\x04\b\a\x10\bR\x04meta\"2\n" +
 	"\x06Metric\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value2\x8f\x01\n" +

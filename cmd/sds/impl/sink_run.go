@@ -1,9 +1,10 @@
-package main
+package impl
 
 import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"math/big"
 	"net/http"
 	"os"
 	"time"
@@ -19,6 +20,7 @@ import (
 	. "github.com/streamingfast/cli"
 	"github.com/streamingfast/cli/sflags"
 	"github.com/streamingfast/eth-go"
+	"github.com/streamingfast/logging"
 	"github.com/streamingfast/substreams/client"
 	pbsubstreamsrpc "github.com/streamingfast/substreams/pb/sf/substreams/rpc/v2"
 	"github.com/streamingfast/substreams/sink"
@@ -26,9 +28,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-var sinkLog, sinkTracer = zlog.Named("sink"), tracer
+var sinkLog, sinkTracer = logging.PackageLogger("sink/run", "github.com/graphprotocol/substreams-data-service/cmd/sds@sink/run")
 
-var sinkRunCmd = Command(
+var SinkRunCommand = Command(
 	runSinkRun,
 	"run [<manifest> [<output_module>]]",
 	"Run a data service aware substreams sink",
@@ -145,8 +147,14 @@ func runSinkRun(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to encode RAV header: %w", err)
 		}
-		sinker.ExtraHeaders = append(sinker.ExtraHeaders, "x-sds-rav:"+ravHeader)
+		sinker.ExtraHeaders = append(sinker.ExtraHeaders, sds.HeaderRAV+":"+ravHeader)
 		sinkLog.Debug("added x-sds-rav header to sinker")
+	}
+
+	// Add the session ID header for session tracking
+	if wrapper.sessionID != "" {
+		sinker.ExtraHeaders = append(sinker.ExtraHeaders, sds.HeaderSessionID+":"+wrapper.sessionID)
+		sinkLog.Debug("added x-sds-session-id header to sinker", zap.String("session_id", wrapper.sessionID))
 	}
 
 	// Supervise the sinker - app will shutdown sinker on termination signal
@@ -203,8 +211,8 @@ type paymentWrapper struct {
 	logger             *zap.Logger
 
 	sessionID      string
-	usageTracker   *UsageTracker
-	priceConverter PriceConverter
+	usageTracker   *sds.UsageTracker
+	priceConverter sds.PriceConverter
 	pricingConfig  *sds.PricingConfig // Provider's pricing config received during init
 
 	// Track latest RAV value for final report
@@ -234,7 +242,7 @@ func newPaymentWrapper(
 		gatewayEndpoint = substreamsEndpoint
 	}
 
-	priceConverter := NewStaticPriceConverter(0.15) // Default: 1 GRT = $0.15
+	priceConverter := sds.NewStaticPriceConverter(0.15) // Default: 1 GRT = $0.15
 
 	return &paymentWrapper{
 		sidecarClient:      consumerv1connect.NewConsumerSidecarServiceClient(http.DefaultClient, sidecarAddr),
@@ -245,7 +253,7 @@ func newPaymentWrapper(
 		substreamsEndpoint: substreamsEndpoint,
 		reportInterval:     reportInterval,
 		logger:             logger,
-		usageTracker:       NewUsageTracker(priceConverter),
+		usageTracker:       sds.NewUsageTracker(priceConverter),
 		priceConverter:     priceConverter,
 	}
 }
@@ -439,4 +447,60 @@ func encodeRAVHeader(signedRAV *commonv1.SignedRAV) (string, error) {
 		return "", fmt.Errorf("marshal proto: %w", err)
 	}
 	return base64.StdEncoding.EncodeToString(protoBytes), nil
+}
+
+// UsageReport represents a usage report snapshot
+type UsageReport struct {
+	BlocksReceived   uint64 // All blocks received from stream
+	BlocksProcessed  uint64 // Blocks with actual output data
+	BytesTransferred uint64
+	Requests         uint64
+	CostGRT          *big.Int
+}
+
+// PrintUsageReport prints the usage report to stderr
+func PrintUsageReport(report UsageReport, ravValue sds.GRT, pricingConfig *sds.PricingConfig, priceConverter sds.PriceConverter) {
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "📊 Usage Report")
+	fmt.Fprintf(os.Stderr, " • Egress Bytes (uncompressed): %s\n", formatBytes(report.BytesTransferred))
+	fmt.Fprintf(os.Stderr, " • Processed Blocks: %d blocks\n", report.BlocksProcessed)
+	fmt.Fprintf(os.Stderr, " • Received Blocks: %d blocks\n", report.BlocksReceived)
+
+	// Calculate and show cost
+	var cost sds.GRT
+	if pricingConfig != nil {
+		cost = pricingConfig.CalculateUsageCost(report.BlocksProcessed, report.BytesTransferred)
+	} else {
+		cost = ravValue
+	}
+
+	if priceConverter != nil && !cost.IsZero() {
+		fiat := priceConverter.ToFiat(cost.BigInt())
+		fmt.Fprintf(os.Stderr, " • Cost: %s (%s%.4f)\n", cost.String(), priceConverter.Symbol(), fiat)
+	} else {
+		fmt.Fprintf(os.Stderr, " • Cost: %s\n", cost.String())
+	}
+}
+
+// formatBytes formats bytes into human-readable format
+func formatBytes(bytes uint64) string {
+	const (
+		KiB = 1024
+		MiB = KiB * 1024
+		GiB = MiB * 1024
+		TiB = GiB * 1024
+	)
+
+	switch {
+	case bytes >= TiB:
+		return fmt.Sprintf("%.2f TiB", float64(bytes)/TiB)
+	case bytes >= GiB:
+		return fmt.Sprintf("%.2f GiB", float64(bytes)/GiB)
+	case bytes >= MiB:
+		return fmt.Sprintf("%.2f MiB", float64(bytes)/MiB)
+	case bytes >= KiB:
+		return fmt.Sprintf("%.1f KiB", float64(bytes)/KiB)
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
 }

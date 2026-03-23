@@ -383,8 +383,8 @@ func callDataServiceCollect(env *TestEnv, signedRAV *horizon.SignedRAV, dataServ
 		zap.Uint64("chain_id", env.ChainID),
 		zap.Stringer("data_service", env.DataService.Address),
 		zap.Stringer("indexer", env.ServiceProvider.Address),
-		zap.String("payer", rav.Payer.Pretty()),
-		zap.String("service_provider", rav.ServiceProvider.Pretty()),
+		zap.Stringer("payer", rav.Payer),
+		zap.Stringer("service_provider", rav.ServiceProvider),
 		zap.String("value_aggregate", rav.ValueAggregate.String()))
 
 	// Query tokens collected before the call to calculate delta

@@ -33,17 +33,7 @@ Now `sds` invokes `devel/sds` directly. Use [reflex](https://github.com/cespare/
 reflex -c .reflex
 ```
 
-Both reflex configs pass `--plaintext` explicitly for the local/demo sidecar↔gateway path. Outside local/demo usage, configure TLS certificate/key files instead of relying on plaintext defaults.
-
-To keep on-chain state stable while restarting the rest of the stack, run `devenv` separately and use the stack-only reflex config:
-
-```bash
-./devel/sds devenv
-./devel/sds demo setup  # writes devel/.demo.env required by `.reflex.stack`
-reflex -c .reflex.stack
-```
-
-`.reflex.stack` now fails fast if `devel/.demo.env` is missing or does not contain the required demo variables.
+The default `.reflex` flow uses the deterministic demo signer that `sds devenv` authorizes automatically. It also passes `--plaintext` explicitly for the local/demo sidecar↔gateway path. Outside local/demo usage, configure TLS certificate/key files instead of relying on plaintext defaults.
 
 We have `devel/sds_sink` helper that can be used to sink in data service mode (invokes `sds sink ...` configured for development environment):
 
@@ -57,6 +47,13 @@ sds_sink run common@v0.1.0 map_clocks -s -1
 > If you are still having `reflex -c .reflex` running from quick start, your development environment is already running so no need to invoke `sds env`.
 
 The `sds devenv` command starts an Anvil node and deploys Graph Protocol contracts (requires Docker). It deploys the original `PaymentsEscrow`, `GraphPayments`, and `GraphTallyCollector` contracts, plus `SubstreamsDataService` and various mock contracts (GRTToken, Controller, Staking, etc.) for testing. Integration tests use the same devenv via testcontainers.
+
+After deployment, `devenv` also prepares the default local demo state:
+
+- payer escrow funded for the default service provider
+- data service provision minimum set to `0`
+- default service provider provisioned and registered
+- deterministic demo signer authorized for the default payer
 
 ```bash
 sds devenv  # Prints contract addresses and test accounts
@@ -115,6 +112,9 @@ Test accounts (10 ETH + 10,000 GRT each):
 | User1 | `0x90353af8461a969e755ef1e1dbadb9415ae5cb6e` | `0xdd02564c0e9836fb570322be23f8355761d4d04ebccdc53f4f53325227680a9f` |
 | User2 | `0x9585430b90248cd82cb71d5098ac3f747f89793b` | `0xbc3def46fab7929038dfb0df7e0168cba60d3384aceabf85e23e5e0ff90c8fe3` |
 | User3 | `0x37305c711d52007a2bcfb33b37015f1d0e9ab339` | `0x7acd0f26d5be968f73ca8f2198fa52cc595650f8d5819ee9122fe90329847c48` |
+| Demo Signer | `0x82b6f0bbbab50f0ddc249e5ff60c6dc64d55340e` | `0x0bba7d355d1750fce9756af7887e826e8071a56d9d8e327f546b1f34c78f9281` |
+
+`sds demo setup` no longer mutates the chain. It verifies the default demo-ready state from `sds devenv` and writes `devel/.demo.env` for any manual env-driven workflows, but it is no longer required for the default `.reflex` flow.
 
 ### Running Tests
 

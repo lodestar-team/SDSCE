@@ -44,6 +44,7 @@ type Env struct {
 	User1           Account
 	User2           Account
 	User3           Account
+	DemoSigner      Account
 }
 
 var (
@@ -191,12 +192,14 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 
 	// Create test accounts (deterministic keys for reproducibility)
 	report("Creating test accounts...")
-	deployer := mustAccountFromHex("1aa5d8f9a42ba0b9439c7034d24e93619f67af22a9ab15be9e4ce7eadddb5143")
-	serviceProvider := mustAccountFromHex("41942233cf1d78b6e3262f1806f8da36aafa24a941031aad8e056a1d34640f8d")
-	payer := mustAccountFromHex("e4c2694501255921b6588519cfd36d4e86ddc4ce19ab1bc91d9c58057c040304")
-	user1 := mustAccountFromHex("dd02564c0e9836fb570322be23f8355761d4d04ebccdc53f4f53325227680a9f")
-	user2 := mustAccountFromHex("bc3def46fab7929038dfb0df7e0168cba60d3384aceabf85e23e5e0ff90c8fe3")
-	user3 := mustAccountFromHex("7acd0f26d5be968f73ca8f2198fa52cc595650f8d5819ee9122fe90329847c48")
+	accountsConfig := DefaultAccounts()
+	deployer := accountsConfig.Deployer
+	serviceProvider := accountsConfig.ServiceProvider
+	payer := accountsConfig.Payer
+	user1 := accountsConfig.User1
+	user2 := accountsConfig.User2
+	user3 := accountsConfig.User3
+	demoSigner := accountsConfig.DemoSigner
 
 	// Fund all test accounts from dev account (10 ETH each)
 	report("Funding test accounts...")
@@ -210,6 +213,7 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 		"user1":            user1.Address,
 		"user2":            user2.Address,
 		"user3":            user3.Address,
+		"demo_signer":      demoSigner.Address,
 	} {
 		if err := fundFromDevAccount(ctx, rpcClient, devAccount, addr, fundAmount); err != nil {
 			zlog.Error("failed to fund account", zap.String("name", name), zap.Error(err))
@@ -249,6 +253,7 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 		User1:           user1,
 		User2:           user2,
 		User3:           user3,
+		DemoSigner:      demoSigner,
 	}
 
 	// Mint GRT to all test accounts
@@ -260,11 +265,21 @@ func start(ctx context.Context, opts ...Option) (*Env, error) {
 		"user1":            user1.Address,
 		"user2":            user2.Address,
 		"user3":            user3.Address,
+		"demo_signer":      demoSigner.Address,
 	} {
 		if err := env.MintGRT(addr, config.EscrowAmount); err != nil {
 			env.cleanup()
 			return nil, fmt.Errorf("minting GRT to %s: %w", name, err)
 		}
+	}
+
+	report("Preparing default demo-ready chain state...")
+	if err := env.PrepareDefaultDemoState(&TestSetupConfig{
+		EscrowAmount:    new(big.Int).Set(config.EscrowAmount),
+		ProvisionAmount: new(big.Int).Set(config.ProvisionAmount),
+	}); err != nil {
+		env.cleanup()
+		return nil, fmt.Errorf("preparing default demo-ready state: %w", err)
 	}
 
 	report("Development environment ready")
@@ -529,6 +544,12 @@ func (env *Env) PrintInfo(w io.Writer) {
 	fmt.Fprintf(w, "  User1:            %s (0x%s)\n", env.User1.Address.Pretty(), env.User1.PrivateKey.String())
 	fmt.Fprintf(w, "  User2:            %s (0x%s)\n", env.User2.Address.Pretty(), env.User2.PrivateKey.String())
 	fmt.Fprintf(w, "  User3:            %s (0x%s)\n", env.User3.Address.Pretty(), env.User3.PrivateKey.String())
+	fmt.Fprintf(w, "  Demo Signer:      %s (0x%s)\n", env.DemoSigner.Address.Pretty(), env.DemoSigner.PrivateKey.String())
+	fmt.Fprintf(w, "\n")
+	fmt.Fprintf(w, "DEFAULT DEMO STATE:\n")
+	fmt.Fprintf(w, "  Payer -> Provider escrow funded and ready\n")
+	fmt.Fprintf(w, "  Service provider provisioned and registered\n")
+	fmt.Fprintf(w, "  Demo signer authorized for payer\n")
 	fmt.Fprintf(w, "\n")
 	fmt.Fprintf(w, "============================================================\n")
 }

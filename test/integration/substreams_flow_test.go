@@ -518,7 +518,7 @@ func TestSubstreamsNetworkPaymentsFlow(t *testing.T) {
 
 	// Setup escrow, provision, register, and authorize signer
 	config := DefaultTestSetupConfig()
-	setup := SetupTestWithSigner(t, env, config)
+	setup := SetupTestWithSigner(t, env, nil)
 	signerKey := setup.SignerKey
 	signerAddr := setup.SignerAddr
 
@@ -707,7 +707,9 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 		EscrowAmount:    smallEscrow,
 		ProvisionAmount: DefaultTestSetupConfig().ProvisionAmount,
 	}
-	setup := SetupTestWithSigner(t, env, config)
+	payer := env.User1
+	serviceProvider := env.User2
+	setup := SetupCustomTestWithSigner(t, env, payer, serviceProvider, config)
 	signerKey := setup.SignerKey
 	signerAddr := setup.SignerAddr
 
@@ -719,8 +721,8 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 		"ConsumerSidecar",
 		domain,
 		signerKey,
-		env.Payer.Address,
-		env.ServiceProvider.Address,
+		payer.Address,
+		serviceProvider.Address,
 		env.DataService.Address,
 		collectionID,
 	)
@@ -732,8 +734,8 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 		collectionID,
 		smallEscrow, // Small escrow
 		env,
-		env.Payer.Address,
-		env.ServiceProvider.PrivateKey,
+		payer.Address,
+		serviceProvider.PrivateKey,
 	)
 
 	substreamsClient := NewSubstreamsClient("SubstreamsClient", consumerSidecar)
@@ -742,9 +744,9 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 		"BlockProvider",
 		providerGateway,
 		env.DataService.Address,
-		env.ServiceProvider.PrivateKey,
+		serviceProvider.PrivateKey,
 		env.Collector.Address,
-		env.ServiceProvider.Address,
+		serviceProvider.Address,
 	)
 
 	// Start session
@@ -803,7 +805,7 @@ func TestSubstreamsFlowMultipleRAVRequests(t *testing.T) {
 
 	// Setup escrow, provision, register, and authorize signer
 	config := DefaultTestSetupConfig()
-	setup := SetupTestWithSigner(t, env, config)
+	setup := SetupTestWithSigner(t, env, nil)
 	signerKey := setup.SignerKey
 	signerAddr := setup.SignerAddr
 

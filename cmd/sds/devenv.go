@@ -31,6 +31,7 @@ var devenvCmd = Command(
 		- GraphPayments: Original payment distribution contract
 		- GraphTallyCollector: Original RAV verification contract
 		- SubstreamsDataService: Data service contract
+		- Default demo-ready chain state (escrow, provision, registration, signer auth)
 
 		Press Ctrl+C to shut down the environment.
 	`),

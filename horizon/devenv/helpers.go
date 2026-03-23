@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"reflect"
 	"strings"
 	"time"
 
@@ -128,31 +129,46 @@ func (env *Env) MintGRT(to eth.Address, amount *big.Int) error {
 	return SendTransaction(env.ctx, env.rpcClient, env.Deployer.PrivateKey, env.ChainID, &env.GRTToken.Address, big.NewInt(0), data)
 }
 
-// ApproveGRT approves the escrow contract to spend GRT (from Payer account)
-func (env *Env) ApproveGRT(amount *big.Int) error {
+// ApproveGRTFrom approves the escrow contract to spend GRT from the provided payer account.
+func (env *Env) ApproveGRTFrom(payer Account, amount *big.Int) error {
 	data, err := env.GRTToken.CallData("approve", env.Escrow.Address, amount)
 	if err != nil {
 		return err
 	}
-	return SendTransaction(env.ctx, env.rpcClient, env.Payer.PrivateKey, env.ChainID, &env.GRTToken.Address, big.NewInt(0), data)
+	return SendTransaction(env.ctx, env.rpcClient, payer.PrivateKey, env.ChainID, &env.GRTToken.Address, big.NewInt(0), data)
+}
+
+// ApproveGRT approves the escrow contract to spend GRT (from Payer account)
+func (env *Env) ApproveGRT(amount *big.Int) error {
+	return env.ApproveGRTFrom(env.Payer, amount)
+}
+
+// DepositEscrowFor deposits GRT into escrow from a payer to the collector for a service provider.
+func (env *Env) DepositEscrowFor(payer Account, serviceProvider eth.Address, amount *big.Int) error {
+	data, err := env.Escrow.CallData("deposit", env.Collector.Address, serviceProvider, amount)
+	if err != nil {
+		return err
+	}
+	return SendTransaction(env.ctx, env.rpcClient, payer.PrivateKey, env.ChainID, &env.Escrow.Address, big.NewInt(0), data)
 }
 
 // DepositEscrow deposits GRT into escrow (from Payer to Collector for ServiceProvider)
 func (env *Env) DepositEscrow(amount *big.Int) error {
-	data, err := env.Escrow.CallData("deposit", env.Collector.Address, env.ServiceProvider.Address, amount)
-	if err != nil {
-		return err
-	}
-	return SendTransaction(env.ctx, env.rpcClient, env.Payer.PrivateKey, env.ChainID, &env.Escrow.Address, big.NewInt(0), data)
+	return env.DepositEscrowFor(env.Payer, env.ServiceProvider.Address, amount)
 }
 
-// SetProvision sets provision tokens for service provider
-func (env *Env) SetProvision(tokens *big.Int, maxVerifierCut uint32, thawingPeriod uint64) error {
-	data, err := env.Staking.CallData("setProvision", env.ServiceProvider.Address, env.DataService.Address, tokens, maxVerifierCut, thawingPeriod)
+// SetProvisionFor sets provision tokens for the selected service provider.
+func (env *Env) SetProvisionFor(serviceProvider eth.Address, tokens *big.Int, maxVerifierCut uint32, thawingPeriod uint64) error {
+	data, err := env.Staking.CallData("setProvision", serviceProvider, env.DataService.Address, tokens, maxVerifierCut, thawingPeriod)
 	if err != nil {
 		return err
 	}
 	return SendTransaction(env.ctx, env.rpcClient, env.Deployer.PrivateKey, env.ChainID, &env.Staking.Address, big.NewInt(0), data)
+}
+
+// SetProvision sets provision tokens for the default service provider.
+func (env *Env) SetProvision(tokens *big.Int, maxVerifierCut uint32, thawingPeriod uint64) error {
+	return env.SetProvisionFor(env.ServiceProvider.Address, tokens, maxVerifierCut, thawingPeriod)
 }
 
 // SetProvisionTokensRange sets the minimum provision tokens for the data service
@@ -164,27 +180,32 @@ func (env *Env) SetProvisionTokensRange(minimumProvisionTokens *big.Int) error {
 	return SendTransaction(env.ctx, env.rpcClient, env.Deployer.PrivateKey, env.ChainID, &env.DataService.Address, big.NewInt(0), data)
 }
 
-// RegisterServiceProvider registers the service provider with the data service
-func (env *Env) RegisterServiceProvider() error {
+// RegisterServiceProviderAccount registers the service provider with the data service.
+func (env *Env) RegisterServiceProviderAccount(serviceProvider Account) error {
 	// Encode the paymentsDestination as the data parameter (abi.encode(address))
 	registerData := make([]byte, 32)
-	copy(registerData[12:], env.ServiceProvider.Address[:])
+	copy(registerData[12:], serviceProvider.Address[:])
 
-	data, err := env.DataService.CallData("register", env.ServiceProvider.Address, registerData)
+	data, err := env.DataService.CallData("register", serviceProvider.Address, registerData)
 	if err != nil {
 		return err
 	}
-	return SendTransaction(env.ctx, env.rpcClient, env.ServiceProvider.PrivateKey, env.ChainID, &env.DataService.Address, big.NewInt(0), data)
+	return SendTransaction(env.ctx, env.rpcClient, serviceProvider.PrivateKey, env.ChainID, &env.DataService.Address, big.NewInt(0), data)
 }
 
-// AuthorizeSigner authorizes a signer key to sign RAVs for the payer
-func (env *Env) AuthorizeSigner(signerKey *eth.PrivateKey) error {
+// RegisterServiceProvider registers the default service provider with the data service.
+func (env *Env) RegisterServiceProvider() error {
+	return env.RegisterServiceProviderAccount(env.ServiceProvider)
+}
+
+// AuthorizeSignerFor authorizes a signer key to sign RAVs for the provided payer.
+func (env *Env) AuthorizeSignerFor(payer Account, signerKey *eth.PrivateKey) error {
 	signerAddr := signerKey.PublicKey().Address()
 
 	// Generate proof with deadline 1 hour in the future
 	proofDeadline := uint64(time.Now().Add(1 * time.Hour).Unix())
 
-	proof, err := GenerateSignerProof(env.ChainID, env.Collector.Address, proofDeadline, env.Payer.Address, signerKey)
+	proof, err := GenerateSignerProof(env.ChainID, env.Collector.Address, proofDeadline, payer.Address, signerKey)
 	if err != nil {
 		return fmt.Errorf("generating signer proof: %w", err)
 	}
@@ -195,7 +216,12 @@ func (env *Env) AuthorizeSigner(signerKey *eth.PrivateKey) error {
 		return fmt.Errorf("encoding authorizeSigner call: %w", err)
 	}
 
-	return SendTransaction(env.ctx, env.rpcClient, env.Payer.PrivateKey, env.ChainID, &env.Collector.Address, big.NewInt(0), data)
+	return SendTransaction(env.ctx, env.rpcClient, payer.PrivateKey, env.ChainID, &env.Collector.Address, big.NewInt(0), data)
+}
+
+// AuthorizeSigner authorizes a signer key to sign RAVs for the default payer.
+func (env *Env) AuthorizeSigner(signerKey *eth.PrivateKey) error {
+	return env.AuthorizeSignerFor(env.Payer, signerKey)
 }
 
 // ThawSigner initiates thawing for a signer
@@ -274,43 +300,83 @@ type TestSetupResult struct {
 	SignerAddr eth.Address
 }
 
-// SetupTestWithSigner performs common test setup: fund escrow, set provision, register, and authorize signer
-func (env *Env) SetupTestWithSigner(config *TestSetupConfig) (*TestSetupResult, error) {
+func cloneTestSetupConfig(config *TestSetupConfig) *TestSetupConfig {
 	if config == nil {
 		config = DefaultTestSetupConfig()
 	}
 
-	// Mint GRT to payer
-	if err := env.MintGRT(env.Payer.Address, config.EscrowAmount); err != nil {
-		return nil, fmt.Errorf("minting GRT: %w", err)
+	return &TestSetupConfig{
+		EscrowAmount:    new(big.Int).Set(config.EscrowAmount),
+		ProvisionAmount: new(big.Int).Set(config.ProvisionAmount),
+	}
+}
+
+func sameTestSetupConfig(a, b *TestSetupConfig) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
 	}
 
-	// Approve escrow to spend GRT
-	if err := env.ApproveGRT(config.EscrowAmount); err != nil {
-		return nil, fmt.Errorf("approving GRT: %w", err)
+	return reflect.DeepEqual(a.EscrowAmount, b.EscrowAmount) && reflect.DeepEqual(a.ProvisionAmount, b.ProvisionAmount)
+}
+
+// SetupPaymentParticipants prepares escrow/provision/registration for the supplied payer and service provider.
+func (env *Env) SetupPaymentParticipants(payer, serviceProvider Account, config *TestSetupConfig) error {
+	config = cloneTestSetupConfig(config)
+
+	if err := env.MintGRT(payer.Address, config.EscrowAmount); err != nil {
+		return fmt.Errorf("minting GRT: %w", err)
 	}
 
-	// Deposit to escrow
-	if err := env.DepositEscrow(config.EscrowAmount); err != nil {
-		return nil, fmt.Errorf("depositing to escrow: %w", err)
+	if err := env.ApproveGRTFrom(payer, config.EscrowAmount); err != nil {
+		return fmt.Errorf("approving GRT: %w", err)
 	}
 
-	// Set provision tokens range (min = 0 for testing)
+	if err := env.DepositEscrowFor(payer, serviceProvider.Address, config.EscrowAmount); err != nil {
+		return fmt.Errorf("depositing to escrow: %w", err)
+	}
+
 	if err := env.SetProvisionTokensRange(big.NewInt(0)); err != nil {
-		return nil, fmt.Errorf("setting provision tokens range: %w", err)
+		return fmt.Errorf("setting provision tokens range: %w", err)
 	}
 
-	// Set provision for service provider
-	if err := env.SetProvision(config.ProvisionAmount, 0, 0); err != nil {
-		return nil, fmt.Errorf("setting provision: %w", err)
+	if err := env.SetProvisionFor(serviceProvider.Address, config.ProvisionAmount, 0, 0); err != nil {
+		return fmt.Errorf("setting provision: %w", err)
 	}
 
-	// Register service provider with data service
-	if err := env.RegisterServiceProvider(); err != nil {
-		return nil, fmt.Errorf("registering with data service: %w", err)
+	if err := env.RegisterServiceProviderAccount(serviceProvider); err != nil {
+		return fmt.Errorf("registering with data service: %w", err)
 	}
 
-	// Create and authorize signer
+	return nil
+}
+
+// SetupCustomPaymentParticipantsWithSigner prepares a custom payer/provider pair and authorizes a fresh signer for it.
+func (env *Env) SetupCustomPaymentParticipantsWithSigner(payer, serviceProvider Account, config *TestSetupConfig) (*TestSetupResult, error) {
+	if err := env.SetupPaymentParticipants(payer, serviceProvider, config); err != nil {
+		return nil, err
+	}
+
+	signerKey, err := eth.NewRandomPrivateKey()
+	if err != nil {
+		return nil, fmt.Errorf("creating signer key: %w", err)
+	}
+
+	if err := env.AuthorizeSignerFor(payer, signerKey); err != nil {
+		return nil, fmt.Errorf("authorizing signer: %w", err)
+	}
+
+	return &TestSetupResult{
+		SignerKey:  signerKey,
+		SignerAddr: signerKey.PublicKey().Address(),
+	}, nil
+}
+
+// SetupTestWithSigner authorizes a fresh signer against the default demo-ready payer state.
+func (env *Env) SetupTestWithSigner(config *TestSetupConfig) (*TestSetupResult, error) {
+	if config != nil && !sameTestSetupConfig(config, DefaultTestSetupConfig()) {
+		return nil, fmt.Errorf("custom test setup must use SetupCustomPaymentParticipantsWithSigner")
+	}
+
 	signerKey, err := eth.NewRandomPrivateKey()
 	if err != nil {
 		return nil, fmt.Errorf("creating signer key: %w", err)
@@ -351,4 +417,126 @@ func (env *Env) GetEscrowBalance(payer, receiver eth.Address) (*big.Int, error) 
 	}
 
 	return new(big.Int).SetBytes(result), nil
+}
+
+// GetProvisionTokensRange returns the current provision token range configured on the data service.
+func (env *Env) GetProvisionTokensRange() (*big.Int, *big.Int, error) {
+	data, err := env.DataService.CallData("getProvisionTokensRange")
+	if err != nil {
+		return nil, nil, fmt.Errorf("encoding getProvisionTokensRange call: %w", err)
+	}
+
+	result, err := env.CallContract(env.DataService.Address, data)
+	if err != nil {
+		return nil, nil, fmt.Errorf("calling getProvisionTokensRange: %w", err)
+	}
+	if len(result) != 64 {
+		return nil, nil, fmt.Errorf("unexpected getProvisionTokensRange result length: %d", len(result))
+	}
+
+	return new(big.Int).SetBytes(result[:32]), new(big.Int).SetBytes(result[32:]), nil
+}
+
+// IsServiceProviderRegistered reports whether the provider is registered in the data service.
+func (env *Env) IsServiceProviderRegistered(serviceProvider eth.Address) (bool, error) {
+	data, err := env.DataService.CallData("isRegistered", serviceProvider)
+	if err != nil {
+		return false, fmt.Errorf("encoding isRegistered call: %w", err)
+	}
+
+	result, err := env.CallContract(env.DataService.Address, data)
+	if err != nil {
+		return false, fmt.Errorf("calling isRegistered: %w", err)
+	}
+	if len(result) != 32 {
+		return false, fmt.Errorf("unexpected isRegistered result length: %d", len(result))
+	}
+
+	return result[31] == 1, nil
+}
+
+// GetProviderTokensAvailable returns the provision available for a provider and data service.
+func (env *Env) GetProviderTokensAvailable(serviceProvider, dataService eth.Address) (*big.Int, error) {
+	data, err := env.Staking.CallData("getProviderTokensAvailable", serviceProvider, dataService)
+	if err != nil {
+		return nil, fmt.Errorf("encoding getProviderTokensAvailable call: %w", err)
+	}
+
+	result, err := env.CallContract(env.Staking.Address, data)
+	if err != nil {
+		return nil, fmt.Errorf("calling getProviderTokensAvailable: %w", err)
+	}
+	if len(result) != 32 {
+		return nil, fmt.Errorf("unexpected getProviderTokensAvailable result length: %d", len(result))
+	}
+
+	return new(big.Int).SetBytes(result), nil
+}
+
+// PrepareDefaultDemoState applies the default payer/provider setup and authorizes the deterministic demo signer.
+func (env *Env) PrepareDefaultDemoState(config *TestSetupConfig) error {
+	config = cloneTestSetupConfig(config)
+
+	if err := env.SetupPaymentParticipants(env.Payer, env.ServiceProvider, config); err != nil {
+		return err
+	}
+
+	if err := env.AuthorizeSigner(env.DemoSigner.PrivateKey); err != nil {
+		return fmt.Errorf("authorizing deterministic demo signer: %w", err)
+	}
+
+	if err := env.VerifyDefaultDemoState(config); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// VerifyDefaultDemoState confirms the deterministic payer/provider demo state is ready.
+func (env *Env) VerifyDefaultDemoState(config *TestSetupConfig) error {
+	config = cloneTestSetupConfig(config)
+
+	escrowBalance, err := env.GetEscrowBalance(env.Payer.Address, env.ServiceProvider.Address)
+	if err != nil {
+		return err
+	}
+	if escrowBalance.Cmp(config.EscrowAmount) < 0 {
+		return fmt.Errorf("expected escrow balance >= %s for payer %s and provider %s, got %s",
+			config.EscrowAmount.String(), env.Payer.Address.Pretty(), env.ServiceProvider.Address.Pretty(), escrowBalance.String())
+	}
+
+	minProvision, _, err := env.GetProvisionTokensRange()
+	if err != nil {
+		return err
+	}
+	if minProvision.Cmp(big.NewInt(0)) != 0 {
+		return fmt.Errorf("expected minimum provision tokens to be 0, got %s", minProvision.String())
+	}
+
+	provision, err := env.GetProviderTokensAvailable(env.ServiceProvider.Address, env.DataService.Address)
+	if err != nil {
+		return err
+	}
+	if provision.Cmp(config.ProvisionAmount) < 0 {
+		return fmt.Errorf("expected provision >= %s for provider %s, got %s",
+			config.ProvisionAmount.String(), env.ServiceProvider.Address.Pretty(), provision.String())
+	}
+
+	registered, err := env.IsServiceProviderRegistered(env.ServiceProvider.Address)
+	if err != nil {
+		return err
+	}
+	if !registered {
+		return fmt.Errorf("service provider %s is not registered in SubstreamsDataService", env.ServiceProvider.Address.Pretty())
+	}
+
+	authorized, err := env.IsAuthorized(env.Payer.Address, env.DemoSigner.Address)
+	if err != nil {
+		return err
+	}
+	if !authorized {
+		return fmt.Errorf("demo signer %s is not authorized for payer %s", env.DemoSigner.Address.Pretty(), env.Payer.Address.Pretty())
+	}
+
+	return nil
 }

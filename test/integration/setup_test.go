@@ -61,6 +61,14 @@ func SetupTestWithSigner(t *testing.T, env *TestEnv, config *TestSetupConfig) *T
 	return result
 }
 
+// SetupCustomTestWithSigner prepares a custom payer/provider pair and returns a fresh authorized signer for it.
+func SetupCustomTestWithSigner(t *testing.T, env *TestEnv, payer, serviceProvider Account, config *TestSetupConfig) *TestSetupResult {
+	t.Helper()
+	result, err := env.SetupCustomPaymentParticipantsWithSigner(payer, serviceProvider, config)
+	require.NoError(t, err, "Failed to setup custom test with signer")
+	return result
+}
+
 // mustNewCollectionID creates a CollectionID from a hex string or panics
 func mustNewCollectionID(hexStr string) horizon.CollectionID {
 	return devenv.MustNewCollectionID(hexStr)

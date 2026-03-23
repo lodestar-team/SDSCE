@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	sds "github.com/graphprotocol/substreams-data-service"
 	usagev1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/usage/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/usage/v1/usagev1connect"
+	"github.com/streamingfast/dauth"
 	"github.com/streamingfast/dmetering"
 	"github.com/streamingfast/shutter"
 	"go.uber.org/zap"
@@ -61,12 +63,19 @@ func RegisterMetering() {
 	})
 }
 
+type emittedEvent struct {
+	dmetering.Event
+
+	// SessionID is the SDS session ID associated with this event, set by the dmetering middleware in firehose-core from the auth context.
+	SessionID string
+}
+
 // meteringEmitter implements dmetering.EventEmitter by calling the provider gateway.
 type meteringEmitter struct {
 	*shutter.Shutter
 	client      usagev1connect.UsageServiceClient
 	network     string
-	buffer      chan dmetering.Event
+	buffer      chan emittedEvent
 	activeBatch []*usagev1.Event
 	done        chan bool
 	panicOnDrop bool
@@ -86,7 +95,7 @@ func newMeteringEmitter(cfg *baseConfig, network string, bufferSize uint64, dela
 		Shutter:     shutter.New(),
 		client:      client,
 		network:     network,
-		buffer:      make(chan dmetering.Event, bufferSize),
+		buffer:      make(chan emittedEvent, bufferSize),
 		done:        make(chan bool, 1),
 		panicOnDrop: panicOnDrop,
 		delay:       delay,
@@ -143,7 +152,7 @@ func (e *meteringEmitter) flushAndClose() {
 }
 
 // Emit implements dmetering.EventEmitter.
-func (e *meteringEmitter) Emit(_ context.Context, ev dmetering.Event) {
+func (e *meteringEmitter) Emit(ctx context.Context, ev dmetering.Event) {
 	if ev.Endpoint == "" {
 		e.logger.Warn("events must contain endpoint, dropping event", zap.Object("event", ev))
 		return
@@ -154,8 +163,10 @@ func (e *meteringEmitter) Emit(_ context.Context, ev dmetering.Event) {
 		return
 	}
 
+	trustedHeaders := dauth.FromContext(ctx)
+
 	select {
-	case e.buffer <- ev:
+	case e.buffer <- emittedEvent{Event: ev, SessionID: trustedHeaders.Get(sds.HeaderSessionID)}:
 	default:
 		if e.panicOnDrop {
 			panic(fmt.Errorf("failed to queue metric channel is full"))
@@ -186,13 +197,13 @@ func (e *meteringEmitter) emit(events []*usagev1.Event) {
 }
 
 // eventToProto converts a dmetering.Event to our usagev1.Event.
-func (e *meteringEmitter) eventToProto(ev dmetering.Event) *usagev1.Event {
+func (e *meteringEmitter) eventToProto(ev emittedEvent) *usagev1.Event {
 	protoEvent := &usagev1.Event{
 		OrganizationId: ev.OrganizationID,
 		ApiKeyId:       ev.ApiKeyID,
 		Endpoint:       ev.Endpoint,
 		Network:        ev.Network,
-		SdsSessionId:   ev.Meta, // Session ID from auth context (set by auth plugin via dauth.HeaderMeta)
+		SdsSessionId:   ev.SessionID,
 		Timestamp:      timestamppb.New(ev.Timestamp),
 		Metrics:        make([]*usagev1.Metric, 0, len(ev.Metrics)),
 	}

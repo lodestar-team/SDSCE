@@ -166,7 +166,6 @@ func (s *Gateway) Run() {
 		server.WithHealthCheck(server.HealthCheckOverHTTP, s.healthCheck),
 		server.WithConnectPermissiveCORS(),
 		server.WithConnectReflection(providerv1connect.PaymentGatewayServiceName),
-		server.WithConnectInterceptor(newTrustedHeadersInterceptor(s.logger)),
 	)
 
 	s.server.OnTerminated(func(err error) {

@@ -2,6 +2,7 @@ package main
 
 import (
 	sds "github.com/graphprotocol/substreams-data-service"
+	"github.com/graphprotocol/substreams-data-service/cmd/sds/impl"
 	. "github.com/streamingfast/cli"
 	"github.com/streamingfast/logging"
 	"go.uber.org/zap"
@@ -33,7 +34,7 @@ func main() {
 		Group(
 			"provider",
 			"Provider-side commands",
-			providerGatewayCmd,
+			impl.ProviderGatewayCommand,
 		),
 
 		Group(

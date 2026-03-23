@@ -3,6 +3,7 @@ package main
 import (
 	"time"
 
+	"github.com/graphprotocol/substreams-data-service/cmd/sds/impl"
 	"github.com/spf13/pflag"
 	. "github.com/streamingfast/cli"
 )
@@ -20,5 +21,5 @@ var sinkGroup = Group(
 		flags.Duration("report-interval", 1*time.Second, "Interval between usage reports")
 	}),
 
-	sinkRunCmd,
+	impl.SinkRunCommand,
 )

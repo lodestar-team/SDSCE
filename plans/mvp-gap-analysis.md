@@ -1,8 +1,15 @@
 # MVP Gap Analysis
 
-Drafted: 2026-03-12
+Drafted: 2026-03-12  
+Revised: 2026-03-25
 
 This document maps the current repository state against the MVP defined in `docs/mvp-scope.md`.
+
+It reflects:
+
+- the 2026-03-24 MVP scope rewrite
+- the current `plans/mvp-implementation-backlog.md`
+- provider/runtime work that landed in StreamingFast commits `5ffca3d` through `1416020`
 
 Unlike the MVP scope document, this file is expected to change frequently.
 
@@ -15,34 +22,42 @@ Status values used here:
 
 ## Summary
 
-The repository already has a strong technical foundation:
+The repository still has a strong technical foundation:
 
 - Horizon V2 / TAP signing, verification, and aggregation are implemented and tested
 - local chain/contracts and integration tests are in place
-- consumer sidecar and provider gateway exist
+- consumer sidecar and provider-side payment/session surfaces exist
 - sidecar-to-gateway session start and payment-session flow exist
 - provider-side plugin services exist for auth, session, and usage
 
-The main MVP gaps are not the cryptographic/payment core. They are the surrounding system capabilities required to make SDS a usable product stack:
+Provider-side runtime foundations are materially stronger than before:
+
+- DSN-backed repository selection now exists
+- PostgreSQL-backed provider persistence foundation now exists
+- the provider runtime is now shaped as a public Payment Gateway plus a private Plugin Gateway
+- firecore/plugin integration scaffolding is stronger than it was when this document was first drafted
+
+The biggest remaining MVP gaps are now:
 
 - standalone oracle/discovery component
-- real provider and consumer production-path integration completion
-- provider-side durable payment/collection persistence
-- live low-funds enforcement in the real stream path
-- funding and settlement CLI workflows
+- consumer-side Substreams-compatible endpoint/proxy behavior
+- provider collection lifecycle persistence and inspection/collection APIs
+- low-funds enforcement in the real live stream path
+- operator funding and collection tooling
 - authenticated admin/operator surfaces
+- finalized observability floor
 
 ## Acceptance Scenario Status
 
 | Scenario | Status | Notes |
 | --- | --- | --- |
-| Discovery to paid streaming | `partial` | Paid session flow exists, but standalone oracle is missing and real production-path integration is not complete |
-| Reconnect and resume | `partial` | Resume with `existing_rav` exists; provider-authoritative recovery during normal handshake is not finalized |
-| Low funds during streaming | `missing` | Session-local low-funds decisions during active streaming are still backlog work |
-| Provider restart without losing collectible state | `missing` | Provider accepted RAV state is still in-memory today |
-| Manual funding flow | `partial` | Local/demo helper exists via `sds demo setup`, but general MVP funding CLI workflow is not implemented |
-| Manual collection flow | `missing` | No MVP settlement inspection/collection CLI flow yet |
-| Secure deployment posture | `partial` | TLS hooks exist, but admin authentication and final secure operational surfaces are not complete |
+| A. Discovery to paid streaming | `partial` | Paid session flow and provider runtime foundations exist, but the standalone oracle is still missing and the consumer sidecar is not yet the Substreams-compatible ingress described by the scope |
+| B. Fresh session after interruption | `partial` | Fresh-session semantics are now the MVP target, but current code still carries `existing_rav` and split-endpoint assumptions that do not fully match the revised design |
+| C. Low funds during streaming | `missing` | Session-local low-funds handling in the real live stream path is still backlog work |
+| D. Provider restart without losing collectible state | `partial` | Provider persistence is no longer purely in-memory because PostgreSQL support exists, but collectible/collection lifecycle tracking is still incomplete |
+| E. Manual funding flow | `partial` | Demo-oriented setup/funding helpers exist, but real operator-grade funding CLI flows do not |
+| F. Manual collection flow | `missing` | RAV tooling exists, but provider-backed settlement inspection and collect workflow are not implemented |
+| G. Secure deployment posture | `partial` | TLS hooks and provider public/private split exist, but authenticated admin/operator surfaces remain unfinished |
 
 ## Component Status
 
@@ -59,9 +74,9 @@ Evidence:
 
 Notes:
 
-- This area is already strong enough to support the rest of MVP work.
+- This area remains strong enough to support the rest of the MVP work.
 
-### Consumer Sidecar RPC Surface
+### Consumer Sidecar
 
 Status: `partial`
 
@@ -78,15 +93,15 @@ What already exists:
 - usage reporting
 - end session
 - payment-session loop wiring to provider gateway
-- existing-RAV-based resumption
 
 What is still missing for MVP:
 
-- finalized provider-authoritative reconnect flow in the normal handshake
-- completion of real client integration path
-- finalized handling around low-funds stop/pause in real usage path
+- the API still expects explicit `gateway_endpoint` and `substreams_endpoint`
+- the API still carries `existing_rav`, which reflects older resume-oriented assumptions
+- the real user-facing integration is still wrapper-centric rather than endpoint-centric
+- finalized low-funds stop/pause handling in the real usage path
 
-### Provider Gateway RPC Surface
+### Provider Gateway
 
 Status: `partial`
 
@@ -100,16 +115,18 @@ Evidence:
 
 What already exists:
 
+- public payment gateway
 - session start
 - bidirectional payment session
 - RAV validation and authorization checks
-- basic session status inspection
+- basic runtime/session status inspection
+- repository-backed session state foundation
 
 What is still missing for MVP:
 
-- durable accepted-RAV persistence
+- provider-returned data-plane endpoint semantics in the current public contract
 - collection lifecycle state
-- low-funds logic during active streaming
+- live low-funds logic during active streaming
 - authenticated admin/operator surfaces
 
 ### Provider Plugin Services
@@ -121,18 +138,20 @@ Evidence:
 - `provider/auth/service.go`
 - `provider/session/service.go`
 - `provider/usage/service.go`
-- `provider/plugin/`
+- `provider/plugin/gateway.go`
 
 What already exists:
 
+- private plugin gateway
 - auth, session, and usage services for `sds://`
+- typed session ID propagation through plugin/runtime requests
 - provider-authoritative metering path foundation
 
 What is still missing for MVP:
 
-- full real provider path integration and validation against production-like usage
-- finalized byte-billing semantics in the complete runtime path
-- stop/pause behavior enforced in the live stream path
+- full live-provider-path acceptance in production-like usage
+- finalized byte-billing/runtime contract documentation
+- live stop/pause behavior enforced in the provider stream lifecycle
 
 ### Oracle
 
@@ -142,28 +161,51 @@ What MVP requires:
 
 - standalone service
 - manual whitelist
+- canonical pricing for the curated provider set
 - eligible provider set plus recommended provider response
+- selected provider control-plane endpoint return
 - authenticated admin/governance actions
 
 ### Provider Persistence
 
-Status: `missing`
+Status: `partial`
 
 Current state:
 
-- provider repository is in-memory
-- accepted RAV/session state is lost on restart
+- provider persistence is no longer only in-memory
+- PostgreSQL repository support exists
+- the provider gateway can instantiate repositories via DSN
+- migrations and repository tests exist
 
 Evidence:
 
-- `provider/repository/inmemory.go`
-- `provider/repository/repository.go`
+- `provider/gateway/repository.go`
+- `provider/repository/psql/`
+- `provider/gateway/REPOSITORY.md`
 
-What MVP requires:
+What is still missing for MVP:
 
-- durable provider-side state for accepted collectible RAVs
-- settlement lifecycle state
-- persistence across restarts
+- explicit collection lifecycle persistence
+- provider-backed collectible/collect_pending/collected tracking
+- acceptance-level proof for the full restart/collectible scenario
+
+### Consumer Data-Plane Compatibility
+
+Status: `missing`
+
+Evidence:
+
+- `proto/graph/substreams/data_service/consumer/v1/consumer.proto`
+- `cmd/sds/impl/sink_run.go`
+
+Current state:
+
+- the consumer sidecar is still used through SDS-specific RPC plus wrapper orchestration
+- `sds sink run` is the closest real-path integration today
+
+What is still missing for MVP:
+
+- a Substreams-compatible consumer-side endpoint/proxy that hides SDS discovery/session/payment coordination behind the data-plane ingress
 
 ### Funding CLI
 
@@ -171,13 +213,13 @@ Status: `partial`
 
 Current state:
 
-- local/demo funding helper exists
+- local/demo funding setup exists
 
 Evidence:
 
 - `cmd/sds/demo_setup.go`
 
-What MVP requires:
+What is still missing for MVP:
 
 - operator-oriented approve/deposit/top-up workflow beyond local demo assumptions
 
@@ -185,10 +227,18 @@ What MVP requires:
 
 Status: `missing`
 
-What MVP requires:
+Current state:
 
-- inspect collectible accepted RAV data
-- fetch settlement-relevant data from provider
+- local RAV creation/inspection tooling exists, but it is not provider-backed settlement tooling
+
+Evidence:
+
+- `cmd/sds/tools_rav.go`
+
+What is still missing for MVP:
+
+- inspect collectible accepted RAV data from the provider
+- fetch settlement-relevant data from the provider
 - craft/sign/submit `collect()` transaction locally
 - retry-safe operator workflow
 
@@ -198,19 +248,21 @@ Status: `partial`
 
 Evidence:
 
-- `cmd/sds/provider_gateway.go`
+- `cmd/sds/impl/provider_gateway.go`
 - `cmd/sds/consumer_sidecar.go`
 - `sidecar/server_transport.go`
-- `provider/plugin/plugin.go`
+- `provider/plugin/gateway.go`
 
 What already exists:
 
 - plaintext vs TLS transport configuration paths
+- provider public/private network split for payment gateway vs plugin gateway
 
 What is still missing for MVP:
 
-- finalized secure deployment defaults and operational guidance
+- finalized secure deployment defaults across all relevant surfaces
 - authenticated admin/operator surfaces
+- validated TLS-by-default posture for the full MVP deployment shape
 
 ### Observability
 
@@ -220,49 +272,86 @@ What already exists:
 
 - structured logging
 - health endpoints
-- status inspection basics
+- basic runtime/status inspection
 
 What is still missing for MVP:
 
 - final MVP decision on metrics endpoints
-- better operator-facing inspection for payment/collection state
+- better operator-facing inspection for payment, runtime, and collection state
+
+## Current Implementation Highlights
+
+The most important recent status changes versus the original draft are:
+
+- Provider persistence should no longer be treated as fully missing.
+  - The repo now includes PostgreSQL-backed repository code, DSN-based selection, migrations, and tests.
+- Provider runtime shape is more concrete than before.
+  - The repo now explicitly separates a public Payment Gateway from a private Plugin Gateway.
+- Real-path integration scaffolding is stronger.
+  - The repo now includes stronger firecore/plugin integration setup and a `TestFirecore` scaffold, even though that path is not yet MVP-complete.
+- Consumer-side MVP UX is still notably behind the revised scope.
+  - The code still reflects a control-plane RPC plus wrapper model rather than the endpoint/proxy boundary the scope now requires.
 
 ## Backlog Alignment
 
-The largest currently tracked backlog items that still map directly to MVP are:
+The current MVP gaps now align with the rewritten MVP backlog as follows.
 
-- `SDS-008` Define and document `metadata` schema + encoding
-- `SDS-016` Implement `NeedMoreFunds` loop + Continue/Stop/Pause
-- `SDS-020` Add signing thresholds
-- `SDS-021` Decide/implement on-chain collection workflow
-- `SDS-022` Track outstanding RAVs across concurrent streams
-  - note: full aggregate concurrent-stream correctness is no longer assumed to be MVP-critical
-- `SDS-024` Add durable state storage
-- `SDS-025` Add transport security + authn/authz
-- `SDS-026` Add observability
-- `SDS-028` Define payment header format
-- `SDS-029` Integrate provider gateway into tier1 provider
-- `SDS-030` Integrate consumer sidecar into substreams client
-- `SDS-038` Make `sds sink run` the primary end-to-end demo (STOP-aware)
-- `SDS-039` Document/enforce required firehose-core version for `sds://` plugins
+Oracle and consumer ingress:
 
-Additional MVP work not yet clearly represented as a complete deliverable set in the existing backlog:
+- `MVP-005`
+- `MVP-007`
+- `MVP-017`
 
-- standalone oracle component
-- authenticated provider/oracle admin surfaces
-- operator-oriented funding CLI
-- operator-oriented settlement inspection and collection CLI
-- provider-authoritative reconnect flow folded into the normal handshake
+Provider runtime and payment control:
+
+- `MVP-010`
+- `MVP-011`
+- `MVP-012`
+- `MVP-014`
+- `MVP-015`
+- `MVP-016`
+- `MVP-031`
+
+Persistence and settlement:
+
+- `MVP-003`
+- `MVP-008`
+- `MVP-009`
+- `MVP-029`
+
+Tooling and operations:
+
+- `MVP-018`
+- `MVP-019`
+- `MVP-020`
+- `MVP-032`
+
+Security and observability:
+
+- `MVP-021`
+- `MVP-022`
+- `MVP-023`
+- `MVP-024`
+- `MVP-028`
+- `MVP-030`
+
+Validation and docs:
+
+- `MVP-025`
+- `MVP-026`
+
+The gap analysis and the backlog now agree that:
+
+- pricing authority is resolved for MVP
+- reconnect/payment-session reuse is not an MVP target
+- the remaining open questions are observability and auth only
 
 ## Open Questions Carrying Risk
 
-These are not implementation gaps yet, but unresolved design points that could change scope or interfaces:
+These are no longer architecture-blocking for the main SDS flow, but they do still block clean closure of the security/admin and observability parts of MVP.
 
-- chain/network derivation from package vs explicit input
-- pricing authority between oracle metadata and provider handshake
-- canonical payment identity and `collection_id` reuse semantics
 - metrics endpoints vs logs-plus-status-only for MVP observability
-- exact admin authentication mechanism
+- exact admin/operator authentication mechanism
 
 ## Recommended Usage
 
@@ -272,7 +361,7 @@ Use this file to:
 
 - assess current progress
 - identify MVP gaps
-- map backlog work to the target MVP
+- map current repo status to the MVP target
 - keep implementation status current without rewriting the MVP scope itself
 
 Use `plans/mvp-implementation-backlog.md` as the concrete task backlog aligned to the revised MVP scope.

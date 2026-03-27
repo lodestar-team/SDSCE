@@ -1,7 +1,7 @@
 # Substreams Data Service MVP Scope
 
 Drafted: 2026-03-12  
-Revised: 2026-03-24
+Revised: 2026-03-27
 
 ## Purpose
 
@@ -53,7 +53,7 @@ However, the current repo does not yet constitute the MVP. Major remaining gaps 
 - standalone oracle/discovery component
 - consumer-side endpoint compatibility that hides SDS control flow behind a Substreams-compatible ingress
 - provider-side durable persistence for accepted RAV and collection state
-- low-funds stop/pause behavior during live streaming
+- full low-funds propagation through the real provider/client streaming path
 - operator funding and settlement CLI flows
 - authenticated admin/operator surfaces
 - finalization of observability scope
@@ -127,7 +127,11 @@ MVP network-discovery contract:
   - RAVs are requested and updated as needed
   - accepted payment state advances on the provider side
   - low-funds conditions can be surfaced during the live stream
+  - insufficient funds terminate the current SDS payment session for MVP rather than pausing it
 - For MVP, low-funds decisions are session-local, not payer-global across concurrent streams.
+- If the provider cannot determine live escrow balance, it does not stop the session solely because funding status is unknown.
+- Temporary escrow-RPC failures are not treated as low-funds pause semantics for MVP.
+- If stricter handling is needed later, it should be introduced as a separate infrastructure-failure policy, for example bounded retries before a distinct stop behavior, rather than overloading `NeedMoreFunds`.
 
 ### 4. Fund or Top Up Escrow
 
@@ -163,7 +167,7 @@ MVP network-discovery contract:
 | Direct provider connection | Supported as fallback/override | Useful bridge from current implementation and operational fallback |
 | Pricing authority | Oracle-authoritative pricing across the curated MVP provider set | Predictable pricing and simpler consumer/provider behavior while providers are manually curated |
 | Billing unit | Streamed bytes | Aligns with provider-authoritative metering path |
-| Funding model | Session-local low-funds logic | Avoids premature distributed liability accounting for concurrent streams |
+| Funding model | Session-local, stop-only low-funds logic | Avoids premature distributed liability accounting for concurrent streams while keeping MVP control behavior simple |
 | Funding UX | CLI/operator-driven with only lightweight consumer-side advisory guidance | Keeps MVP simple without pretending the consumer knows provider-side liability |
 | Concurrent streams | Documented limitation, not blocked | Simpler MVP with explicit limitation instead of partial enforcement |
 | Collection execution | CLI signs and submits locally | Keeps settlement key custody outside provider-side runtime |
@@ -226,6 +230,7 @@ That is a materially larger distributed-state problem than the session-local MVP
 - Uses provider-authoritative byte metering from the plugin/integration path
 - Drives RAV request/response flow
 - Handles live low-funds conditions during streaming
+- Uses terminal stop behavior rather than pause when session-local funds are insufficient
 - Persists accepted RAV and settlement-relevant state durably
 - Exposes authenticated operator/admin surfaces for inspection and settlement data retrieval
 - May rely on separate internal plugin/runtime components behind the public gateway boundary
@@ -310,8 +315,9 @@ The scenarios below are the primary definition of done for the MVP.
 
 - Streaming starts with initially sufficient funds
 - Usage progresses until provider-side session-local funding logic determines funds are too low
-- Provider surfaces the low-funds condition during the live stream
-- The client path receives and reacts to the stop/pause decision correctly
+- Provider surfaces the low-funds condition during the live stream and terminates the current SDS payment session
+- The client path receives and reacts to the stop decision correctly
+- If the provider cannot determine escrow balance, it does not stop solely because balance status is unknown
 - Any consumer-side warnings or balance checks remain advisory rather than authoritative
 
 ### D. Provider Restart Without Losing Collectible State

@@ -115,17 +115,27 @@ Minimum prerequisites:
 
 Recommended sequence:
 
-1. `MVP-010` Implement session-local low-funds detection and provider Continue/Pause/Stop decisions during streaming
-2. `MVP-012` Add deterministic RAV issuance thresholds suitable for real runtime behavior
-3. `MVP-014` Integrate provider gateway validation into the real provider streaming path
-4. `MVP-015` Wire real byte metering from the provider/plugin path into gateway payment state
-5. `MVP-011` Propagate provider stop/pause decisions through consumer sidecar into the real client path
-6. `MVP-016` Enforce gateway Continue/Pause/Stop decisions in the live provider stream lifecycle
-7. `MVP-031` Wire the live PaymentSession and RAV-control loop into the real client/provider runtime path
+Completed foundation:
+
+- `MVP-010` Implement session-local low-funds detection and provider terminal stop behavior during streaming
+
+Recommended next sequence:
+
+1. `MVP-012` Add deterministic RAV issuance thresholds suitable for real runtime behavior
+2. `MVP-014` Integrate provider gateway validation into the real provider streaming path
+3. `MVP-015` Wire real byte metering from the provider/plugin path into gateway payment state
+4. `MVP-011` Propagate provider low-funds stop decisions through consumer sidecar into the real client path
+5. `MVP-016` Enforce gateway Continue/Stop decisions in the live provider stream lifecycle
+6. `MVP-031` Wire the live PaymentSession and RAV-control loop into the real client/provider runtime path
 
 Notes:
 
-- `MVP-010` and `MVP-014` are the main foundations in this lane.
+- `MVP-010` is now the frozen low-funds foundation for this lane:
+  - session-local exposure only
+  - terminal stop on insufficient funds
+  - fail-open if live escrow balance cannot be determined
+- `MVP-014` remains the main integration foundation in this lane.
+- `MVP-011` is partially advanced because the current sidecar wrapper path already stops on `NeedMoreFunds`, but the real client-facing ingress path is still unfinished.
 - `MVP-031` is effectively the capstone runtime-payment task because it depends on real provider and consumer integration plus thresholding.
 
 ### Lane C: Provider State, Settlement, And Operator Retrieval
@@ -225,6 +235,7 @@ Already resolved:
 - `MVP-002`
 - `MVP-003`
 - `MVP-004`
+- `MVP-010`
 - `MVP-027`
 - `MVP-033`
 
@@ -234,7 +245,6 @@ Already resolved:
   - `MVP-005`
   - `MVP-007`
 - Runtime foundation:
-  - `MVP-010`
   - `MVP-012`
   - `MVP-014`
 - Provider state foundation:
@@ -312,10 +322,10 @@ Example:
 
 ```text
 We are currently in Phase 1, Runtime foundation.
-Implement MVP-010 only.
-You may rely on MVP-004 as the frozen runtime billing/payment contract.
+Implement MVP-012 only.
+You may rely on MVP-004 as the frozen runtime billing/payment contract and MVP-010 as the frozen low-funds control contract.
 Do not broaden into MVP-011 or MVP-016 except for strictly necessary supporting edits.
-If you find that MVP-010 still requires unresolved semantics beyond MVP-004, mark it blocked instead of choosing an implicit contract in code.
+If you find that MVP-012 still requires unresolved semantics beyond those contracts, mark it blocked instead of choosing an implicit contract in code.
 ```
 
 ## Notes

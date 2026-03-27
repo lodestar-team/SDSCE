@@ -6,10 +6,26 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"sync"
 
+	"github.com/graphprotocol/substreams-data-service/contracts/artifacts"
 	"github.com/streamingfast/eth-go"
 	"github.com/streamingfast/eth-go/rpc"
 )
+
+var loadPaymentsEscrowGetBalanceFn = sync.OnceValues(func() (*eth.MethodDef, error) {
+	abi, err := artifacts.LoadABI("PaymentsEscrow")
+	if err != nil {
+		return nil, fmt.Errorf("loading PaymentsEscrow ABI: %w", err)
+	}
+
+	fn := abi.FindFunctionByName("getBalance")
+	if fn == nil {
+		return nil, fmt.Errorf("getBalance function not found in PaymentsEscrow ABI")
+	}
+
+	return fn, nil
+})
 
 // EscrowQuerier provides methods to query the PaymentsEscrow contract
 type EscrowQuerier struct {
@@ -28,17 +44,15 @@ func NewEscrowQuerier(rpcEndpoint string, escrowAddr eth.Address) *EscrowQuerier
 // GetBalance returns the escrow balance for a payer -> receiver via collector
 // This calls PaymentsEscrow.getBalance(payer, collector, receiver)
 func (q *EscrowQuerier) GetBalance(ctx context.Context, payer, collector, receiver eth.Address) (*big.Int, error) {
-	// Build the call data for getBalance(address,address,address)
-	// Function selector: keccak256("getBalance(address,address,address)")[:4]
-	// = 0xd6a58fd9
-	selector := []byte{0xd6, 0xa5, 0x8f, 0xd9}
+	fn, err := loadPaymentsEscrowGetBalanceFn()
+	if err != nil {
+		return nil, err
+	}
 
-	// ABI encode the parameters (each address is 32 bytes, left-padded)
-	data := make([]byte, 4+32*3)
-	copy(data[:4], selector)
-	copy(data[4+12:4+32], payer[:])
-	copy(data[4+32+12:4+64], collector[:])
-	copy(data[4+64+12:4+96], receiver[:])
+	data, err := fn.NewCall(payer, collector, receiver).Encode()
+	if err != nil {
+		return nil, fmt.Errorf("encoding getBalance call: %w", err)
+	}
 
 	params := rpc.CallParams{
 		To:   q.escrowAddr,

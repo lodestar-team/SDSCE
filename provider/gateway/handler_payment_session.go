@@ -398,9 +398,45 @@ func (s *Gateway) handleUsageReport(
 		computedCost,
 	)
 
-	// Update the session in the repository
+	assessment := s.assessSessionFunds(ctx, session)
+	applyFundsAssessmentMetadata(session, assessment)
+
+	if assessment.unknown() {
+		if assessment.checkErr != nil {
+			s.logger.Warn("unable to determine escrow balance during PaymentSession; continuing",
+				zap.String("session_id", sessionID),
+				zap.Error(assessment.checkErr),
+			)
+		} else {
+			s.logger.Warn("escrow balance unavailable during PaymentSession; continuing",
+				zap.String("session_id", sessionID),
+			)
+		}
+	}
+
+	if assessment.insufficient() {
+		session.End(commonv1.EndReason_END_REASON_PAYMENT_ISSUE)
+	}
+
+	// Update the session in the repository after usage and funds evaluation.
 	if err := s.repo.SessionUpdate(ctx, session); err != nil {
-		s.logger.Warn("failed to update session", zap.String("session_id", sessionID), zap.Error(err))
+		s.logger.Warn("failed to update session",
+			zap.String("session_id", sessionID),
+			zap.Error(err),
+		)
+	}
+
+	if assessment.insufficient() {
+		s.logger.Info("stopping session due to insufficient funds",
+			zap.String("session_id", sessionID),
+			zap.Stringer("current_outstanding", assessment.currentOutstanding),
+			zap.Stringer("projected_outstanding", assessment.projectedOutstanding),
+			zap.Stringer("escrow_balance", assessment.escrowBalance),
+			zap.Stringer("minimum_needed", assessment.minimumNeeded),
+		)
+
+		stream.Send(needMoreFundsResponse(session, assessment))
+		return awaitingRAV, true
 	}
 
 	if !awaitingRAV {

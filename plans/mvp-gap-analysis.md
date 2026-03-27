@@ -1,7 +1,7 @@
 # MVP Gap Analysis
 
 Drafted: 2026-03-12  
-Revised: 2026-03-26
+Revised: 2026-03-27
 
 This document maps the current repository state against the MVP defined in `docs/mvp-scope.md`.
 
@@ -48,7 +48,7 @@ The biggest remaining MVP gaps are now:
 - standalone oracle/discovery component
 - consumer-side Substreams-compatible endpoint/proxy behavior
 - provider collection lifecycle persistence and inspection/collection APIs
-- low-funds enforcement in the real live stream path
+- full low-funds propagation through the real provider/client streaming path
 - operator funding and collection tooling
 - authenticated admin/operator surfaces
 - finalized observability floor
@@ -59,7 +59,7 @@ The biggest remaining MVP gaps are now:
 | --- | --- | --- |
 | A. Discovery to paid streaming | `partial` | Paid session flow and provider runtime foundations exist, but the standalone oracle is still missing and the consumer sidecar is not yet the Substreams-compatible ingress described by the scope |
 | B. Fresh session after interruption | `partial` | Fresh-session semantics are implemented in the init contract, but broader real-path interruption validation still remains |
-| C. Low funds during streaming | `missing` | Session-local low-funds handling in the real live stream path is still backlog work |
+| C. Low funds during streaming | `partial` | Session-local low-funds stop behavior now exists in the payment-session path, but full real provider/client streaming-path enforcement is still incomplete |
 | D. Provider restart without losing collectible state | `partial` | Provider persistence is no longer purely in-memory because PostgreSQL support exists, but collectible/collection lifecycle tracking is still incomplete |
 | E. Manual funding flow | `partial` | Demo-oriented setup/funding helpers exist, but real operator-grade funding CLI flows do not |
 | F. Manual collection flow | `missing` | RAV tooling exists, but provider-backed settlement inspection and collect workflow are not implemented |
@@ -99,11 +99,12 @@ What already exists:
 - usage reporting
 - end session
 - payment-session loop wiring to provider gateway
+- `NeedMoreFunds` currently stops the wrapper-oriented `ReportUsage` flow
 
 What is still missing for MVP:
 
 - the real user-facing integration is still wrapper-centric rather than endpoint-centric
-- finalized low-funds stop/pause handling in the real usage path
+- full low-funds propagation through the real client-facing ingress path
 
 ### Provider Gateway
 
@@ -123,13 +124,16 @@ What already exists:
 - session start
 - bidirectional payment session
 - RAV validation and authorization checks
+- session-local low-funds detection during `PaymentSession` usage handling
+- terminal `NeedMoreFunds` response plus payment-issue session termination when live escrow is insufficient
+- persisted machine-readable funding metadata for `ok`, `insufficient`, and `unknown` session state
 - basic runtime/session status inspection
 - repository-backed session state foundation
 
 What is still missing for MVP:
 
 - collection lifecycle state
-- live low-funds logic during active streaming
+- enforcement of gateway low-funds/control outcomes in the live provider stream lifecycle
 - authenticated admin/operator surfaces
 
 ### Provider Plugin Services
@@ -154,7 +158,7 @@ What is still missing for MVP:
 
 - full live-provider-path acceptance in production-like usage
 - finalized byte-billing/runtime contract documentation
-- live stop/pause behavior enforced in the provider stream lifecycle
+- live stop behavior enforced in the provider stream lifecycle
 
 ### Oracle
 
@@ -313,6 +317,8 @@ The most important recent status changes versus the original draft are:
   - The repo now includes PostgreSQL-backed repository code, DSN-based selection, migrations, and tests.
 - Provider runtime shape is more concrete than before.
   - The repo now explicitly separates a public Payment Gateway from a private Plugin Gateway.
+- Session-local low-funds handling is no longer fully missing.
+  - The payment-session path now evaluates projected session-local exposure against live escrow, fails open on unknown balance, and terminates the current session with `NeedMoreFunds` when funds are insufficient.
 - Real-path integration scaffolding is stronger.
   - The repo now includes stronger firecore/plugin integration setup and a `TestFirecore` scaffold, even though that path is not yet MVP-complete.
 - Consumer-side MVP UX is still notably behind the revised scope.

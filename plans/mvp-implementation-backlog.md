@@ -1,6 +1,6 @@
 # Substreams Data Service — MVP Implementation Backlog
 
-_Last updated: 2026-03-24_
+_Last updated: 2026-03-27_
 
 This document translates [docs/mvp-scope.md](../docs/mvp-scope.md) into concrete implementation tasks for the MVP.
 
@@ -97,13 +97,13 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-007 | `not_started` | consumer | `A1`, `A2`, `A3` | `MVP-005`, `MVP-033` | `A` | Integrate consumer sidecar with oracle discovery while preserving direct-provider fallback and provider-returned data-plane resolution |
 | MVP-008 | `in_progress` | provider-state | `A3`, `A6` | `MVP-003` | `D`, `F` | Complete durable provider runtime storage for sessions, usage, and accepted RAV state, distinct from collection lifecycle tracking |
 | MVP-009 | `not_started` | provider-state | `A3`, `A5` | `MVP-003`, `MVP-022`, `MVP-029` | `D`, `F` | Expose provider inspection and settlement-data retrieval APIs for accepted and collectible RAV state |
-| MVP-010 | `not_started` | funding-control | `A6` | `MVP-004` | `C` | Implement session-local low-funds detection and provider Continue/Pause/Stop decisions during streaming |
-| MVP-011 | `not_started` | funding-control | `A6` | `MVP-010` | `C` | Propagate provider stop/pause decisions through consumer sidecar into the real client path |
+| MVP-010 | `done` | funding-control | `A6` | `MVP-004` | `C` | Implement session-local low-funds detection and provider terminal stop behavior during streaming |
+| MVP-011 | `in_progress` | funding-control | `A6` | `MVP-010` | `C` | Propagate provider low-funds stop decisions through consumer sidecar into the real client path |
 | MVP-012 | `not_started` | funding-control | none | `MVP-004` | `A`, `C` | Add deterministic RAV issuance thresholds suitable for real runtime behavior |
 | MVP-013 | `deferred` | consumer | `A3` | none | none | Post-MVP only: implement true provider-authoritative payment-session reconnect/resume semantics |
 | MVP-014 | `in_progress` | provider-integration | `A3` | `MVP-004` | `A` | Integrate the public Payment Gateway and private Plugin Gateway into the real provider streaming path |
 | MVP-015 | `in_progress` | provider-integration | `A3` | `MVP-004`, `MVP-014` | `A`, `C` | Wire real byte metering and session correlation from the plugin path into the payment-state repository used by the gateway |
-| MVP-016 | `not_started` | provider-integration | `A6` | `MVP-010`, `MVP-014` | `C` | Enforce gateway Continue/Pause/Stop decisions in the live provider stream lifecycle |
+| MVP-016 | `not_started` | provider-integration | `A6` | `MVP-010`, `MVP-014` | `C` | Enforce gateway Continue/Stop decisions in the live provider stream lifecycle |
 | MVP-017 | `not_started` | consumer-integration | `A1`, `A2`, `A3` | `MVP-007`, `MVP-011`, `MVP-033` | `A`, `C` | Implement the consumer sidecar as a Substreams-compatible endpoint/proxy rather than only a wrapper-controlled lifecycle service |
 | MVP-018 | `not_started` | tooling | none | `MVP-032` | `E` | Implement operator funding CLI flows for approve/deposit/top-up beyond local demo assumptions |
 | MVP-019 | `not_started` | tooling | `A5` | `MVP-009`, `MVP-022` | `D`, `F` | Implement provider inspection CLI flows for accepted and collectible RAV data |
@@ -317,28 +317,31 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 
 ## Funding Control and Runtime Payment Tasks
 
-- [ ] MVP-010 Implement session-local low-funds detection and provider Continue/Pause/Stop decisions during streaming.
+- [x] MVP-010 Implement session-local low-funds detection and provider terminal stop behavior during streaming.
   - Context:
     - The MVP requires low-funds handling during active streaming, but only on a session-local basis.
+    - The implemented MVP policy is stop-only on insufficient funds, with fail-open behavior when live escrow balance cannot be queried.
   - Assumptions:
     - `A6`
   - Done when:
-    - Provider can compare session-local exposure against available funding.
-    - Provider emits the appropriate control/funding messages during active streams.
-    - Low-funds behavior includes enough machine-readable state for operator tooling and client-side messaging.
+    - Provider compares projected session-local outstanding exposure against live escrow during `PaymentSession` usage handling.
+    - If funds are insufficient, provider persists machine-readable funds metadata, terminates the session with `END_REASON_PAYMENT_ISSUE`, and emits `NeedMoreFunds` as the terminal response for that session roundtrip.
+    - If live escrow balance cannot be determined, provider records `unknown` funding status and continues normal runtime behavior rather than stopping solely on the failed check.
+    - The MVP does not reinterpret temporary escrow-RPC failures as pause semantics; any future bounded-retry or infrastructure-failure stop policy should remain distinct from `NeedMoreFunds`.
   - Verify:
-    - Add an integration test with intentionally low funding that reaches a stop/pause condition during streaming.
+    - Integration coverage exists for insufficient-funds stop, exact-balance continue, unknown-balance fail-open, and consumer-side stop behavior on `NeedMoreFunds`.
 
-- [ ] MVP-011 Propagate provider stop/pause decisions through consumer sidecar into the real client path.
+- [ ] MVP-011 Propagate provider low-funds stop decisions through consumer sidecar into the real client path.
   - Context:
     - Low-funds logic is incomplete until the client path actually obeys it.
+    - The current sidecar already stops the wrapper-oriented `ReportUsage` flow on `NeedMoreFunds`, but the full real ingress path remains downstream work.
   - Assumptions:
     - `A6`
   - Done when:
-    - Consumer sidecar converts provider control/funding messages into client-visible stop/pause behavior.
-    - Real client integration honors those decisions.
+    - Consumer sidecar propagates provider low-funds stop decisions through the real client-facing ingress path, not only the current wrapper-oriented `ReportUsage` flow.
+    - Real client integration honors those stop decisions and surfaces a clear client-visible reason.
   - Verify:
-    - Add integration/manual verification showing the real client path stops or pauses when the provider requires it.
+    - Add integration/manual verification showing the real client path stops when the provider surfaces low funds during live streaming.
 
 - [ ] MVP-012 Add deterministic RAV issuance thresholds suitable for real runtime behavior.
   - Context:
@@ -379,15 +382,16 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - Verify:
     - Add tests or manual instrumentation evidence showing live provider/plugin activity updates the payment-state repository consistently.
 
-- [ ] MVP-016 Enforce gateway Continue/Pause/Stop decisions in the live provider stream lifecycle.
+- [ ] MVP-016 Enforce gateway Continue/Stop decisions in the live provider stream lifecycle.
   - Context:
     - Provider-side control logic is incomplete if the live provider stream does not obey it.
   - Assumptions:
     - `A6`
   - Done when:
     - The real provider path can enforce SDS control decisions during live streaming.
+    - Gateway-driven low-funds stop behavior interrupts the live provider stream lifecycle appropriately rather than only ending the control-plane session.
   - Verify:
-    - Add manual or automated verification where the provider stops or pauses the live stream based on gateway control decisions.
+    - Add manual or automated verification where the provider stops the live stream based on gateway control decisions.
 
 - [ ] MVP-017 Implement the consumer sidecar as a Substreams-compatible endpoint/proxy rather than only a wrapper-controlled lifecycle service.
   - Context:
@@ -415,7 +419,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - The real client/provider integration keeps the SDS payment-control loop active alongside the live stream behind the consumer-sidecar ingress path.
     - Provider-driven RAV requests, acknowledgements, and control messages flow through the production runtime path rather than only through wrapper commands.
   - Verify:
-    - Add a real-path integration or documented manual verification showing stream start, at least one provider-driven payment update during live streaming, and synchronized session state until normal end or stop/pause.
+    - Add a real-path integration or documented manual verification showing stream start, at least one provider-driven payment update during live streaming, and synchronized session state until normal end or low-funds stop.
 
 ## Operator Tooling Tasks
 

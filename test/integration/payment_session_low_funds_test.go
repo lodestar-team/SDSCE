@@ -44,16 +44,17 @@ func TestPaymentSession_StopsOnLowFunds(t *testing.T) {
 
 	repo := repository.NewInMemoryRepository()
 	gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19015", &providergateway.Config{
-		ListenAddr:        ":19015",
-		ServiceProvider:   env.User2.Address,
-		Domain:            env.Domain(),
-		CollectorAddr:     env.Collector.Address,
-		EscrowAddr:        env.Escrow.Address,
-		RPCEndpoint:       env.RPCURL,
-		PricingConfig:     deterministicPricingConfig(),
-		DataPlaneEndpoint: "substreams.provider.example:443",
-		TransportConfig:   sidecar.ServerTransportConfig{Plaintext: true},
-		Repository:        repo,
+		ListenAddr:          ":19015",
+		ServiceProvider:     env.User2.Address,
+		Domain:              env.Domain(),
+		CollectorAddr:       env.Collector.Address,
+		EscrowAddr:          env.Escrow.Address,
+		RPCEndpoint:         env.RPCURL,
+		PricingConfig:       deterministicPricingConfig(),
+		RAVRequestThreshold: sds.NewGRTFromUint64(1),
+		DataPlaneEndpoint:   "substreams.provider.example:443",
+		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
+		Repository:          repo,
 	})
 	defer shutdown()
 
@@ -122,16 +123,17 @@ func TestPaymentSession_ExactBalanceContinues(t *testing.T) {
 
 	repo := repository.NewInMemoryRepository()
 	gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19016", &providergateway.Config{
-		ListenAddr:        ":19016",
-		ServiceProvider:   env.ServiceProvider.Address,
-		Domain:            env.Domain(),
-		CollectorAddr:     env.Collector.Address,
-		EscrowAddr:        env.Escrow.Address,
-		RPCEndpoint:       env.RPCURL,
-		PricingConfig:     deterministicPricingConfig(),
-		DataPlaneEndpoint: "substreams.provider.example:443",
-		TransportConfig:   sidecar.ServerTransportConfig{Plaintext: true},
-		Repository:        repo,
+		ListenAddr:          ":19016",
+		ServiceProvider:     env.ServiceProvider.Address,
+		Domain:              env.Domain(),
+		CollectorAddr:       env.Collector.Address,
+		EscrowAddr:          env.Escrow.Address,
+		RPCEndpoint:         env.RPCURL,
+		PricingConfig:       deterministicPricingConfig(),
+		RAVRequestThreshold: sds.NewGRTFromUint64(1),
+		DataPlaneEndpoint:   "substreams.provider.example:443",
+		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
+		Repository:          repo,
 	})
 	defer shutdown()
 
@@ -180,15 +182,16 @@ func TestPaymentSession_FailsOpenWhenEscrowBalanceUnknown(t *testing.T) {
 
 	repo := repository.NewInMemoryRepository()
 	gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19017", &providergateway.Config{
-		ListenAddr:        ":19017",
-		ServiceProvider:   env.ServiceProvider.Address,
-		Domain:            env.Domain(),
-		CollectorAddr:     env.Collector.Address,
-		EscrowAddr:        env.Escrow.Address,
-		PricingConfig:     deterministicPricingConfig(),
-		DataPlaneEndpoint: "substreams.provider.example:443",
-		TransportConfig:   sidecar.ServerTransportConfig{Plaintext: true},
-		Repository:        repo,
+		ListenAddr:          ":19017",
+		ServiceProvider:     env.ServiceProvider.Address,
+		Domain:              env.Domain(),
+		CollectorAddr:       env.Collector.Address,
+		EscrowAddr:          env.Escrow.Address,
+		PricingConfig:       deterministicPricingConfig(),
+		RAVRequestThreshold: sds.NewGRTFromUint64(1),
+		DataPlaneEndpoint:   "substreams.provider.example:443",
+		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
+		Repository:          repo,
 	})
 	defer shutdown()
 
@@ -246,16 +249,17 @@ func TestConsumerSidecar_ReportUsage_StopsOnLowFunds(t *testing.T) {
 
 	repo := repository.NewInMemoryRepository()
 	_, shutdownProvider := startPaymentGatewayForTest(t, ":19018", &providergateway.Config{
-		ListenAddr:        ":19018",
-		ServiceProvider:   env.User3.Address,
-		Domain:            env.Domain(),
-		CollectorAddr:     env.Collector.Address,
-		EscrowAddr:        env.Escrow.Address,
-		RPCEndpoint:       env.RPCURL,
-		PricingConfig:     deterministicPricingConfig(),
-		DataPlaneEndpoint: "substreams.provider.example:443",
-		TransportConfig:   sidecar.ServerTransportConfig{Plaintext: true},
-		Repository:        repo,
+		ListenAddr:          ":19018",
+		ServiceProvider:     env.User3.Address,
+		Domain:              env.Domain(),
+		CollectorAddr:       env.Collector.Address,
+		EscrowAddr:          env.Escrow.Address,
+		RPCEndpoint:         env.RPCURL,
+		PricingConfig:       deterministicPricingConfig(),
+		RAVRequestThreshold: sds.NewGRTFromUint64(1),
+		DataPlaneEndpoint:   "substreams.provider.example:443",
+		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
+		Repository:          repo,
 	})
 	defer shutdownProvider()
 

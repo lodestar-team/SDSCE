@@ -125,6 +125,7 @@ MVP network-discovery contract:
 - While streaming:
   - provider-authoritative usage advances
   - RAVs are requested and updated as needed
+  - provider-driven RAV requests are triggered by a cost-based threshold over unbaselined usage rather than on every usage report
   - accepted payment state advances on the provider side
   - low-funds conditions can be surfaced during the live stream
   - insufficient funds terminate the current SDS payment session for MVP rather than pausing it

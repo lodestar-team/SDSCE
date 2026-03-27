@@ -48,7 +48,8 @@ func TestSessionClose_ConsumerEndSession_MakesProviderInactive(t *testing.T) {
 			PricePerBlock: sds.NewGRTFromUint64(1),
 			PricePerByte:  sds.ZeroGRT(),
 		},
-		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
+		RAVRequestThreshold: sds.NewGRTFromUint64(1),
+		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("provider"))
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)

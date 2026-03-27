@@ -118,15 +118,15 @@ Recommended sequence:
 Completed foundation:
 
 - `MVP-010` Implement session-local low-funds detection and provider terminal stop behavior during streaming
+- `MVP-012` Add deterministic cost-based RAV issuance thresholds suitable for real runtime behavior
 
 Recommended next sequence:
 
-1. `MVP-012` Add deterministic RAV issuance thresholds suitable for real runtime behavior
-2. `MVP-014` Integrate provider gateway validation into the real provider streaming path
-3. `MVP-015` Wire real byte metering from the provider/plugin path into gateway payment state
-4. `MVP-011` Propagate provider low-funds stop decisions through consumer sidecar into the real client path
-5. `MVP-016` Enforce gateway Continue/Stop decisions in the live provider stream lifecycle
-6. `MVP-031` Wire the live PaymentSession and RAV-control loop into the real client/provider runtime path
+1. `MVP-014` Integrate provider gateway validation into the real provider streaming path
+2. `MVP-015` Wire real byte metering from the provider/plugin path into gateway payment state
+3. `MVP-011` Propagate provider low-funds stop decisions through consumer sidecar into the real client path
+4. `MVP-016` Enforce gateway Continue/Stop decisions in the live provider stream lifecycle
+5. `MVP-031` Wire the live PaymentSession and RAV-control loop into the real client/provider runtime path
 
 Notes:
 
@@ -134,6 +134,10 @@ Notes:
   - session-local exposure only
   - terminal stop on insufficient funds
   - fail-open if live escrow balance cannot be determined
+- `MVP-012` is now the frozen normal RAV request policy for this lane:
+  - cost-based only
+  - compares unbaselined `delta_cost` against a provider-side `rav_request_threshold`
+  - defaults to `10 GRT` when the provider does not configure a threshold explicitly
 - `MVP-014` remains the main integration foundation in this lane.
 - `MVP-011` is partially advanced because the current sidecar wrapper path already stops on `NeedMoreFunds`, but the real client-facing ingress path is still unfinished.
 - `MVP-031` is effectively the capstone runtime-payment task because it depends on real provider and consumer integration plus thresholding.
@@ -236,6 +240,7 @@ Already resolved:
 - `MVP-003`
 - `MVP-004`
 - `MVP-010`
+- `MVP-012`
 - `MVP-027`
 - `MVP-033`
 
@@ -245,7 +250,6 @@ Already resolved:
   - `MVP-005`
   - `MVP-007`
 - Runtime foundation:
-  - `MVP-012`
   - `MVP-014`
 - Provider state foundation:
   - `MVP-008`
@@ -322,10 +326,10 @@ Example:
 
 ```text
 We are currently in Phase 1, Runtime foundation.
-Implement MVP-012 only.
-You may rely on MVP-004 as the frozen runtime billing/payment contract and MVP-010 as the frozen low-funds control contract.
-Do not broaden into MVP-011 or MVP-016 except for strictly necessary supporting edits.
-If you find that MVP-012 still requires unresolved semantics beyond those contracts, mark it blocked instead of choosing an implicit contract in code.
+Implement MVP-014 only.
+You may rely on MVP-004 as the frozen runtime billing/payment contract, MVP-010 as the frozen low-funds control contract, and MVP-012 as the frozen RAV request policy.
+Do not broaden into MVP-011, MVP-015, or MVP-016 except for strictly necessary supporting edits.
+If you find that MVP-014 still requires unresolved semantics beyond those contracts, mark it blocked instead of choosing an implicit contract in code.
 ```
 
 ## Notes

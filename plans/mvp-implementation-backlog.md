@@ -99,7 +99,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-009 | `not_started` | provider-state | `A3`, `A5` | `MVP-003`, `MVP-022`, `MVP-029` | `D`, `F` | Expose provider inspection and settlement-data retrieval APIs for accepted and collectible RAV state |
 | MVP-010 | `done` | funding-control | `A6` | `MVP-004` | `C` | Implement session-local low-funds detection and provider terminal stop behavior during streaming |
 | MVP-011 | `in_progress` | funding-control | `A6` | `MVP-010` | `C` | Propagate provider low-funds stop decisions through consumer sidecar into the real client path |
-| MVP-012 | `not_started` | funding-control | none | `MVP-004` | `A`, `C` | Add deterministic RAV issuance thresholds suitable for real runtime behavior |
+| MVP-012 | `done` | funding-control | none | `MVP-004` | `A`, `C` | Add deterministic cost-based RAV issuance thresholds suitable for real runtime behavior |
 | MVP-013 | `deferred` | consumer | `A3` | none | none | Post-MVP only: implement true provider-authoritative payment-session reconnect/resume semantics |
 | MVP-014 | `in_progress` | provider-integration | `A3` | `MVP-004` | `A` | Integrate the public Payment Gateway and private Plugin Gateway into the real provider streaming path |
 | MVP-015 | `in_progress` | provider-integration | `A3` | `MVP-004`, `MVP-014` | `A`, `C` | Wire real byte metering and session correlation from the plugin path into the payment-state repository used by the gateway |
@@ -343,16 +343,18 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - Verify:
     - Add integration/manual verification showing the real client path stops when the provider surfaces low funds during live streaming.
 
-- [ ] MVP-012 Add deterministic RAV issuance thresholds suitable for real runtime behavior.
+- [x] MVP-012 Add deterministic cost-based RAV issuance thresholds suitable for real runtime behavior.
   - Context:
     - The current runtime/payment loop foundation exists, but the real-runtime issuance policy still needs to be made explicit.
   - Assumptions:
     - none
   - Done when:
-    - RAV issuance is controlled by explicit policy such as value/time/provider-request thresholds.
-    - Threshold behavior is documented and tested.
+    - Provider requests a new RAV only when unbaselined `delta_cost` since the last accepted RAV reaches a deterministic provider-side threshold.
+    - The threshold is configured through provider pricing YAML as `rav_request_threshold`, with a documented fallback of `10 GRT` when omitted.
+    - The threshold policy remains provider-internal and is not exposed through shared pricing protobufs or handshake payloads.
+    - Threshold behavior is covered for below-threshold continue, threshold-triggered request, and post-acceptance baseline reset.
   - Verify:
-    - Add tests that show repeated usage does not force a signature on every report unless policy requires it.
+    - Integration coverage shows repeated usage no longer forces a RAV request on every report and only triggers a request once `delta_cost >= rav_request_threshold`.
 
 ## Real Provider and Consumer Integration Tasks
 

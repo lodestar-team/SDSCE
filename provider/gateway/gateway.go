@@ -8,6 +8,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/alphadose/haxmap"
+	sds "github.com/graphprotocol/substreams-data-service"
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
@@ -53,9 +54,10 @@ type Gateway struct {
 	collectorQuerier sidecar.CollectorAuthorizer
 
 	// Pricing configuration
-	pricingConfig     *sidecar.PricingConfig
-	dataPlaneEndpoint string
-	transportConfig   sidecar.ServerTransportConfig
+	pricingConfig       *sidecar.PricingConfig
+	ravRequestThreshold *big.Int
+	dataPlaneEndpoint   string
+	transportConfig     sidecar.ServerTransportConfig
 
 	authCache *haxmap.Map[string, authCacheEntry]
 
@@ -64,15 +66,16 @@ type Gateway struct {
 }
 
 type Config struct {
-	ListenAddr        string
-	ServiceProvider   eth.Address
-	Domain            *horizon.Domain
-	CollectorAddr     eth.Address
-	EscrowAddr        eth.Address
-	RPCEndpoint       string
-	PricingConfig     *sidecar.PricingConfig
-	DataPlaneEndpoint string
-	TransportConfig   sidecar.ServerTransportConfig
+	ListenAddr          string
+	ServiceProvider     eth.Address
+	Domain              *horizon.Domain
+	CollectorAddr       eth.Address
+	EscrowAddr          eth.Address
+	RPCEndpoint         string
+	PricingConfig       *sidecar.PricingConfig
+	RAVRequestThreshold sds.GRT
+	DataPlaneEndpoint   string
+	TransportConfig     sidecar.ServerTransportConfig
 
 	// Repository provides session/usage state storage.
 	// If nil, an in-memory repository is created.
@@ -99,6 +102,10 @@ func New(config *Config, logger *zap.Logger) *Gateway {
 	if pricingConfig == nil {
 		pricingConfig = sidecar.DefaultPricingConfig()
 	}
+	ravRequestThreshold := config.RAVRequestThreshold
+	if ravRequestThreshold.IsZero() {
+		ravRequestThreshold = DefaultRAVRequestThreshold()
+	}
 
 	// Use provided repository or create an in-memory one as fallback
 	repo := config.Repository
@@ -108,20 +115,21 @@ func New(config *Config, logger *zap.Logger) *Gateway {
 	}
 
 	return &Gateway{
-		Shutter:           shutter.New(),
-		listenAddr:        config.ListenAddr,
-		logger:            logger,
-		serviceProvider:   config.ServiceProvider,
-		domain:            config.Domain,
-		collectorAddr:     config.CollectorAddr,
-		escrowAddr:        config.EscrowAddr,
-		escrowQuerier:     escrowQuerier,
-		collectorQuerier:  collectorQuerier,
-		pricingConfig:     pricingConfig,
-		dataPlaneEndpoint: config.DataPlaneEndpoint,
-		transportConfig:   config.TransportConfig,
-		authCache:         haxmap.New[string, authCacheEntry](),
-		repo:              repo,
+		Shutter:             shutter.New(),
+		listenAddr:          config.ListenAddr,
+		logger:              logger,
+		serviceProvider:     config.ServiceProvider,
+		domain:              config.Domain,
+		collectorAddr:       config.CollectorAddr,
+		escrowAddr:          config.EscrowAddr,
+		escrowQuerier:       escrowQuerier,
+		collectorQuerier:    collectorQuerier,
+		pricingConfig:       pricingConfig,
+		ravRequestThreshold: ravRequestThreshold.BigInt(),
+		dataPlaneEndpoint:   config.DataPlaneEndpoint,
+		transportConfig:     config.TransportConfig,
+		authCache:           haxmap.New[string, authCacheEntry](),
+		repo:                repo,
 	}
 }
 
@@ -146,6 +154,15 @@ func (s *Gateway) GetEscrowBalance(ctx context.Context, payer eth.Address) (*big
 
 func (s *Gateway) SessionCount() int {
 	return s.repo.SessionCount(context.Background())
+}
+
+func (s *Gateway) shouldRequestRAV(session *repository.Session) bool {
+	if session == nil || session.CurrentRAV == nil || s.ravRequestThreshold == nil {
+		return false
+	}
+
+	_, _, _, deltaCost := session.UsageDeltaSinceBaseline()
+	return deltaCost.Cmp(s.ravRequestThreshold) >= 0
 }
 
 func (s *Gateway) Run() {

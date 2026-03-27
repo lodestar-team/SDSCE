@@ -66,6 +66,7 @@ var ProviderGatewayCommand = Command(
 		Pricing configuration should be provided via a YAML file with the following format:
 		  price_per_block: "0.000001"   # Price per processed block in GRT
 		  price_per_byte: "0.0000000001" # Price per byte transferred in GRT
+		  rav_request_threshold: "10 GRT" # Optional provider-side threshold for requesting a new RAV
 	`),
 	Flags(func(flags *pflag.FlagSet) {
 		flags.String("grpc-listen-addr", ":9001", "Payment Gateway listen address (PUBLIC - consumer sidecars connect here)")
@@ -197,13 +198,11 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 	}
 	cli.NoError(transportConfig.Validate("provider gateway"), "invalid transport configuration")
 
-	// Load pricing configuration
-	var pricingConfig *sidecarlib.PricingConfig
+	// Load provider pricing and RAV request configuration.
+	providerPricingConfig := gateway.DefaultProviderPricingConfig()
 	if pricingConfigPath != "" {
-		pricingConfig, err = sidecarlib.LoadPricingConfig(pricingConfigPath)
+		providerPricingConfig, err = gateway.LoadProviderPricingConfig(pricingConfigPath)
 		cli.NoError(err, "failed to load pricing config from %q", pricingConfigPath)
-	} else {
-		pricingConfig = sidecarlib.DefaultPricingConfig()
 	}
 
 	// Create repository from DSN (shared between both gateways)
@@ -214,16 +213,17 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 
 	// Create Payment Gateway
 	paymentConfig := &gateway.Config{
-		ListenAddr:        paymentListenAddr,
-		ServiceProvider:   serviceProviderAddr,
-		Domain:            domain,
-		CollectorAddr:     collectorAddr,
-		EscrowAddr:        escrowAddr,
-		RPCEndpoint:       rpcEndpoint,
-		PricingConfig:     pricingConfig,
-		DataPlaneEndpoint: dataPlaneEndpoint,
-		TransportConfig:   transportConfig,
-		Repository:        repo,
+		ListenAddr:          paymentListenAddr,
+		ServiceProvider:     serviceProviderAddr,
+		Domain:              domain,
+		CollectorAddr:       collectorAddr,
+		EscrowAddr:          escrowAddr,
+		RPCEndpoint:         rpcEndpoint,
+		PricingConfig:       providerPricingConfig.ToPricingConfig(),
+		RAVRequestThreshold: providerPricingConfig.RAVRequestThreshold,
+		DataPlaneEndpoint:   dataPlaneEndpoint,
+		TransportConfig:     transportConfig,
+		Repository:          repo,
 	}
 
 	paymentGateway := gateway.New(paymentConfig, providerLog)

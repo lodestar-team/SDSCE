@@ -125,6 +125,7 @@ What already exists:
 - bidirectional payment session
 - RAV validation and authorization checks
 - session-local low-funds detection during `PaymentSession` usage handling
+- deterministic cost-based RAV request thresholds in the `PaymentSession` path
 - terminal `NeedMoreFunds` response plus payment-issue session termination when live escrow is insufficient
 - persisted machine-readable funding metadata for `ok`, `insufficient`, and `unknown` session state
 - basic runtime/session status inspection
@@ -319,6 +320,8 @@ The most important recent status changes versus the original draft are:
   - The repo now explicitly separates a public Payment Gateway from a private Plugin Gateway.
 - Session-local low-funds handling is no longer fully missing.
   - The payment-session path now evaluates projected session-local exposure against live escrow, fails open on unknown balance, and terminates the current session with `NeedMoreFunds` when funds are insufficient.
+- Deterministic RAV issuance policy is no longer an open runtime gap.
+  - The provider now requests new RAVs based on unbaselined `delta_cost` reaching a provider-side `rav_request_threshold`, with a built-in `10 GRT` fallback when not configured.
 - Real-path integration scaffolding is stronger.
   - The repo now includes stronger firecore/plugin integration setup and a `TestFirecore` scaffold, even though that path is not yet MVP-complete.
 - Consumer-side MVP UX is still notably behind the revised scope.

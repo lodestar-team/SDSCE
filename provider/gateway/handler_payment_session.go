@@ -439,29 +439,27 @@ func (s *Gateway) handleUsageReport(
 		return awaitingRAV, true
 	}
 
-	if !awaitingRAV {
+	if !awaitingRAV && s.shouldRequestRAV(session) {
 		blocks, bytes, reqs, deltaCost := session.UsageDeltaSinceBaseline()
-		if deltaCost.Sign() > 0 {
-			currentRAV := session.CurrentRAV
-			if currentRAV != nil {
-				usage := &commonv1.Usage{
-					BlocksProcessed:  blocks,
-					BytesTransferred: bytes,
-					Requests:         reqs,
-					Cost:             commonv1.GRTFromBigInt(deltaCost),
-				}
-
-				stream.Send(&providerv1.PaymentSessionResponse{
-					Message: &providerv1.PaymentSessionResponse_RavRequest{
-						RavRequest: &providerv1.RAVRequest{
-							CurrentRav: sidecar.HorizonSignedRAVToProto(currentRAV),
-							Usage:      usage,
-							Deadline:   uint64(time.Now().Add(30 * time.Second).Unix()),
-						},
-					},
-				})
-				return true, false
+		currentRAV := session.CurrentRAV
+		if currentRAV != nil {
+			usage := &commonv1.Usage{
+				BlocksProcessed:  blocks,
+				BytesTransferred: bytes,
+				Requests:         reqs,
+				Cost:             commonv1.GRTFromBigInt(deltaCost),
 			}
+
+			stream.Send(&providerv1.PaymentSessionResponse{
+				Message: &providerv1.PaymentSessionResponse_RavRequest{
+					RavRequest: &providerv1.RAVRequest{
+						CurrentRav: sidecar.HorizonSignedRAVToProto(currentRAV),
+						Usage:      usage,
+						Deadline:   uint64(time.Now().Add(30 * time.Second).Unix()),
+					},
+				},
+			})
+			return true, false
 		}
 	}
 

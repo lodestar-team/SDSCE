@@ -58,14 +58,15 @@ func TestPaymentFlowBasic(t *testing.T) {
 
 	// Create provider gateway
 	providerConfig := &providergateway.Config{
-		ListenAddr:        ":19001",
-		ServiceProvider:   env.ServiceProvider.Address,
-		Domain:            domain,
-		CollectorAddr:     env.Collector.Address,
-		EscrowAddr:        env.Escrow.Address,
-		RPCEndpoint:       env.RPCURL,
-		DataPlaneEndpoint: "substreams.provider.example:443",
-		TransportConfig:   sidecar.ServerTransportConfig{Plaintext: true},
+		ListenAddr:          ":19001",
+		ServiceProvider:     env.ServiceProvider.Address,
+		Domain:              domain,
+		CollectorAddr:       env.Collector.Address,
+		EscrowAddr:          env.Escrow.Address,
+		RPCEndpoint:         env.RPCURL,
+		RAVRequestThreshold: sds.NewGRTFromUint64(1),
+		DataPlaneEndpoint:   "substreams.provider.example:443",
+		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
 	}
 	providerGateway := providergateway.New(providerConfig, zlog.Named("provider"))
 	go providerGateway.Run()
@@ -177,7 +178,8 @@ func TestInit_CreatesFreshSessionWithoutResumeSemantics(t *testing.T) {
 			PricePerBlock: sds.NewGRTFromUint64(1),
 			PricePerByte:  sds.ZeroGRT(),
 		},
-		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
+		RAVRequestThreshold: sds.NewGRTFromUint64(1),
+		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("provider"))
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)

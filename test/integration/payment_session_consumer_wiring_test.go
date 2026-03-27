@@ -44,15 +44,16 @@ func TestConsumerSidecar_ReportUsage_WiresPaymentSessionLoop(t *testing.T) {
 	}
 
 	providerGateway := providergateway.New(&providergateway.Config{
-		ListenAddr:        ":19013",
-		ServiceProvider:   env.ServiceProvider.Address,
-		Domain:            domain,
-		CollectorAddr:     env.Collector.Address,
-		EscrowAddr:        env.Escrow.Address,
-		RPCEndpoint:       env.RPCURL,
-		PricingConfig:     pricingConfig,
-		DataPlaneEndpoint: "substreams.provider.example:443",
-		TransportConfig:   sidecar.ServerTransportConfig{Plaintext: true},
+		ListenAddr:          ":19013",
+		ServiceProvider:     env.ServiceProvider.Address,
+		Domain:              domain,
+		CollectorAddr:       env.Collector.Address,
+		EscrowAddr:          env.Escrow.Address,
+		RPCEndpoint:         env.RPCURL,
+		PricingConfig:       pricingConfig,
+		RAVRequestThreshold: sds.NewGRTFromUint64(1),
+		DataPlaneEndpoint:   "substreams.provider.example:443",
+		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("provider"))
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)

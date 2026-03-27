@@ -192,6 +192,19 @@ if err != nil {
 
 All repositories implement the `repository.GlobalRepository` interface defined in `provider/repository/repository.go`.
 
+### Persistence Boundary
+
+The current repository model is the provider runtime/session persistence layer.
+
+It persists:
+
+- sessions and workers
+- usage events and accumulated usage
+- quota/runtime coordination state
+- the latest accepted RAV snapshot associated with a session
+
+It does not yet define the provider collection lifecycle model for `collectible`, `collect_pending`, `collected`, or retryable collection state. That boundary is defined in [docs/provider-persistence-boundary.md](../docs/provider-persistence-boundary.md) and implemented by downstream MVP work rather than this repository overview.
+
 ### Backward Compatibility
 
 If no `--repository-dsn` flag is provided, the gateway defaults to `inmemory://`, maintaining backward compatibility with existing deployments.

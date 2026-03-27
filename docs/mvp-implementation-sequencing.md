@@ -133,8 +133,8 @@ Minimum prerequisites:
 
 Recommended sequence:
 
-1. `MVP-003` Define the durable provider-side payment and settlement data model
-2. `MVP-008` Add durable provider storage for accepted RAV, session state, and collection lifecycle state
+1. `MVP-003` Define and document the provider-side runtime persistence boundary and settlement lifecycle ownership
+2. `MVP-008` Add durable provider storage for sessions, usage, and latest accepted RAV runtime state
 3. `MVP-029` Implement provider collection lifecycle transitions and update surfaces for `collectible`, `collect_pending`, `collected`, and retryable collection state
 4. `MVP-009` Expose provider inspection and settlement-data retrieval APIs for accepted/collectible RAV state
 5. `MVP-022` Add authentication and authorization to provider admin/operator APIs
@@ -146,6 +146,7 @@ Recommended sequence:
 Notes:
 
 - `MVP-008` and `MVP-029` can begin in parallel once `MVP-003` and `MVP-027` are stable enough.
+- `MVP-003` should freeze the runtime-versus-settlement boundary before either downstream task broadens its scope.
 - `MVP-009` depends on `MVP-029`, so this part of the sequence is required by the backlog rather than just recommended.
 - `MVP-018` comes late because the current backlog explicitly ties it to operator runtime/low-funds inspection surfaces.
 
@@ -283,7 +284,7 @@ This section is interpretive guidance based on the assumptions register and depe
 - `MVP-005`
   - Can begin before `MVP-001` is fully closed if pricing authority remains clearly non-final in the API/implementation.
 - `MVP-003`
-  - Some schema design can begin while `MVP-027` is being narrowed, but it should not be treated as finalized until identity semantics are stable.
+  - Runtime-versus-settlement contract documentation can begin while identity semantics are being narrowed, but it should not be treated as final until those semantics are stable.
 - `MVP-024`
   - Can proceed in a reduced/basic form before `MVP-023` is fully closed.
 

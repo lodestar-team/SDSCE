@@ -90,7 +90,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | --- | --- | --- | --- | --- | --- | --- |
 | MVP-001 | `done` | protocol | `A2` | none | `A` | Freeze the oracle-authoritative MVP pricing contract across oracle, consumer, and provider flows |
 | MVP-002 | `done` | protocol | `A2`, `A3` | `MVP-033` | `A`, `B` | Freeze fresh-session init semantics and provider-returned data-plane endpoint behavior |
-| MVP-003 | `in_progress` | protocol | `A3`, `A6` | `MVP-027` | `D`, `F` | Define and document the provider-side runtime persistence model and its boundary with settlement lifecycle tracking |
+| MVP-003 | `done` | protocol | `A3`, `A6` | `MVP-027` | `D`, `F` | Define and document the provider-side runtime persistence model and its boundary with settlement lifecycle tracking |
 | MVP-004 | `done` | protocol | `A2`, `A3` | none | `A`, `C` | Define and document the real runtime payment contract used by the public payment gateway, private plugin gateway, and consumer/provider payment loop |
 | MVP-005 | `not_started` | oracle | `A1`, `A2`, `A5` | `MVP-033` | `A` | Implement a standalone oracle service with manual whitelist, canonical pricing, recommended-provider response, and control-plane endpoint return |
 | MVP-006 | `not_started` | oracle | `A5` | `MVP-028` | `A`, `G` | Add authenticated oracle administration for whitelist and provider metadata management |
@@ -176,7 +176,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - Verify:
     - Review [docs/mvp-scope.md](../docs/mvp-scope.md) and confirm the reconnect scenario and major decisions table match this rule.
 
-- [ ] MVP-003 Define and document the provider-side runtime persistence model and its boundary with settlement lifecycle tracking.
+- [x] MVP-003 Define and document the provider-side runtime persistence model and its boundary with settlement lifecycle tracking.
   - Context:
     - StreamingFast landed the shared repository model, PostgreSQL schema, and DSN-backed repository instantiation.
     - The remaining work is to make the runtime-versus-settlement boundary explicit in the MVP backlog and docs.
@@ -188,7 +188,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - The provider-side durable model is described in terms of sessions, workers, usage, current accepted RAV state, and separate collection lifecycle tracking.
     - Downstream tasks no longer assume reconnect-driven reuse semantics.
   - Verify:
-    - Review [provider/repository/repository.go](../provider/repository/repository.go) and [provider/gateway/REPOSITORY.md](../provider/gateway/REPOSITORY.md) against backlog task wording.
+    - Review [docs/provider-persistence-boundary.md](../docs/provider-persistence-boundary.md), [provider/repository/repository.go](../provider/repository/repository.go), and [provider/gateway/REPOSITORY.md](../provider/gateway/REPOSITORY.md) against backlog task wording.
 
 - [x] MVP-004 Define and document the real runtime payment contract used by the public payment gateway, private plugin gateway, and consumer/provider payment loop.
   - Context:

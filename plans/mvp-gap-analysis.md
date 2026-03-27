@@ -179,12 +179,14 @@ Current state:
 - PostgreSQL repository support exists
 - the provider gateway can instantiate repositories via DSN
 - migrations and repository tests exist
+- the current durable model already covers runtime/session state plus the latest accepted RAV snapshot for a session
 
 Evidence:
 
 - `provider/gateway/repository.go`
 - `provider/repository/psql/`
 - `provider/gateway/REPOSITORY.md`
+- `docs/provider-persistence-boundary.md`
 
 What is still missing for MVP:
 
@@ -194,6 +196,7 @@ What is still missing for MVP:
 
 Notes:
 
+- `MVP-003` now freezes the boundary between runtime/session persistence and later settlement lifecycle tracking so `MVP-008` and `MVP-029` do not overlap semantically.
 - Repository validation is now portable across checkout paths because PostgreSQL test migrations resolve from repo-local state rather than a machine-specific absolute path.
 
 ### Consumer Data-Plane Compatibility

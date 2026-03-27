@@ -209,7 +209,7 @@ That is a materially larger distributed-state problem than the session-local MVP
   - chain/network eligibility
 - Returns eligible providers plus one recommended provider
 - Returns the selected provider control-plane endpoint, not the final streaming endpoint
-- Administrative/governance actions require authentication
+- Whitelist/provider metadata governance is admin/council-only for MVP and may remain deployment-managed internal config rather than a public management API
 
 ### Consumer Sidecar
 
@@ -265,12 +265,17 @@ That is a materially larger distributed-state problem than the session-local MVP
 - TLS enabled by default for non-dev usage
 - Plaintext allowed only for local/dev/demo workflows
 - Authenticated admin/operator actions for:
-  - oracle management
   - provider inspection
   - collection-data retrieval
+- Oracle whitelist/provider metadata changes are admin/council-only for MVP and may remain internal deployment/config workflows
+- Protected provider operator/admin APIs use `Authorization: Bearer <token>`
+- MVP roles are:
+  - `operator.read` for inspection and retrieval
+  - `admin.write` for mutating operator/admin actions
+- `admin.write` also satisfies `operator.read`
 - Public vs private provider services may be separated for security and operational reasons
 - That public/private split is not the main consumer-facing architecture contract
-- Final auth mechanism remains an implementation choice
+- If a public oracle admin API is added later, it should reuse the same bearer-token role contract
 
 ### Observability
 
@@ -372,11 +377,11 @@ The scenarios below are the primary definition of done for the MVP.
 ## Open Questions
 
 - Should simple observability for MVP include metrics endpoints, or are structured logs plus inspection/status tooling sufficient?
-- What exact authentication mechanism should protect provider and oracle admin/operator surfaces?
 
 ## References
 
 - `plans/mvp-gap-analysis.md`
 - `plans/mvp-implementation-backlog.md`
+- `docs/operator-auth.md`
 - `docs/mvp-implementation-sequencing.md`
 - `README.md`

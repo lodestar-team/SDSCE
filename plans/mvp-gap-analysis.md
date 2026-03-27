@@ -172,7 +172,7 @@ What MVP requires:
 - canonical pricing for the curated provider set
 - eligible provider set plus recommended provider response
 - selected provider control-plane endpoint return
-- authenticated admin/governance actions
+- admin/council-only whitelist/provider metadata governance, which may remain deployment-managed internal config for MVP
 
 ### Provider Persistence
 
@@ -379,14 +379,13 @@ The gap analysis and the backlog now agree that:
 
 - pricing authority is resolved for MVP
 - reconnect/payment-session reuse is not an MVP target
-- the remaining open questions are observability and auth only
+- the remaining open question is observability
 
 ## Open Questions Carrying Risk
 
 These are no longer architecture-blocking for the main SDS flow, but they do still block clean closure of the security/admin and observability parts of MVP.
 
 - metrics endpoints vs logs-plus-status-only for MVP observability
-- exact admin/operator authentication mechanism
 
 ## Recommended Usage
 

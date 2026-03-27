@@ -58,8 +58,8 @@ The grouping is recommended because these tasks have broad downstream impact. It
   - Blocks most runtime payment, provider integration, and client integration work.
 - `MVP-027` Freeze canonical payment identity, `collection_id` reuse, and session-vs-payment keying semantics
   - Blocks reconnect, provider state, settlement lifecycle, and operator retrieval/collection work.
-- `MVP-028` Define the MVP authentication and authorization contract for oracle and provider operator surfaces
-  - Blocks authenticated admin/operator implementation for oracle and provider APIs.
+- `MVP-028` Define the MVP authentication and authorization contract for provider operator APIs and future oracle admin surfaces
+  - Blocks authenticated provider operator/admin implementation and any future public oracle admin API.
 
 ### Soft Blockers
 
@@ -195,7 +195,7 @@ Minimum prerequisites:
 Recommended sequence:
 
 1. `MVP-021` Make TLS the default non-dev runtime posture for oracle, sidecar, and provider integration paths
-2. `MVP-006` Add authenticated oracle administration for whitelist and provider metadata management
+2. `MVP-006` Add admin-only oracle whitelist/provider metadata management workflow for the curated MVP provider set
 3. `MVP-022` Add authentication and authorization to provider admin/operator APIs
 4. `MVP-030` Add runtime compatibility and preflight checks for real provider/plugin deployments
 
@@ -230,7 +230,6 @@ It is a recommended rollout sequence, not a canonical priority order embedded in
 
 ### Phase 0: Resolve Or Narrow Shared Contracts
 
-- `MVP-028`
 - `MVP-023`
 
 Already resolved:
@@ -241,6 +240,7 @@ Already resolved:
 - `MVP-004`
 - `MVP-010`
 - `MVP-012`
+- `MVP-028`
 - `MVP-027`
 - `MVP-033`
 

@@ -93,7 +93,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-003 | `done` | protocol | `A3`, `A6` | `MVP-027` | `D`, `F` | Define and document the provider-side runtime persistence model and its boundary with settlement lifecycle tracking |
 | MVP-004 | `done` | protocol | `A2`, `A3` | none | `A`, `C` | Define and document the real runtime payment contract used by the public payment gateway, private plugin gateway, and consumer/provider payment loop |
 | MVP-005 | `not_started` | oracle | `A1`, `A2`, `A5` | `MVP-033` | `A` | Implement a standalone oracle service with manual whitelist, canonical pricing, recommended-provider response, and control-plane endpoint return |
-| MVP-006 | `not_started` | oracle | `A5` | `MVP-028` | `A`, `G` | Add authenticated oracle administration for whitelist and provider metadata management |
+| MVP-006 | `not_started` | oracle | `A5` | `MVP-028` | `A`, `G` | Add admin-only oracle whitelist/provider metadata management workflow for the curated MVP provider set |
 | MVP-007 | `not_started` | consumer | `A1`, `A2`, `A3` | `MVP-005`, `MVP-033` | `A` | Integrate consumer sidecar with oracle discovery while preserving direct-provider fallback and provider-returned data-plane resolution |
 | MVP-008 | `in_progress` | provider-state | `A3`, `A6` | `MVP-003` | `D`, `F` | Complete durable provider runtime storage for sessions, usage, and accepted RAV state, distinct from collection lifecycle tracking |
 | MVP-009 | `not_started` | provider-state | `A3`, `A5` | `MVP-003`, `MVP-022`, `MVP-029` | `D`, `F` | Expose provider inspection and settlement-data retrieval APIs for accepted and collectible RAV state |
@@ -109,13 +109,13 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-019 | `not_started` | tooling | `A5` | `MVP-009`, `MVP-022` | `D`, `F` | Implement provider inspection CLI flows for accepted and collectible RAV data |
 | MVP-020 | `not_started` | tooling | `A5` | `MVP-009`, `MVP-022`, `MVP-029` | `F` | Implement manual collection CLI flow that fetches provider settlement state and crafts/signs/submits collect transactions locally |
 | MVP-021 | `not_started` | security | `A5` | none | `G` | Make TLS the default non-dev runtime posture for oracle, sidecar, and provider integration paths |
-| MVP-022 | `not_started` | security | `A5` | `MVP-009`, `MVP-028` | `D`, `F`, `G` | Add authentication and authorization to provider admin/operator APIs |
+| MVP-022 | `not_started` | security | `A5` | `MVP-009`, `MVP-028` | `D`, `F`, `G` | Add authentication and authorization to provider admin/operator APIs using the shared bearer-token role contract from MVP-028 |
 | MVP-023 | `open_question` | observability | `A4` | none | `A`, `C`, `D`, `F`, `G` | Define the final MVP observability floor beyond structured logs and status tooling |
 | MVP-024 | `not_started` | observability | `A4` | `MVP-023` | `C`, `D`, `F`, `G` | Implement basic operator-facing inspection/status surfaces and log correlation |
 | MVP-025 | `in_progress` | validation | none | none | `A`, `B`, `C`, `D`, `E`, `F`, `G` | Add MVP acceptance coverage for the primary end-to-end scenarios in docs/tests/manual verification |
 | MVP-026 | `in_progress` | docs | `A1`, `A4`, `A5` | `MVP-023`, `MVP-028`, `MVP-033` | `A`, `B`, `C`, `D`, `E`, `F`, `G` | Refresh protocol/runtime docs so they match the revised MVP architecture and remaining open questions |
 | MVP-027 | `done` | protocol | `A3` | none | `B`, `D`, `F` | Freeze MVP payment/session identity semantics for fresh sessions and non-reused collection/payment lineage |
-| MVP-028 | `open_question` | security | `A5` | none | `G` | Define the MVP authentication and authorization contract for oracle and provider operator surfaces |
+| MVP-028 | `done` | security | `A5` | none | `G` | Define the MVP authentication and authorization contract for provider operator APIs and future oracle admin surfaces |
 | MVP-029 | `not_started` | provider-state | `A3`, `A5` | `MVP-003`, `MVP-022` | `D`, `F` | Implement provider collection lifecycle transitions and update surfaces for `collectible`, `collect_pending`, `collected`, and retryable collection state |
 | MVP-030 | `in_progress` | provider-integration | `A5` | `MVP-014`, `MVP-017` | `A`, `G` | Add runtime compatibility and preflight checks for real provider/plugin deployments |
 | MVP-031 | `not_started` | runtime-payment | `A2`, `A3` | `MVP-004`, `MVP-012`, `MVP-014`, `MVP-017` | `A`, `C` | Wire the long-lived payment-control loop behind the consumer-sidecar ingress path used by real runtime traffic |
@@ -229,16 +229,18 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - Verify:
     - Add tests for whitelist lookup, response validation, and deterministic recommendation behavior.
 
-- [ ] MVP-006 Add authenticated oracle administration for whitelist and provider metadata management.
+- [ ] MVP-006 Add admin-only oracle whitelist/provider metadata management workflow for the curated MVP provider set.
   - Context:
-    - Oracle governance actions must require authentication in MVP.
+    - Oracle governance must not rely on a public writable surface in MVP.
+    - The curated whitelist is temporary MVP machinery and may remain deployment-managed internal config.
   - Assumptions:
     - `A5`
   - Done when:
-    - Oracle whitelist/provider metadata changes require authenticated operator access.
-    - The implementation does not rely on an open admin surface.
+    - Oracle whitelist/provider metadata changes are restricted to admins/council.
+    - MVP does not require a public oracle management API.
+    - If a public oracle admin API is added, it reuses the bearer-token role contract defined by MVP-028.
   - Verify:
-    - Add tests for unauthenticated rejection and authenticated success on admin actions.
+    - Document the supported admin workflow and confirm the oracle does not rely on an open writable management surface.
 
 ## Consumer Tasks
 
@@ -465,17 +467,18 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 
 ## Security, Runtime Compatibility, and Observability Tasks
 
-- [ ] MVP-028 Define the MVP authentication and authorization contract for oracle and provider operator surfaces.
+- [x] MVP-028 Define the MVP authentication and authorization contract for provider operator APIs and future oracle admin surfaces.
   - Context:
-    - The only real architecture-level open questions still left in scope are authn/authz and observability depth.
+    - The remaining architecture-level open question after this task is observability depth.
   - Assumptions:
     - `A5`
   - Done when:
-    - The repo documents the MVP authn/authz approach for oracle and provider operator/admin surfaces.
-    - It is clear which endpoints/actions require operator privileges and which credentials satisfy that requirement.
-    - MVP-006 and MVP-022 can implement the same contract rather than inventing separate security behavior.
+    - The repo documents the MVP authn/authz approach for provider operator/admin surfaces.
+    - It is clear which provider endpoints/actions require operator privileges and which credentials satisfy that requirement.
+    - The oracle whitelist/provider metadata workflow is explicitly treated as admin/council-only internal governance for MVP rather than requiring a public management API.
+    - MVP-022 and any future public oracle admin API can reuse the same contract rather than inventing separate security behavior.
   - Verify:
-    - Confirm oracle and provider admin task definitions point to the same auth contract.
+    - Confirm provider admin tasks and any future public oracle admin API point to the same bearer-token role contract.
 
 - [ ] MVP-021 Make TLS the default non-dev runtime posture for oracle, sidecar, and provider integration paths.
   - Context:
@@ -495,7 +498,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - Assumptions:
     - `A5`
   - Done when:
-    - Provider inspection and settlement-retrieval APIs require authentication and authorization according to the shared MVP contract.
+    - Provider inspection and settlement-retrieval APIs require authentication and authorization according to the shared bearer-token role contract from MVP-028.
     - The implementation rejects unauthenticated or unauthorized access to operator-only provider actions.
   - Verify:
     - Add tests for authenticated success and unauthenticated rejection.
@@ -604,7 +607,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - `A5`
   - Done when:
     - The repo documentation reflects the revised MVP architecture rather than the older reconnect/pricing assumptions.
-    - Remaining open questions are limited to auth and observability rather than already-resolved scope decisions.
+    - Remaining open questions are limited to observability rather than already-resolved scope decisions.
     - Docs that describe provider runtime shape match the current public Payment Gateway plus private Plugin Gateway model.
   - Verify:
     - Review the updated docs against [docs/mvp-scope.md](../docs/mvp-scope.md) and confirm there are no major contradictions.

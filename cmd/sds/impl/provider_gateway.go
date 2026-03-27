@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/graphprotocol/substreams-data-service/horizon"
@@ -74,6 +75,7 @@ var ProviderGatewayCommand = Command(
 		flags.String("collector-address", "", "Collector contract address for EIP-712 domain (required)")
 		flags.String("escrow-address", "", "PaymentsEscrow contract address for balance queries (required)")
 		flags.String("rpc-endpoint", "", "Ethereum RPC endpoint for on-chain queries (required)")
+		flags.String("data-plane-endpoint", "", "Session-specific Substreams data-plane endpoint advertised by the provider handshake (required)")
 		flags.String("pricing-config", "", "Path to pricing configuration YAML file (uses defaults if not provided)")
 		flags.Bool("plaintext", false, "Serve plaintext h2c instead of TLS (local/demo only)")
 		flags.String("tls-cert-file", "", "Path to the TLS certificate PEM file")
@@ -97,10 +99,15 @@ func StartProviderGateway(
 	collectorAddr eth.Address,
 	escrowAddr eth.Address,
 	rpcEndpoint string,
+	dataPlaneEndpoint string,
 	repositoryDSN string,
 	transportConfig sidecarlib.ServerTransportConfig,
 	pricingConfig *sidecarlib.PricingConfig,
 ) (*ProviderGateways, error) {
+	if dataPlaneEndpoint == "" {
+		return nil, fmt.Errorf("<data-plane-endpoint> is required")
+	}
+
 	// Create repository from DSN (shared between both gateways)
 	repo, err := gateway.NewRepositoryFromDSN(ctx, repositoryDSN, providerLog)
 	if err != nil {
@@ -111,15 +118,16 @@ func StartProviderGateway(
 
 	// Create Payment Gateway
 	paymentConfig := &gateway.Config{
-		ListenAddr:      paymentListenAddr,
-		ServiceProvider: serviceProviderAddr,
-		Domain:          domain,
-		CollectorAddr:   collectorAddr,
-		EscrowAddr:      escrowAddr,
-		RPCEndpoint:     rpcEndpoint,
-		PricingConfig:   pricingConfig,
-		Repository:      repo,
-		TransportConfig: transportConfig,
+		ListenAddr:        paymentListenAddr,
+		ServiceProvider:   serviceProviderAddr,
+		Domain:            domain,
+		CollectorAddr:     collectorAddr,
+		EscrowAddr:        escrowAddr,
+		RPCEndpoint:       rpcEndpoint,
+		PricingConfig:     pricingConfig,
+		DataPlaneEndpoint: dataPlaneEndpoint,
+		Repository:        repo,
+		TransportConfig:   transportConfig,
 	}
 
 	paymentGateway := gateway.New(paymentConfig, providerLog)
@@ -160,6 +168,7 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 	collectorHex := sflags.MustGetString(cmd, "collector-address")
 	escrowHex := sflags.MustGetString(cmd, "escrow-address")
 	rpcEndpoint := sflags.MustGetString(cmd, "rpc-endpoint")
+	dataPlaneEndpoint := sflags.MustGetString(cmd, "data-plane-endpoint")
 	pricingConfigPath := sflags.MustGetString(cmd, "pricing-config")
 	plaintext := sflags.MustGetBool(cmd, "plaintext")
 	tlsCertFile := sflags.MustGetString(cmd, "tls-cert-file")
@@ -179,6 +188,7 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 	cli.NoError(err, "invalid <escrow-address> %q", escrowHex)
 
 	cli.Ensure(rpcEndpoint != "", "<rpc-endpoint> is required")
+	cli.Ensure(dataPlaneEndpoint != "", "<data-plane-endpoint> is required")
 
 	transportConfig := sidecarlib.ServerTransportConfig{
 		Plaintext:   plaintext,
@@ -204,15 +214,16 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 
 	// Create Payment Gateway
 	paymentConfig := &gateway.Config{
-		ListenAddr:      paymentListenAddr,
-		ServiceProvider: serviceProviderAddr,
-		Domain:          domain,
-		CollectorAddr:   collectorAddr,
-		EscrowAddr:      escrowAddr,
-		RPCEndpoint:     rpcEndpoint,
-		PricingConfig:   pricingConfig,
-		TransportConfig: transportConfig,
-		Repository:      repo,
+		ListenAddr:        paymentListenAddr,
+		ServiceProvider:   serviceProviderAddr,
+		Domain:            domain,
+		CollectorAddr:     collectorAddr,
+		EscrowAddr:        escrowAddr,
+		RPCEndpoint:       rpcEndpoint,
+		PricingConfig:     pricingConfig,
+		DataPlaneEndpoint: dataPlaneEndpoint,
+		TransportConfig:   transportConfig,
+		Repository:        repo,
 	}
 
 	paymentGateway := gateway.New(paymentConfig, providerLog)

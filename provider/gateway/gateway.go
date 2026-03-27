@@ -53,8 +53,9 @@ type Gateway struct {
 	collectorQuerier sidecar.CollectorAuthorizer
 
 	// Pricing configuration
-	pricingConfig   *sidecar.PricingConfig
-	transportConfig sidecar.ServerTransportConfig
+	pricingConfig     *sidecar.PricingConfig
+	dataPlaneEndpoint string
+	transportConfig   sidecar.ServerTransportConfig
 
 	authCache *haxmap.Map[string, authCacheEntry]
 
@@ -63,14 +64,15 @@ type Gateway struct {
 }
 
 type Config struct {
-	ListenAddr      string
-	ServiceProvider eth.Address
-	Domain          *horizon.Domain
-	CollectorAddr   eth.Address
-	EscrowAddr      eth.Address
-	RPCEndpoint     string
-	PricingConfig   *sidecar.PricingConfig
-	TransportConfig sidecar.ServerTransportConfig
+	ListenAddr        string
+	ServiceProvider   eth.Address
+	Domain            *horizon.Domain
+	CollectorAddr     eth.Address
+	EscrowAddr        eth.Address
+	RPCEndpoint       string
+	PricingConfig     *sidecar.PricingConfig
+	DataPlaneEndpoint string
+	TransportConfig   sidecar.ServerTransportConfig
 
 	// Repository provides session/usage state storage.
 	// If nil, an in-memory repository is created.
@@ -106,19 +108,20 @@ func New(config *Config, logger *zap.Logger) *Gateway {
 	}
 
 	return &Gateway{
-		Shutter:          shutter.New(),
-		listenAddr:       config.ListenAddr,
-		logger:           logger,
-		serviceProvider:  config.ServiceProvider,
-		domain:           config.Domain,
-		collectorAddr:    config.CollectorAddr,
-		escrowAddr:       config.EscrowAddr,
-		escrowQuerier:    escrowQuerier,
-		collectorQuerier: collectorQuerier,
-		pricingConfig:    pricingConfig,
-		transportConfig:  config.TransportConfig,
-		authCache:        haxmap.New[string, authCacheEntry](),
-		repo:             repo,
+		Shutter:           shutter.New(),
+		listenAddr:        config.ListenAddr,
+		logger:            logger,
+		serviceProvider:   config.ServiceProvider,
+		domain:            config.Domain,
+		collectorAddr:     config.CollectorAddr,
+		escrowAddr:        config.EscrowAddr,
+		escrowQuerier:     escrowQuerier,
+		collectorQuerier:  collectorQuerier,
+		pricingConfig:     pricingConfig,
+		dataPlaneEndpoint: config.DataPlaneEndpoint,
+		transportConfig:   config.TransportConfig,
+		authCache:         haxmap.New[string, authCacheEntry](),
+		repo:              repo,
 	}
 }
 

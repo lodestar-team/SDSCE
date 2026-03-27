@@ -38,13 +38,14 @@ func TestPaymentGateway_OnChainAuthorization(t *testing.T) {
 	domain := env.Domain()
 
 	providerConfig := &providergateway.Config{
-		ListenAddr:      ":19005",
-		ServiceProvider: env.ServiceProvider.Address,
-		Domain:          domain,
-		CollectorAddr:   env.Collector.Address,
-		EscrowAddr:      env.Escrow.Address,
-		RPCEndpoint:     env.RPCURL,
-		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
+		ListenAddr:        ":19005",
+		ServiceProvider:   env.ServiceProvider.Address,
+		Domain:            domain,
+		CollectorAddr:     env.Collector.Address,
+		EscrowAddr:        env.Escrow.Address,
+		RPCEndpoint:       env.RPCURL,
+		DataPlaneEndpoint: "substreams.provider.example:443",
+		TransportConfig:   sidecar.ServerTransportConfig{Plaintext: true},
 	}
 	providerGateway := providergateway.New(providerConfig, zlog.Named("provider"))
 	go providerGateway.Run()

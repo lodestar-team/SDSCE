@@ -38,13 +38,14 @@ func TestPaymentSession_BindsToSessionID(t *testing.T) {
 	domain := env.Domain()
 
 	providerConfig := &providergateway.Config{
-		ListenAddr:      ":19006",
-		ServiceProvider: env.ServiceProvider.Address,
-		Domain:          domain,
-		CollectorAddr:   env.Collector.Address,
-		EscrowAddr:      env.Escrow.Address,
-		RPCEndpoint:     env.RPCURL,
-		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
+		ListenAddr:        ":19006",
+		ServiceProvider:   env.ServiceProvider.Address,
+		Domain:            domain,
+		CollectorAddr:     env.Collector.Address,
+		EscrowAddr:        env.Escrow.Address,
+		RPCEndpoint:       env.RPCURL,
+		DataPlaneEndpoint: "substreams.provider.example:443",
+		TransportConfig:   sidecar.ServerTransportConfig{Plaintext: true},
 	}
 	providerGateway := providergateway.New(providerConfig, zlog.Named("provider"))
 	go providerGateway.Run()
@@ -83,6 +84,7 @@ func TestPaymentSession_BindsToSessionID(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, startResp.Msg.Accepted, "expected StartSession accepted: %s", startResp.Msg.RejectionReason)
 	require.NotEmpty(t, startResp.Msg.SessionId)
+	require.Equal(t, "substreams.provider.example:443", startResp.Msg.GetDataPlaneEndpoint())
 
 	// Missing session_id should fail with InvalidArgument.
 	streamBad := gatewayClient.PaymentSession(ctx)

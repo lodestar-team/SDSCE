@@ -45,14 +45,15 @@ func TestPaymentSession_ProviderRequestsRAVOnUsage(t *testing.T) {
 	}
 
 	providerConfig := &providergateway.Config{
-		ListenAddr:      ":19007",
-		ServiceProvider: env.ServiceProvider.Address,
-		Domain:          domain,
-		CollectorAddr:   env.Collector.Address,
-		EscrowAddr:      env.Escrow.Address,
-		RPCEndpoint:     env.RPCURL,
-		PricingConfig:   pricingConfig,
-		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
+		ListenAddr:        ":19007",
+		ServiceProvider:   env.ServiceProvider.Address,
+		Domain:            domain,
+		CollectorAddr:     env.Collector.Address,
+		EscrowAddr:        env.Escrow.Address,
+		RPCEndpoint:       env.RPCURL,
+		PricingConfig:     pricingConfig,
+		DataPlaneEndpoint: "substreams.provider.example:443",
+		TransportConfig:   sidecar.ServerTransportConfig{Plaintext: true},
 	}
 	providerGateway := providergateway.New(providerConfig, zlog.Named("provider"))
 	go providerGateway.Run()
@@ -92,6 +93,7 @@ func TestPaymentSession_ProviderRequestsRAVOnUsage(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, startResp.Msg.Accepted)
 	require.NotEmpty(t, startResp.Msg.SessionId)
+	require.Equal(t, "substreams.provider.example:443", startResp.Msg.GetDataPlaneEndpoint())
 
 	stream := gatewayClient.PaymentSession(ctx)
 

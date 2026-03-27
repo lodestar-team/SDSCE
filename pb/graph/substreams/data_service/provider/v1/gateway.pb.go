@@ -241,10 +241,13 @@ type StartSessionResponse struct {
 	Accepted bool `protobuf:"varint,3,opt,name=accepted,proto3" json:"accepted,omitempty"`
 	// If not accepted, the reason for rejection
 	RejectionReason string `protobuf:"bytes,4,opt,name=rejection_reason,json=rejectionReason,proto3" json:"rejection_reason,omitempty"`
-	// The provider's pricing configuration for this session
+	// The provider's pricing configuration for this session.
+	// For MVP this is confirmatory/observational only, not a negotiation surface.
 	PricingConfig *v1.PricingConfig `protobuf:"bytes,5,opt,name=pricing_config,json=pricingConfig,proto3" json:"pricing_config,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// The session-specific data-plane endpoint for Substreams traffic.
+	DataPlaneEndpoint string `protobuf:"bytes,6,opt,name=data_plane_endpoint,json=dataPlaneEndpoint,proto3" json:"data_plane_endpoint,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *StartSessionResponse) Reset() {
@@ -310,6 +313,13 @@ func (x *StartSessionResponse) GetPricingConfig() *v1.PricingConfig {
 		return x.PricingConfig
 	}
 	return nil
+}
+
+func (x *StartSessionResponse) GetDataPlaneEndpoint() string {
+	if x != nil {
+		return x.DataPlaneEndpoint
+	}
+	return ""
 }
 
 type SubmitRAVRequest struct {
@@ -1007,14 +1017,15 @@ const file_graph_substreams_data_service_provider_v1_gateway_proto_rawDesc = "" 
 	"\x13StartSessionRequest\x12]\n" +
 	"\x0eescrow_account\x18\x01 \x01(\v26.graph.substreams.data_service.common.v1.EscrowAccountR\rescrowAccount\x12S\n" +
 	"\vinitial_rav\x18\x02 \x01(\v22.graph.substreams.data_service.common.v1.SignedRAVR\n" +
-	"initialRav\"\xa8\x02\n" +
+	"initialRav\"\xd8\x02\n" +
 	"\x14StartSessionResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12K\n" +
 	"\ause_rav\x18\x02 \x01(\v22.graph.substreams.data_service.common.v1.SignedRAVR\x06useRav\x12\x1a\n" +
 	"\baccepted\x18\x03 \x01(\bR\baccepted\x12)\n" +
 	"\x10rejection_reason\x18\x04 \x01(\tR\x0frejectionReason\x12]\n" +
-	"\x0epricing_config\x18\x05 \x01(\v26.graph.substreams.data_service.common.v1.PricingConfigR\rpricingConfig\"\xca\x01\n" +
+	"\x0epricing_config\x18\x05 \x01(\v26.graph.substreams.data_service.common.v1.PricingConfigR\rpricingConfig\x12.\n" +
+	"\x13data_plane_endpoint\x18\x06 \x01(\tR\x11dataPlaneEndpoint\"\xca\x01\n" +
 	"\x10SubmitRAVRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12Q\n" +

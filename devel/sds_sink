@@ -12,7 +12,7 @@ main() {
     --receiver-address=0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
     --data-service-address=0x37478fd2f5845e3664fe4155d74c00e1a4e7a5e2 \
     --endpoint=localhost:10016 --insecure \
-    --gateway-endpoint="http://localhost:9001" \
+    --provider-control-plane-endpoint="http://localhost:9001" \
     "$@"
 }
 

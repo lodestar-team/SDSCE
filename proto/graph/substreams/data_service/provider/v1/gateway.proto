@@ -56,8 +56,11 @@ message StartSessionResponse {
   bool accepted = 3;
   // If not accepted, the reason for rejection
   string rejection_reason = 4;
-  // The provider's pricing configuration for this session
+  // The provider's pricing configuration for this session.
+  // For MVP this is confirmatory/observational only, not a negotiation surface.
   common.v1.PricingConfig pricing_config = 5;
+  // The session-specific data-plane endpoint for Substreams traffic.
+  string data_plane_endpoint = 6;
 }
 
 message SubmitRAVRequest {

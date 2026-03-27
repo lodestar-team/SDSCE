@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/streamingfast/eth-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -59,13 +58,14 @@ func TestPaymentFlowBasic(t *testing.T) {
 
 	// Create provider gateway
 	providerConfig := &providergateway.Config{
-		ListenAddr:      ":19001",
-		ServiceProvider: env.ServiceProvider.Address,
-		Domain:          domain,
-		CollectorAddr:   env.Collector.Address,
-		EscrowAddr:      env.Escrow.Address,
-		RPCEndpoint:     env.RPCURL,
-		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
+		ListenAddr:        ":19001",
+		ServiceProvider:   env.ServiceProvider.Address,
+		Domain:            domain,
+		CollectorAddr:     env.Collector.Address,
+		EscrowAddr:        env.Escrow.Address,
+		RPCEndpoint:       env.RPCURL,
+		DataPlaneEndpoint: "substreams.provider.example:443",
+		TransportConfig:   sidecar.ServerTransportConfig{Plaintext: true},
 	}
 	providerGateway := providergateway.New(providerConfig, zlog.Named("provider"))
 	go providerGateway.Run()
@@ -86,12 +86,13 @@ func TestPaymentFlowBasic(t *testing.T) {
 			Receiver:    commonv1.AddressFromEth(env.ServiceProvider.Address),
 			DataService: commonv1.AddressFromEth(env.DataService.Address),
 		},
-		GatewayEndpoint: "http://localhost:19001",
+		ProviderControlPlaneEndpoint: "http://localhost:19001",
 	}
 	initResp, err := consumerClient.Init(ctx, connect.NewRequest(initReq))
 	require.NoError(t, err, "consumer Init failed")
 	require.NotNil(t, initResp.Msg.PaymentRav, "expected payment RAV")
 	require.NotEmpty(t, initResp.Msg.Session.SessionId, "expected session ID")
+	require.Equal(t, "substreams.provider.example:443", initResp.Msg.GetDataPlaneEndpoint())
 
 	consumerSessionID := initResp.Msg.Session.SessionId
 	t.Logf("Consumer session created: %s", consumerSessionID)
@@ -139,7 +140,7 @@ func TestPaymentFlowBasic(t *testing.T) {
 	t.Log("Payment flow test completed successfully!")
 }
 
-func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
+func TestInit_CreatesFreshSessionWithoutResumeSemantics(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -165,12 +166,13 @@ func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // Wait for server to start
 
 	providerGateway := providergateway.New(&providergateway.Config{
-		ListenAddr:      ":19009",
-		ServiceProvider: env.ServiceProvider.Address,
-		Domain:          domain,
-		CollectorAddr:   env.Collector.Address,
-		EscrowAddr:      env.Escrow.Address,
-		RPCEndpoint:     env.RPCURL,
+		ListenAddr:        ":19009",
+		ServiceProvider:   env.ServiceProvider.Address,
+		Domain:            domain,
+		CollectorAddr:     env.Collector.Address,
+		EscrowAddr:        env.Escrow.Address,
+		RPCEndpoint:       env.RPCURL,
+		DataPlaneEndpoint: "substreams.provider.example:443",
 		PricingConfig: &sidecar.PricingConfig{
 			PricePerBlock: sds.NewGRTFromUint64(1),
 			PricePerByte:  sds.ZeroGRT(),
@@ -190,12 +192,13 @@ func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
 	}
 
 	initResp, err := consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{
-		EscrowAccount:   escrowAccount,
-		GatewayEndpoint: "http://localhost:19009",
+		EscrowAccount:                escrowAccount,
+		ProviderControlPlaneEndpoint: "http://localhost:19009",
 	}))
 	require.NoError(t, err, "consumer Init failed")
 	require.NotNil(t, initResp.Msg.PaymentRav)
 	require.NotEmpty(t, initResp.Msg.Session.GetSessionId())
+	require.Equal(t, "substreams.provider.example:443", initResp.Msg.GetDataPlaneEndpoint())
 
 	reportResp, err := consumerClient.ReportUsage(ctx, connect.NewRequest(&consumerv1.ReportUsageRequest{
 		SessionId: initResp.Msg.Session.GetSessionId(),
@@ -210,31 +213,56 @@ func TestInit_ExistingRAV_ResumesPaymentState(t *testing.T) {
 	require.NotNil(t, reportResp.Msg.GetUpdatedRav())
 	require.NotNil(t, reportResp.Msg.GetUpdatedRav().GetRav())
 
-	existingRAV := reportResp.Msg.GetUpdatedRav()
-	existingValue := existingRAV.GetRav().GetValueAggregate().ToBigInt()
-	require.Equal(t, 0, existingValue.Cmp(big.NewInt(1)))
+	firstValue := reportResp.Msg.GetUpdatedRav().GetRav().GetValueAggregate().ToBigInt()
+	require.Equal(t, 0, firstValue.Cmp(big.NewInt(1)))
 
-	// Resume by calling Init(existing_rav=...) and assert the returned payment_rav matches the existing state.
+	// A later Init creates a fresh payment session instead of resuming prior payment lineage.
 	initResp2, err := consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{
-		EscrowAccount:   escrowAccount,
-		GatewayEndpoint: "http://localhost:19009",
-		ExistingRav:     existingRAV,
+		EscrowAccount:                escrowAccount,
+		ProviderControlPlaneEndpoint: "http://localhost:19009",
 	}))
-	require.NoError(t, err, "consumer Init(existing_rav) failed")
+	require.NoError(t, err, "consumer Init failed")
 	require.NotNil(t, initResp2.Msg.GetPaymentRav())
 	require.NotNil(t, initResp2.Msg.GetPaymentRav().GetRav())
+	require.NotEmpty(t, initResp2.Msg.GetSession().GetSessionId())
+	require.NotEqual(t, initResp.Msg.GetSession().GetSessionId(), initResp2.Msg.GetSession().GetSessionId())
+	require.Equal(t, "substreams.provider.example:443", initResp2.Msg.GetDataPlaneEndpoint())
 
-	resumedValue := initResp2.Msg.GetPaymentRav().GetRav().GetValueAggregate().ToBigInt()
-	require.Equal(t, 0, resumedValue.Cmp(existingValue))
+	freshValue := initResp2.Msg.GetPaymentRav().GetRav().GetValueAggregate().ToBigInt()
+	require.Equal(t, 0, freshValue.Cmp(big.NewInt(0)))
+}
 
-	// Invalid resumption should fail clearly.
+func TestInit_RequiresProviderControlPlaneEndpoint(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+
+	env := devenv.Get()
+	require.NotNil(t, env, "devenv not started")
+
+	setup, err := env.SetupTestWithSigner(nil)
+	require.NoError(t, err)
+
+	consumerSidecar := consumersidecar.New(&consumersidecar.Config{
+		ListenAddr:      ":19018",
+		SignerKey:       setup.SignerKey,
+		Domain:          env.Domain(),
+		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
+	}, zlog.Named("consumer"))
+	go consumerSidecar.Run()
+	defer consumerSidecar.Shutdown(nil)
+	time.Sleep(100 * time.Millisecond)
+
+	consumerClient := consumerv1connect.NewConsumerSidecarServiceClient(http.DefaultClient, "http://localhost:19018")
+
 	_, err = consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{
 		EscrowAccount: &commonv1.EscrowAccount{
-			Payer:       commonv1.AddressFromEth(eth.MustNewAddress("0x9999999999999999999999999999999999999999")),
-			Receiver:    escrowAccount.GetReceiver(),
-			DataService: escrowAccount.GetDataService(),
+			Payer:       commonv1.AddressFromEth(env.Payer.Address),
+			Receiver:    commonv1.AddressFromEth(env.ServiceProvider.Address),
+			DataService: commonv1.AddressFromEth(env.DataService.Address),
 		},
-		ExistingRav: existingRAV,
 	}))
 	require.Error(t, err)
 	require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))

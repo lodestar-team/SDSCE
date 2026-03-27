@@ -3,15 +3,16 @@ package integration
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/graphprotocol/substreams-data-service/horizon/devenv"
+	psqlrepo "github.com/graphprotocol/substreams-data-service/provider/repository/psql"
 	"github.com/streamingfast/logging"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -32,6 +33,11 @@ func init() {
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
+	devenvRPCPort, err := findFreeTCPPort()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Setup error: failed to allocate free devenv RPC port: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Start both devenv and Postgres in parallel
 	var wg sync.WaitGroup
@@ -39,8 +45,8 @@ func TestMain(m *testing.M) {
 
 	// Start devenv
 	wg.Go(func() {
-		zlog.Info("starting development environment (anvil + contracts)")
-		_, err := devenv.Start(ctx)
+		zlog.Info("starting development environment (anvil + contracts)", zap.Int("rpc_port", devenvRPCPort))
+		_, err := devenv.Start(ctx, devenv.WithRPCPort(devenvRPCPort))
 		if err != nil {
 			errChan <- fmt.Errorf("failed to start devenv: %w", err)
 			return
@@ -126,24 +132,16 @@ func sanitizeDSN(dsn string) string {
 
 // runMigrations runs database migrations using golang-migrate
 func runMigrations(dsn string) error {
-	// Get the absolute path to the migrations directory
-	cwd, err := os.Getwd()
+	migrationsPath, err := psqlrepo.MigrationDir()
 	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	// Navigate up to the repository root (from test/integration to .)
-	migrationsPath := filepath.Join(cwd, "..", "..", "provider", "repository", "psql", "migrations")
-	absPath, err := filepath.Abs(migrationsPath)
-	if err != nil {
-		return fmt.Errorf("failed to get absolute path for migrations: %w", err)
+		return fmt.Errorf("failed to resolve migrations directory: %w", err)
 	}
 
 	// Use golang-migrate to run migrations
 	cmd := exec.Command("go", "run", "-tags", "postgres",
 		"github.com/golang-migrate/migrate/v4/cmd/migrate@latest",
 		"-database", dsn,
-		"-path", absPath,
+		"-path", migrationsPath,
 		"up")
 
 	output, err := cmd.CombinedOutput()
@@ -153,4 +151,19 @@ func runMigrations(dsn string) error {
 
 	zlog.Debug("migration output", zap.String("output", string(output)))
 	return nil
+}
+
+func findFreeTCPPort() (int, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, fmt.Errorf("listening for free port: %w", err)
+	}
+	defer listener.Close()
+
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		return 0, fmt.Errorf("unexpected listener address type %T", listener.Addr())
+	}
+
+	return addr.Port, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/graphprotocol/substreams-data-service/internal/session"
@@ -161,12 +162,18 @@ func (s *Gateway) StartSession(
 		zap.Stringer("payer", payer),
 	)
 
+	dataPlaneEndpoint := strings.TrimSpace(s.dataPlaneEndpoint)
+	if dataPlaneEndpoint == "" {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("provider data-plane endpoint is not configured"))
+	}
+
 	// Return the RAV to use (same as initial for now)
 	response := &providerv1.StartSessionResponse{
-		SessionId:     consumerSession.ID,
-		UseRav:        req.Msg.InitialRav, // Use the same RAV
-		Accepted:      true,
-		PricingConfig: commonv1.PricingConfigFromNative(s.pricingConfig),
+		SessionId:         consumerSession.ID,
+		UseRav:            req.Msg.InitialRav, // Use the same RAV
+		Accepted:          true,
+		PricingConfig:     commonv1.PricingConfigFromNative(s.pricingConfig),
+		DataPlaneEndpoint: dataPlaneEndpoint,
 	}
 
 	return connect.NewResponse(response), nil

@@ -26,14 +26,12 @@ service ConsumerSidecarService {
 message InitRequest {
   // The escrow account to use for funding this session
   common.v1.EscrowAccount escrow_account = 1;
-  // The provider gateway endpoint for payment session management (e.g., "https://gateway.provider.com:9001")
+  // Direct provider override used before oracle discovery is implemented.
+  // This is the provider control-plane endpoint used for session/payment management.
   // Supports ?insecure=true query parameter for self-signed certificates.
-  string gateway_endpoint = 2;
-  // The Substreams endpoint for data streaming (e.g., "substreams.provider.com:10015")
-  // This is where the sink will connect to stream data.
-  string substreams_endpoint = 4;
-  // Optional: existing RAV to continue from (for session resumption)
-  common.v1.SignedRAV existing_rav = 3;
+  string provider_control_plane_endpoint = 2;
+
+  reserved 3, 4;
 }
 
 message InitResponse {
@@ -41,6 +39,8 @@ message InitResponse {
   common.v1.SessionInfo session = 1;
   // The RAV to include in the payment header when connecting to provider
   common.v1.SignedRAV payment_rav = 2;
+  // The session-specific data-plane endpoint returned by the provider handshake.
+  string data_plane_endpoint = 3;
 }
 
 message ReportUsageRequest {

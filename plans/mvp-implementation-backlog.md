@@ -91,7 +91,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-001 | `done` | protocol | `A2` | none | `A` | Freeze the oracle-authoritative MVP pricing contract across oracle, consumer, and provider flows |
 | MVP-002 | `done` | protocol | `A2`, `A3` | `MVP-033` | `A`, `B` | Freeze fresh-session init semantics and provider-returned data-plane endpoint behavior |
 | MVP-003 | `in_progress` | protocol | `A3`, `A6` | `MVP-027` | `D`, `F` | Define and document the provider-side runtime persistence model and its boundary with settlement lifecycle tracking |
-| MVP-004 | `in_progress` | protocol | `A2`, `A3` | none | `A`, `C` | Define and document the real runtime payment contract used by the public payment gateway, private plugin gateway, and consumer/provider payment loop |
+| MVP-004 | `done` | protocol | `A2`, `A3` | none | `A`, `C` | Define and document the real runtime payment contract used by the public payment gateway, private plugin gateway, and consumer/provider payment loop |
 | MVP-005 | `not_started` | oracle | `A1`, `A2`, `A5` | `MVP-033` | `A` | Implement a standalone oracle service with manual whitelist, canonical pricing, recommended-provider response, and control-plane endpoint return |
 | MVP-006 | `not_started` | oracle | `A5` | `MVP-028` | `A`, `G` | Add authenticated oracle administration for whitelist and provider metadata management |
 | MVP-007 | `not_started` | consumer | `A1`, `A2`, `A3` | `MVP-005`, `MVP-033` | `A` | Integrate consumer sidecar with oracle discovery while preserving direct-provider fallback and provider-returned data-plane resolution |
@@ -121,6 +121,8 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-031 | `not_started` | runtime-payment | `A2`, `A3` | `MVP-004`, `MVP-012`, `MVP-014`, `MVP-017` | `A`, `C` | Wire the long-lived payment-control loop behind the consumer-sidecar ingress path used by real runtime traffic |
 | MVP-032 | `not_started` | operations | `A4`, `A5`, `A6` | `MVP-008`, `MVP-010`, `MVP-022` | `C`, `D`, `F`, `G` | Expose operator runtime/session/payment inspection APIs and CLI/status flows |
 | MVP-033 | `done` | protocol | `A1` | none | `A` | Freeze the chain/network discovery input contract across client, sidecar, and oracle |
+| MVP-034 | `done` | validation | none | none | none | Fix repository PostgreSQL tests so migrations resolve from repo-relative state rather than a machine-specific absolute path |
+| MVP-035 | `done` | validation | none | none | none | Make integration devenv startup resilient to local fixed-port collisions so the shared test environment is reproducible |
 
 ## Protocol and Contract Tasks
 
@@ -188,7 +190,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - Verify:
     - Review [provider/repository/repository.go](../provider/repository/repository.go) and [provider/gateway/REPOSITORY.md](../provider/gateway/REPOSITORY.md) against backlog task wording.
 
-- [ ] MVP-004 Define and document the real runtime payment contract used by the public payment gateway, private plugin gateway, and consumer/provider payment loop.
+- [x] MVP-004 Define and document the real runtime payment contract used by the public payment gateway, private plugin gateway, and consumer/provider payment loop.
   - Context:
     - The runtime shape changed materially in the recent commit range.
     - The current repo now has:
@@ -201,6 +203,9 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - `A3`
   - Done when:
     - The runtime contract is documented in terms of the actual provider shape now in repo.
+    - Provider handshake returns the session-specific data-plane endpoint used by the runtime path.
+    - Consumer init takes a single provider control-plane override input rather than client-supplied split stream/control endpoints.
+    - Pricing exposed in provider handshake remains confirmatory rather than negotiable for MVP.
     - Plugin session/usage correlation is described using typed protobuf fields rather than old implicit header flow.
     - Consumer/provider payment-loop expectations are documented without revive/resume assumptions.
   - Verify:
@@ -556,6 +561,32 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Scenario `B` is validated according to the fresh-session-after-interruption semantics in the revised scope, not resume semantics.
   - Verify:
     - Update the scenario matrix or equivalent test/docs references for each acceptance scenario, including environment, validation method, and source of truth for the result.
+
+- [x] MVP-034 Fix repository PostgreSQL tests so migrations resolve from repo-relative state rather than a machine-specific absolute path.
+  - Context:
+    - `provider/repository/psql/database_test.go` currently points migrations at a machine-specific absolute path.
+    - This breaks `go test ./...` outside the original author environment and makes validation results unreliable.
+  - Assumptions:
+    - none
+  - Done when:
+    - PostgreSQL repository tests load migrations from repo-relative state or embedded test-owned migration discovery rather than an author-specific filesystem path.
+    - The test path works from a clean checkout on another machine and in CI-like environments.
+    - Full-repo test failures are no longer caused by the current hardcoded migration location.
+  - Verify:
+    - Run `go test ./provider/repository/psql/...` from the repo root on a non-author-specific checkout path and confirm migrations apply successfully.
+
+- [x] MVP-035 Make integration devenv startup resilient to local fixed-port collisions so the shared test environment is reproducible.
+  - Context:
+    - The integration stack currently relies on a fixed host RPC port for the local Anvil-based devenv.
+    - Local port collisions can prevent `test/integration` startup even when the SDS code under test is otherwise correct.
+  - Assumptions:
+    - none
+  - Done when:
+    - Integration startup no longer depends on a single hardcoded host port being free with no fallback or operator override.
+    - The devenv/test bootstrap either allocates ports safely, retries with a deterministic alternative strategy, or exposes a clear test/runtime override that the integration harness actually uses.
+    - Port-allocation failures stop being a common non-product cause of integration test failure.
+  - Verify:
+    - Run `go test ./test/integration/...` with the default local port already occupied and confirm startup either succeeds using the supported fallback/override path or fails fast with a clear, actionable configuration message.
 
 - [ ] MVP-026 Refresh protocol/runtime docs so they match the revised MVP architecture and remaining open questions.
   - Context:

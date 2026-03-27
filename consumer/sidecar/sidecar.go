@@ -37,9 +37,6 @@ type Sidecar struct {
 
 	paymentSessionRoundtripTimeout time.Duration
 	transportConfig                sidecar.ServerTransportConfig
-
-	// Provider gateway endpoint (set during Init)
-	// In production, this would be dynamically determined
 }
 
 type Config struct {

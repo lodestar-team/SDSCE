@@ -44,14 +44,15 @@ func TestConsumerSidecar_ReportUsage_WiresPaymentSessionLoop(t *testing.T) {
 	}
 
 	providerGateway := providergateway.New(&providergateway.Config{
-		ListenAddr:      ":19013",
-		ServiceProvider: env.ServiceProvider.Address,
-		Domain:          domain,
-		CollectorAddr:   env.Collector.Address,
-		EscrowAddr:      env.Escrow.Address,
-		RPCEndpoint:     env.RPCURL,
-		PricingConfig:   pricingConfig,
-		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
+		ListenAddr:        ":19013",
+		ServiceProvider:   env.ServiceProvider.Address,
+		Domain:            domain,
+		CollectorAddr:     env.Collector.Address,
+		EscrowAddr:        env.Escrow.Address,
+		RPCEndpoint:       env.RPCURL,
+		PricingConfig:     pricingConfig,
+		DataPlaneEndpoint: "substreams.provider.example:443",
+		TransportConfig:   sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("provider"))
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
@@ -76,9 +77,10 @@ func TestConsumerSidecar_ReportUsage_WiresPaymentSessionLoop(t *testing.T) {
 			Receiver:    commonv1.AddressFromEth(env.ServiceProvider.Address),
 			DataService: commonv1.AddressFromEth(env.DataService.Address),
 		},
-		GatewayEndpoint: "http://localhost:19013",
+		ProviderControlPlaneEndpoint: "http://localhost:19013",
 	}))
 	require.NoError(t, err)
+	require.Equal(t, "substreams.provider.example:443", initResp.Msg.GetDataPlaneEndpoint())
 
 	sessionID := initResp.Msg.GetSession().GetSessionId()
 	require.NotEmpty(t, sessionID)

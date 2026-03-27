@@ -45,14 +45,15 @@ func TestPaymentSession_RejectsUnderpayingRAV(t *testing.T) {
 	}
 
 	providerGateway := providergateway.New(&providergateway.Config{
-		ListenAddr:      ":19014",
-		ServiceProvider: env.ServiceProvider.Address,
-		Domain:          domain,
-		CollectorAddr:   env.Collector.Address,
-		EscrowAddr:      env.Escrow.Address,
-		RPCEndpoint:     env.RPCURL,
-		PricingConfig:   pricingConfig,
-		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
+		ListenAddr:        ":19014",
+		ServiceProvider:   env.ServiceProvider.Address,
+		Domain:            domain,
+		CollectorAddr:     env.Collector.Address,
+		EscrowAddr:        env.Escrow.Address,
+		RPCEndpoint:       env.RPCURL,
+		PricingConfig:     pricingConfig,
+		DataPlaneEndpoint: "substreams.provider.example:443",
+		TransportConfig:   sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("provider"))
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
@@ -91,6 +92,7 @@ func TestPaymentSession_RejectsUnderpayingRAV(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, startResp.Msg.Accepted)
 	require.NotEmpty(t, startResp.Msg.SessionId)
+	require.Equal(t, "substreams.provider.example:443", startResp.Msg.GetDataPlaneEndpoint())
 
 	stream := gatewayClient.PaymentSession(ctx)
 

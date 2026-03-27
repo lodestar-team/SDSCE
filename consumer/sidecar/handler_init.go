@@ -25,8 +25,7 @@ func (s *Sidecar) Init(
 	req *connect.Request[consumerv1.InitRequest],
 ) (*connect.Response[consumerv1.InitResponse], error) {
 	s.logger.Info("init called",
-		zap.String("gateway_endpoint", req.Msg.GatewayEndpoint),
-		zap.String("substreams_endpoint", req.Msg.SubstreamsEndpoint),
+		zap.String("provider_control_plane_endpoint", req.Msg.ProviderControlPlaneEndpoint),
 	)
 
 	// Extract escrow account details
@@ -56,122 +55,94 @@ func (s *Sidecar) Init(
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <escrow_account.data_service>: %w", err))
 	}
 
-	// Check if we have an existing RAV to continue from
-	var existingRAV *horizon.SignedRAV
-	if req.Msg.ExistingRav != nil {
-		existingRAV, err = sidecar.ProtoSignedRAVToHorizon(req.Msg.ExistingRav)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <existing_rav>: %w", err))
-		}
-		if existingRAV != nil && existingRAV.Message != nil {
-			if !sidecar.AddressesEqual(existingRAV.Message.Payer, payer) {
-				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("<existing_rav.rav.payer> %s does not match <escrow_account.payer> %s", existingRAV.Message.Payer.Pretty(), payer.Pretty()))
-			}
-			if !sidecar.AddressesEqual(existingRAV.Message.ServiceProvider, receiver) {
-				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("<existing_rav.rav.service_provider> %s does not match <escrow_account.receiver> %s", existingRAV.Message.ServiceProvider.Pretty(), receiver.Pretty()))
-			}
-			if !sidecar.AddressesEqual(existingRAV.Message.DataService, dataService) {
-				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("<existing_rav.rav.data_service> %s does not match <escrow_account.data_service> %s", existingRAV.Message.DataService.Pretty(), dataService.Pretty()))
-			}
-		}
+	providerControlPlaneEndpoint := strings.TrimSpace(req.Msg.ProviderControlPlaneEndpoint)
+	if providerControlPlaneEndpoint == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("<provider_control_plane_endpoint> is required"))
 	}
 
-	// Create initial RAV (can be zero-value for new sessions)
-	var initialRAV *horizon.SignedRAV
-
-	if existingRAV != nil {
-		// Use the existing RAV
-		initialRAV = existingRAV
-	} else {
-		// Create a zero-value RAV for new sessions
-		// This establishes the session parameters without committing to any value
-		var collectionID horizon.CollectionID
-		// Collection ID can be derived from session or left empty for now
-
-		initialRAV, err = s.signRAV(
-			collectionID,
-			payer,
-			dataService,
-			receiver,
-			uint64(time.Now().UnixNano()),
-			big.NewInt(0), // Zero value
-			nil,           // No metadata yet
-		)
-		if err != nil {
-			s.logger.Error("failed to sign initial RAV", zap.Error(err))
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
+	// Create a zero-value RAV for a fresh session. MVP init no longer accepts resume input.
+	var collectionID horizon.CollectionID
+	initialRAV, err := s.signRAV(
+		collectionID,
+		payer,
+		dataService,
+		receiver,
+		uint64(time.Now().UnixNano()),
+		big.NewInt(0),
+		nil,
+	)
+	if err != nil {
+		s.logger.Error("failed to sign initial RAV", zap.Error(err))
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	parsedEndpoint := sidecar.ParseEndpoint(req.Msg.GatewayEndpoint)
-	var sessionID string
+	parsedEndpoint := sidecar.ParseEndpoint(providerControlPlaneEndpoint)
+	if parsedEndpoint.URL == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid <provider_control_plane_endpoint>"))
+	}
+
+	gatewayClient := providerv1connect.NewPaymentGatewayServiceClient(parsedEndpoint.HTTPClient(), parsedEndpoint.URL)
+	gatewayResp, err := gatewayClient.StartSession(ctx, connect.NewRequest(&providerv1.StartSessionRequest{
+		EscrowAccount: ea,
+		InitialRav:    sidecar.HorizonSignedRAVToProto(initialRAV),
+	}))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnavailable, err)
+	}
+
+	if !gatewayResp.Msg.Accepted {
+		reason := strings.TrimSpace(gatewayResp.Msg.RejectionReason)
+		if reason == "" {
+			reason = "provider rejected session"
+		}
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New(reason))
+	}
+
+	sessionID := strings.TrimSpace(gatewayResp.Msg.SessionId)
+	if sessionID == "" {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("provider returned an empty session id"))
+	}
+
+	dataPlaneEndpoint := strings.TrimSpace(gatewayResp.Msg.DataPlaneEndpoint)
+	if dataPlaneEndpoint == "" {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("provider returned an empty data-plane endpoint"))
+	}
+
+	s.logger.Info("provider session started",
+		zap.String("provider_control_plane_endpoint", parsedEndpoint.URL),
+		zap.String("provider_session_id", sessionID),
+		zap.String("data_plane_endpoint", dataPlaneEndpoint),
+	)
+
 	var providerPricingConfig *sidecar.PricingConfig
-	if parsedEndpoint.URL != "" {
-		gatewayClient := providerv1connect.NewPaymentGatewayServiceClient(parsedEndpoint.HTTPClient(), parsedEndpoint.URL)
-		gatewayResp, err := gatewayClient.StartSession(ctx, connect.NewRequest(&providerv1.StartSessionRequest{
-			EscrowAccount: ea,
-			InitialRav:    sidecar.HorizonSignedRAVToProto(initialRAV),
-		}))
-		if err != nil {
-			return nil, connect.NewError(connect.CodeUnavailable, err)
-		}
-
-		if !gatewayResp.Msg.Accepted {
-			reason := strings.TrimSpace(gatewayResp.Msg.RejectionReason)
-			if reason == "" {
-				reason = "provider rejected session"
-			}
-			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New(reason))
-		}
-
-		sessionID = strings.TrimSpace(gatewayResp.Msg.SessionId)
-		if sessionID == "" {
-			return nil, connect.NewError(connect.CodeInternal, errors.New("provider returned an empty session id"))
-		}
-
-		s.logger.Info("provider session started",
-			zap.String("gateway_endpoint", parsedEndpoint.URL),
-			zap.String("provider_session_id", sessionID),
+	if gatewayResp.Msg.PricingConfig != nil {
+		providerPricingConfig = gatewayResp.Msg.PricingConfig.ToNative()
+		s.logger.Debug("received confirmatory pricing config from provider",
+			zap.Stringer("price_per_block", &providerPricingConfig.PricePerBlock),
+			zap.Stringer("price_per_byte", &providerPricingConfig.PricePerByte),
 		)
+	}
 
-		// Store pricing config from provider
-		if gatewayResp.Msg.PricingConfig != nil {
-			providerPricingConfig = gatewayResp.Msg.PricingConfig.ToNative()
-			s.logger.Debug("received pricing config from provider",
-				zap.Stringer("price_per_block", &providerPricingConfig.PricePerBlock),
-				zap.Stringer("price_per_byte", &providerPricingConfig.PricePerByte),
-			)
+	if gatewayResp.Msg.UseRav != nil {
+		useRAV, err := sidecar.ProtoSignedRAVToHorizon(gatewayResp.Msg.UseRav)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("invalid <use_rav> received from provider gateway: %w", err))
 		}
-
-		if gatewayResp.Msg.UseRav != nil {
-			useRAV, err := sidecar.ProtoSignedRAVToHorizon(gatewayResp.Msg.UseRav)
-			if err != nil {
-				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("invalid <use_rav> received from provider gateway: %w", err))
-			}
-			if useRAV != nil {
-				initialRAV = useRAV
-			}
+		if useRAV != nil {
+			initialRAV = useRAV
 		}
 	}
 
-	var session *sidecar.Session
-	if sessionID != "" {
-		session, err = s.sessions.CreateWithID(sessionID, payer, receiver, dataService)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unable to create session: %w", err))
-		}
-	} else {
-		session = s.sessions.Create(payer, receiver, dataService)
-		sessionID = session.ID
+	session, err := s.sessions.CreateWithID(sessionID, payer, receiver, dataService)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unable to create session: %w", err))
 	}
 
 	session.SetRAV(initialRAV)
 	if providerPricingConfig != nil {
 		session.SetPricingConfig(providerPricingConfig)
 	}
-	if parsedEndpoint.URL != "" {
-		s.paymentSessions.SetEndpoint(sessionID, parsedEndpoint.URL)
-	}
+	s.paymentSessions.SetEndpoint(sessionID, parsedEndpoint.URL)
 
 	s.logger.Debug("created session",
 		zap.String("session_id", session.ID),
@@ -181,8 +152,9 @@ func (s *Sidecar) Init(
 	)
 
 	response := &consumerv1.InitResponse{
-		Session:    session.ToSessionInfo(),
-		PaymentRav: sidecar.HorizonSignedRAVToProto(initialRAV),
+		Session:           session.ToSessionInfo(),
+		PaymentRav:        sidecar.HorizonSignedRAVToProto(initialRAV),
+		DataPlaneEndpoint: dataPlaneEndpoint,
 	}
 
 	s.logger.Info("Init completed",

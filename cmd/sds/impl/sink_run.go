@@ -14,6 +14,7 @@ import (
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	consumerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1/consumerv1connect"
+	sidecarlib "github.com/graphprotocol/substreams-data-service/sidecar"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/streamingfast/cli"
@@ -77,7 +78,7 @@ func runSinkRun(cmd *cobra.Command, args []string) error {
 
 	// Payment flags
 	consumerSidecarAddr := sflags.MustGetString(cmd, "consumer-sidecar-addr")
-	gatewayEndpoint := sflags.MustGetString(cmd, "gateway-endpoint")
+	providerControlPlaneEndpoint := sflags.MustGetString(cmd, "provider-control-plane-endpoint")
 	payerHex := sflags.MustGetString(cmd, "payer-address")
 	receiverHex := sflags.MustGetString(cmd, "receiver-address")
 	dataServiceHex := sflags.MustGetString(cmd, "data-service-address")
@@ -118,17 +119,12 @@ func runSinkRun(cmd *cobra.Command, args []string) error {
 		sinkerConfig.Mode = sink.SubstreamsModeDevelopment
 	}
 
-	// Create the sinker from config
-	sinker, err := sink.NewFromConfig(sinkerConfig)
-	cli.NoError(err, "unable to create sinker")
-
 	wrapper := newPaymentWrapper(
 		consumerSidecarAddr,
 		payer,
 		receiver,
 		dataService,
-		gatewayEndpoint,
-		sinkerConfig.ClientConfig,
+		providerControlPlaneEndpoint,
 		reportInterval,
 		sinkLog,
 	)
@@ -136,14 +132,21 @@ func runSinkRun(cmd *cobra.Command, args []string) error {
 	app := cli.NewApplication(cmd.Context())
 
 	// Initialize payment session and get the RAV for authentication
-	paymentRAV, err := wrapper.init(app.Context())
+	initResult, err := wrapper.init(app.Context())
 	if err != nil {
 		return fmt.Errorf("failed to initialize payment session: %w", err)
 	}
 
+	sinkerConfig.ClientConfig = newClientConfigForDataPlaneEndpoint(sinkerConfig.ClientConfig, initResult.DataPlaneEndpoint)
+
+	// Create the sinker from config after the provider handshake so the real data-plane
+	// endpoint uses the provider-returned session-specific value.
+	sinker, err := sink.NewFromConfig(sinkerConfig)
+	cli.NoError(err, "unable to create sinker")
+
 	// Add the RAV header for authentication with the Substreams endpoint
-	if paymentRAV != nil {
-		ravHeader, err := encodeRAVHeader(paymentRAV)
+	if initResult.PaymentRAV != nil {
+		ravHeader, err := encodeRAVHeader(initResult.PaymentRAV)
 		if err != nil {
 			return fmt.Errorf("failed to encode RAV header: %w", err)
 		}
@@ -201,14 +204,13 @@ func handleBlockUndoSignal(ctx context.Context, undoSignal *pbsubstreamsrpc.Bloc
 
 // paymentWrapper wraps the sink with payment session management
 type paymentWrapper struct {
-	sidecarClient      consumerv1connect.ConsumerSidecarServiceClient
-	payer              eth.Address
-	receiver           eth.Address
-	dataService        eth.Address
-	gatewayEndpoint    string // Provider gateway for payment session management
-	substreamsEndpoint string // Substreams endpoint for data streaming
-	reportInterval     time.Duration
-	logger             *zap.Logger
+	sidecarClient                consumerv1connect.ConsumerSidecarServiceClient
+	payer                        eth.Address
+	receiver                     eth.Address
+	dataService                  eth.Address
+	providerControlPlaneEndpoint string
+	reportInterval               time.Duration
+	logger                       *zap.Logger
 
 	sessionID      string
 	usageTracker   *sds.UsageTracker
@@ -222,43 +224,31 @@ type paymentWrapper struct {
 func newPaymentWrapper(
 	sidecarAddr string,
 	payer, receiver, dataService eth.Address,
-	gatewayEndpoint string,
-	clientConfig *client.SubstreamsClientConfig,
+	providerControlPlaneEndpoint string,
 	reportInterval time.Duration,
 	logger *zap.Logger,
 ) *paymentWrapper {
-	// Build substreams endpoint URL from client config
-	scheme := "https"
-	if clientConfig.PlainText() {
-		scheme = "http"
-	}
-	substreamsEndpoint := fmt.Sprintf("%s://%s", scheme, clientConfig.Endpoint())
-	if clientConfig.Insecure() {
-		substreamsEndpoint += "?insecure=true"
-	}
-
-	// If gateway endpoint is not specified, default to substreams endpoint
-	if gatewayEndpoint == "" {
-		gatewayEndpoint = substreamsEndpoint
-	}
-
 	priceConverter := sds.NewStaticPriceConverter(0.15) // Default: 1 GRT = $0.15
 
 	return &paymentWrapper{
-		sidecarClient:      consumerv1connect.NewConsumerSidecarServiceClient(http.DefaultClient, sidecarAddr),
-		payer:              payer,
-		receiver:           receiver,
-		dataService:        dataService,
-		gatewayEndpoint:    gatewayEndpoint,
-		substreamsEndpoint: substreamsEndpoint,
-		reportInterval:     reportInterval,
-		logger:             logger,
-		usageTracker:       sds.NewUsageTracker(priceConverter),
-		priceConverter:     priceConverter,
+		sidecarClient:                consumerv1connect.NewConsumerSidecarServiceClient(http.DefaultClient, sidecarAddr),
+		payer:                        payer,
+		receiver:                     receiver,
+		dataService:                  dataService,
+		providerControlPlaneEndpoint: providerControlPlaneEndpoint,
+		reportInterval:               reportInterval,
+		logger:                       logger,
+		usageTracker:                 sds.NewUsageTracker(priceConverter),
+		priceConverter:               priceConverter,
 	}
 }
 
-func (w *paymentWrapper) init(ctx context.Context) (*commonv1.SignedRAV, error) {
+type paymentInitResult struct {
+	PaymentRAV        *commonv1.SignedRAV
+	DataPlaneEndpoint string
+}
+
+func (w *paymentWrapper) init(ctx context.Context) (*paymentInitResult, error) {
 	fmt.Fprintln(os.Stderr, "Initializing payment session...")
 
 	resp, err := w.sidecarClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{
@@ -267,15 +257,19 @@ func (w *paymentWrapper) init(ctx context.Context) (*commonv1.SignedRAV, error) 
 			Receiver:    commonv1.AddressFromEth(w.receiver),
 			DataService: commonv1.AddressFromEth(w.dataService),
 		},
-		GatewayEndpoint:    w.gatewayEndpoint,
-		SubstreamsEndpoint: w.substreamsEndpoint,
+		ProviderControlPlaneEndpoint: w.providerControlPlaneEndpoint,
 	}))
 	if err != nil {
 		return nil, fmt.Errorf("init payment session: %w", err)
 	}
 
+	if resp.Msg.GetDataPlaneEndpoint() == "" {
+		return nil, fmt.Errorf("provider returned an empty data-plane endpoint")
+	}
+
 	w.sessionID = resp.Msg.Session.SessionId
 	fmt.Fprintf(os.Stderr, "Session initialized: %s\n", w.sessionID)
+	fmt.Fprintf(os.Stderr, "Data plane endpoint: %s\n", resp.Msg.GetDataPlaneEndpoint())
 
 	// Extract pricing config from session info
 	if resp.Msg.Session.PricingConfig != nil {
@@ -290,7 +284,23 @@ func (w *paymentWrapper) init(ctx context.Context) (*commonv1.SignedRAV, error) 
 	}
 	fmt.Fprintln(os.Stderr)
 
-	return resp.Msg.PaymentRav, nil
+	return &paymentInitResult{
+		PaymentRAV:        resp.Msg.PaymentRav,
+		DataPlaneEndpoint: resp.Msg.GetDataPlaneEndpoint(),
+	}, nil
+}
+
+func newClientConfigForDataPlaneEndpoint(existing *client.SubstreamsClientConfig, dataPlaneEndpoint string) *client.SubstreamsClientConfig {
+	parsedEndpoint := sidecarlib.ParseEndpoint(dataPlaneEndpoint)
+	return client.NewSubstreamsClientConfig(client.SubstreamsClientConfigOptions{
+		Endpoint:             parsedEndpoint.URL,
+		AuthToken:            existing.AuthToken(),
+		AuthType:             existing.AuthType(),
+		Insecure:             parsedEndpoint.Insecure,
+		PlainText:            parsedEndpoint.Plaintext,
+		Agent:                existing.Agent(),
+		ForceProtocolVersion: existing.ForceProtocolVersion(),
+	})
 }
 
 func (w *paymentWrapper) end(ctx context.Context) error {

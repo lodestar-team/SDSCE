@@ -37,7 +37,7 @@ var demoFlowCmd = Command(
 	Flags(func(flags *pflag.FlagSet) {
 		flags.String("consumer-sidecar-addr", "http://localhost:9002", "Consumer sidecar address")
 		flags.String("provider-sidecar-addr", "http://localhost:9001", "Provider gateway address (used for status checks)")
-		flags.String("provider-endpoint", "http://localhost:9001", "Provider gateway endpoint to pass to consumer Init (PaymentGatewayService)")
+		flags.String("provider-control-plane-endpoint", "http://localhost:9001", "Provider control-plane endpoint to pass to consumer Init (PaymentGatewayService)")
 
 		flags.String("payer-address", "", "Payer address (required)")
 		flags.String("receiver-address", "", "Receiver/service provider address (required)")
@@ -55,7 +55,7 @@ func runDemoFlow(cmd *cobra.Command, args []string) error {
 
 	consumerSidecarAddr := strings.TrimSpace(sflags.MustGetString(cmd, "consumer-sidecar-addr"))
 	providerSidecarAddr := strings.TrimSpace(sflags.MustGetString(cmd, "provider-sidecar-addr"))
-	providerEndpoint := strings.TrimSpace(sflags.MustGetString(cmd, "provider-endpoint"))
+	providerControlPlaneEndpoint := strings.TrimSpace(sflags.MustGetString(cmd, "provider-control-plane-endpoint"))
 
 	payerHex := sflags.MustGetString(cmd, "payer-address")
 	receiverHex := sflags.MustGetString(cmd, "receiver-address")
@@ -68,7 +68,7 @@ func runDemoFlow(cmd *cobra.Command, args []string) error {
 
 	cli.Ensure(consumerSidecarAddr != "", "<consumer-sidecar-addr> is required")
 	cli.Ensure(providerSidecarAddr != "", "<provider-sidecar-addr> is required")
-	cli.Ensure(providerEndpoint != "", "<provider-endpoint> is required")
+	cli.Ensure(providerControlPlaneEndpoint != "", "<provider-control-plane-endpoint> is required")
 
 	cli.Ensure(payerHex != "", "<payer-address> is required")
 	payer, err := eth.NewAddress(payerHex)
@@ -94,7 +94,7 @@ func runDemoFlow(cmd *cobra.Command, args []string) error {
 			Receiver:    commonv1.AddressFromEth(receiver),
 			DataService: commonv1.AddressFromEth(dataService),
 		},
-		GatewayEndpoint: providerEndpoint,
+		ProviderControlPlaneEndpoint: providerControlPlaneEndpoint,
 	}))
 	cli.NoError(err, "consumer Init failed")
 
@@ -102,6 +102,7 @@ func runDemoFlow(cmd *cobra.Command, args []string) error {
 	cli.Ensure(sessionID != "", "consumer Init returned an empty session_id")
 
 	fmt.Printf("  session_id: %s\n", sessionID)
+	fmt.Printf("  data_plane_endpoint: %s\n", initResp.Msg.GetDataPlaneEndpoint())
 
 	fmt.Printf("\nStep 2: ReportUsage loop\n")
 	var totalBlocksSent uint64

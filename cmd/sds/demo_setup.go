@@ -73,7 +73,7 @@ func runDemoSetup(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("START COMMANDS:\n")
 	fmt.Printf("  Provider gateway:\n")
-	fmt.Printf("    sds provider gateway --service-provider %s --collector-address %s --escrow-address %s --rpc-endpoint %s\n",
+	fmt.Printf("    sds provider gateway --service-provider %s --collector-address %s --escrow-address %s --rpc-endpoint %s --data-plane-endpoint localhost:10016\n",
 		env.ServiceProvider.Address.Pretty(),
 		env.Collector.Address.Pretty(),
 		env.Escrow.Address.Pretty(),
@@ -87,7 +87,7 @@ func runDemoSetup(cmd *cobra.Command, args []string) error {
 	)
 	fmt.Printf("\n")
 	fmt.Printf("  Demo flow:\n")
-	fmt.Printf("    sds demo flow --payer-address %s --receiver-address %s --data-service-address %s --provider-endpoint http://localhost:9001 --consumer-sidecar-addr http://localhost:9002\n",
+	fmt.Printf("    sds demo flow --payer-address %s --receiver-address %s --data-service-address %s --provider-control-plane-endpoint http://localhost:9001 --consumer-sidecar-addr http://localhost:9002\n",
 		env.Payer.Address.Pretty(),
 		env.ServiceProvider.Address.Pretty(),
 		env.DataService.Address.Pretty(),

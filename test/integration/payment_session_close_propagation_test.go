@@ -37,12 +37,13 @@ func TestSessionClose_ConsumerEndSession_MakesProviderInactive(t *testing.T) {
 	domain := env.Domain()
 
 	providerGateway := providergateway.New(&providergateway.Config{
-		ListenAddr:      ":19016",
-		ServiceProvider: env.ServiceProvider.Address,
-		Domain:          domain,
-		CollectorAddr:   env.Collector.Address,
-		EscrowAddr:      env.Escrow.Address,
-		RPCEndpoint:     env.RPCURL,
+		ListenAddr:        ":19016",
+		ServiceProvider:   env.ServiceProvider.Address,
+		Domain:            domain,
+		CollectorAddr:     env.Collector.Address,
+		EscrowAddr:        env.Escrow.Address,
+		RPCEndpoint:       env.RPCURL,
+		DataPlaneEndpoint: "substreams.provider.example:443",
 		PricingConfig: &sidecar.PricingConfig{
 			PricePerBlock: sds.NewGRTFromUint64(1),
 			PricePerByte:  sds.ZeroGRT(),
@@ -72,7 +73,7 @@ func TestSessionClose_ConsumerEndSession_MakesProviderInactive(t *testing.T) {
 			Receiver:    commonv1.AddressFromEth(env.ServiceProvider.Address),
 			DataService: commonv1.AddressFromEth(env.DataService.Address),
 		},
-		GatewayEndpoint: "http://localhost:19016",
+		ProviderControlPlaneEndpoint: "http://localhost:19016",
 	}))
 	require.NoError(t, err)
 

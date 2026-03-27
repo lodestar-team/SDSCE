@@ -1,7 +1,7 @@
 # MVP Gap Analysis
 
 Drafted: 2026-03-12  
-Revised: 2026-03-25
+Revised: 2026-03-26
 
 This document maps the current repository state against the MVP defined in `docs/mvp-scope.md`.
 
@@ -37,6 +37,12 @@ Provider-side runtime foundations are materially stronger than before:
 - the provider runtime is now shaped as a public Payment Gateway plus a private Plugin Gateway
 - firecore/plugin integration scaffolding is stronger than it was when this document was first drafted
 
+Validation infrastructure is also healthier than before:
+
+- PostgreSQL repository tests no longer rely on an author-specific absolute migration path
+- integration bootstrap no longer depends on localhost port `58545` being free in order to start the shared devenv
+- `go test ./...` is no longer blocked by those two non-product validation failures
+
 The biggest remaining MVP gaps are now:
 
 - standalone oracle/discovery component
@@ -52,7 +58,7 @@ The biggest remaining MVP gaps are now:
 | Scenario | Status | Notes |
 | --- | --- | --- |
 | A. Discovery to paid streaming | `partial` | Paid session flow and provider runtime foundations exist, but the standalone oracle is still missing and the consumer sidecar is not yet the Substreams-compatible ingress described by the scope |
-| B. Fresh session after interruption | `partial` | Fresh-session semantics are now the MVP target, but current code still carries `existing_rav` and split-endpoint assumptions that do not fully match the revised design |
+| B. Fresh session after interruption | `partial` | Fresh-session semantics are implemented in the init contract, but broader real-path interruption validation still remains |
 | C. Low funds during streaming | `missing` | Session-local low-funds handling in the real live stream path is still backlog work |
 | D. Provider restart without losing collectible state | `partial` | Provider persistence is no longer purely in-memory because PostgreSQL support exists, but collectible/collection lifecycle tracking is still incomplete |
 | E. Manual funding flow | `partial` | Demo-oriented setup/funding helpers exist, but real operator-grade funding CLI flows do not |
@@ -96,8 +102,6 @@ What already exists:
 
 What is still missing for MVP:
 
-- the API still expects explicit `gateway_endpoint` and `substreams_endpoint`
-- the API still carries `existing_rav`, which reflects older resume-oriented assumptions
 - the real user-facing integration is still wrapper-centric rather than endpoint-centric
 - finalized low-funds stop/pause handling in the real usage path
 
@@ -124,7 +128,6 @@ What already exists:
 
 What is still missing for MVP:
 
-- provider-returned data-plane endpoint semantics in the current public contract
 - collection lifecycle state
 - live low-funds logic during active streaming
 - authenticated admin/operator surfaces
@@ -189,6 +192,10 @@ What is still missing for MVP:
 - provider-backed collectible/collect_pending/collected tracking
 - acceptance-level proof for the full restart/collectible scenario
 
+Notes:
+
+- Repository validation is now portable across checkout paths because PostgreSQL test migrations resolve from repo-local state rather than a machine-specific absolute path.
+
 ### Consumer Data-Plane Compatibility
 
 Status: `missing`
@@ -206,6 +213,22 @@ Current state:
 What is still missing for MVP:
 
 - a Substreams-compatible consumer-side endpoint/proxy that hides SDS discovery/session/payment coordination behind the data-plane ingress
+
+### Validation Infrastructure
+
+Status: `implemented`
+
+Evidence:
+
+- `provider/repository/psql/database_test.go`
+- `provider/repository/psql/migrations_path.go`
+- `test/integration/main_test.go`
+
+What already exists:
+
+- PostgreSQL repository tests resolve migrations from repo-local state
+- integration bootstrap selects a safe devenv RPC port instead of assuming fixed host port `58545`
+- full-repo validation is no longer blocked by those two environment-specific failures
 
 ### Funding CLI
 

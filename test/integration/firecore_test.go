@@ -55,6 +55,7 @@ func TestFirecore(t *testing.T) {
 		env.Collector.Address,
 		env.Escrow.Address,
 		env.RPCURL,
+		"localhost:10016",
 		PostgresTestDSN,
 		sidecarlib.ServerTransportConfig{
 			Plaintext:   true,
@@ -85,7 +86,7 @@ func TestFirecore(t *testing.T) {
 
 	firecoreLog.Info("all infrastructure started successfully",
 		zap.String("substreams_endpoint", substreamsEndpoint),
-		zap.String("gateway_endpoint", "http://localhost:19001"),
+		zap.String("provider_control_plane_endpoint", "http://localhost:19001"),
 	)
 
 	// Step 4: Start consumer sidecar
@@ -346,7 +347,7 @@ func runSDSSink(
 		module,
 		"--endpoint=" + endpoint,
 		"--plaintext",
-		"--gateway-endpoint=http://localhost:19001",
+		"--provider-control-plane-endpoint=http://localhost:19001",
 		"--consumer-sidecar-addr=http://localhost:9002",
 		"--payer-address=" + payerAddress,
 		"--receiver-address=" + receiverAddress,

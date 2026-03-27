@@ -9,8 +9,11 @@ Use it to:
 - understand which tasks are true prerequisites for others
 - identify which work can proceed in parallel
 - avoid prompting agents to implement downstream tasks before the required contracts are stable enough
+- keep implementation sequencing aligned with the current backlog and scope, not an older snapshot
 
 Use `docs/mvp-scope.md` as the target-state definition and `plans/mvp-implementation-backlog.md` as the source of truth for task definitions, dependencies, and status.
+
+If `docs/mvp-scope.md`, `plans/mvp-implementation-backlog.md`, or other MVP architecture/planning docs change in a way that affects sequencing, status, or dependencies, this document should be updated in the same change.
 
 ## How To Read This Document
 
@@ -150,7 +153,9 @@ Notes:
 - `MVP-009` depends on `MVP-029`, so this part of the sequence is required by the backlog rather than just recommended.
 - `MVP-018` comes late because the current backlog explicitly ties it to operator runtime/low-funds inspection surfaces.
 
-### Lane D: Reconnect And Resume
+### Lane D: Post-MVP Reconnect And Resume
+
+This lane is historical context only and is not part of the current MVP rollout.
 
 Minimum prerequisites:
 
@@ -158,14 +163,14 @@ Minimum prerequisites:
 
 Recommended sequence:
 
-1. `MVP-002` Freeze reconnect handshake semantics so provider can return fresh or latest-known resumable RAV during normal session init
-2. `MVP-008` durable provider state work must be stable enough for reconnect behavior
-3. `MVP-013` Implement provider-authoritative reconnect/resume in the normal handshake path
+1. `MVP-013` Implement provider-authoritative reconnect/resume semantics if reconnect becomes an in-scope post-MVP target
+2. Re-evaluate durable state and handshake requirements against the then-current provider runtime before implementation starts
 
 Notes:
 
-- This lane depends on both protocol and persistence work.
-- Reconnect should not be treated as complete until it is proven against provider-authoritative durable state, not just consumer-local memory.
+- `MVP-002` is already resolved for MVP and freezes fresh-session semantics rather than resume behavior.
+- `MVP-013` is explicitly deferred in the backlog and should not be used to drive current MVP sequencing.
+- Any future reconnect/resume work should be treated as a new planning pass, not as an active MVP lane.
 
 ### Lane E: Security And Deployment
 
@@ -211,14 +216,16 @@ It is a recommended rollout sequence, not a canonical priority order embedded in
 
 ### Phase 0: Resolve Or Narrow Shared Contracts
 
-- `MVP-004`
-- `MVP-027`
 - `MVP-028`
-- `MVP-001`
 - `MVP-023`
 
 Already resolved:
 
+- `MVP-001`
+- `MVP-002`
+- `MVP-003`
+- `MVP-004`
+- `MVP-027`
 - `MVP-033`
 
 ### Phase 1: Start The First Implementable Lanes
@@ -231,7 +238,6 @@ Already resolved:
   - `MVP-012`
   - `MVP-014`
 - Provider state foundation:
-  - `MVP-003`
   - `MVP-008`
   - `MVP-029`
 - Security foundation:
@@ -245,11 +251,9 @@ Already resolved:
 - `MVP-017`
 - `MVP-009`
 - `MVP-022`
-- `MVP-002`
 
-### Phase 3: Complete Reconnect, Runtime Control, And Operator Flows
+### Phase 3: Complete Runtime Control And Operator Flows
 
-- `MVP-013`
 - `MVP-031`
 - `MVP-006`
 - `MVP-019`
@@ -283,8 +287,6 @@ This section is interpretive guidance based on the assumptions register and depe
 
 - `MVP-005`
   - Can begin before `MVP-001` is fully closed if pricing authority remains clearly non-final in the API/implementation.
-- `MVP-003`
-  - Runtime-versus-settlement contract documentation can begin while identity semantics are being narrowed, but it should not be treated as final until those semantics are stable.
 - `MVP-024`
   - Can proceed in a reduced/basic form before `MVP-023` is fully closed.
 
@@ -292,8 +294,6 @@ This section is interpretive guidance based on the assumptions register and depe
 
 - `MVP-007`
   - Should wait until the chain/network and pricing exposure contracts are stable enough.
-- `MVP-013`
-  - Should wait until reconnect semantics and durable provider state are both stable enough.
 - `MVP-019` and `MVP-020`
   - Should wait until retrieval APIs, auth, and collection lifecycle semantics are in place.
 
@@ -321,5 +321,7 @@ If you find that MVP-010 still requires unresolved semantics beyond MVP-004, mar
 ## Notes
 
 - This document derives sequence from the current dependency structure in `plans/mvp-implementation-backlog.md`.
+- Treat this document as a maintained companion to the backlog, not a one-time planning artifact.
+- When MVP status, dependencies, or scope wording changes elsewhere, update this document in the same documentation pass if the sequencing view is affected.
 - If task dependencies change, this document should be updated to match.
 - When the backlog and this document disagree, the backlog is the source of truth.

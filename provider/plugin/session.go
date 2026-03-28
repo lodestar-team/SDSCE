@@ -245,6 +245,8 @@ func (p *sessionPool) GetWorker(ctx context.Context, serviceName string, session
 		switch connect.CodeOf(err) {
 		case connect.CodeNotFound:
 			return "", fmt.Errorf("%w: session not found", dsession.ErrSessionNotFound)
+		case connect.CodePermissionDenied:
+			return "", fmt.Errorf("%w: %s", dsession.ErrPermissionDenied, err.Error())
 		case connect.CodeResourceExhausted:
 			return "", fmt.Errorf("%w: maximum workers per session exceeded", dsession.ErrWorkersLimitExceeded)
 		}

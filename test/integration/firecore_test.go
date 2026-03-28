@@ -2,7 +2,9 @@ package integration
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"math/big"
 	"net/http"
 	"os"
 	"os/exec"
@@ -15,10 +17,13 @@ import (
 	"github.com/graphprotocol/substreams-data-service/cmd/sds/impl"
 	"github.com/graphprotocol/substreams-data-service/consumer/sidecar"
 	"github.com/graphprotocol/substreams-data-service/horizon"
+	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
+	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	psqlrepo "github.com/graphprotocol/substreams-data-service/provider/repository/psql"
 	sidecarlib "github.com/graphprotocol/substreams-data-service/sidecar"
+	"github.com/streamingfast/eth-go"
 	"github.com/streamingfast/logging"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -32,6 +37,16 @@ const (
 	defaultDummyBlockchainImage = "ghcr.io/streamingfast/dummy-blockchain:v1.7.7"
 	dummyBlockchainImageEnvVar  = "SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE"
 )
+
+type dummyBlockchainOptions struct {
+	GenesisBlockBurst   int
+	SessionPluginConfig string
+}
+
+type sdsSinkRunOptions struct {
+	ReportInterval time.Duration
+	Timeout        time.Duration
+}
 
 func TestFirecore(t *testing.T) {
 	if testing.Short() {
@@ -215,6 +230,127 @@ func TestFirecore(t *testing.T) {
 	)
 }
 
+func TestFirecoreStopsStreamOnLowFunds(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping firecore integration test in short mode")
+	}
+
+	ctx := context.Background()
+	env := SetupEnv(t)
+	testStartedAt := time.Now().UTC()
+	dummyBlockchainImage := getDummyBlockchainImage()
+
+	config := DefaultTestSetupConfig()
+	config.EscrowAmount = big.NewInt(1)
+	setup, err := env.SetupCustomPaymentParticipantsWithSigner(env.User2, env.User3, config)
+	require.NoError(t, err, "failed to prepare low-funds payment participants")
+
+	dummyBlockchainContainer, substreamsEndpoint, err := startDummyBlockchainContainerWithOptions(ctx, dummyBlockchainImage, dummyBlockchainOptions{
+		GenesisBlockBurst:   100,
+		SessionPluginConfig: "sds://host.docker.internal:19003?plaintext=true&keep-alive-delay=250ms&minimal-worker-life-duration=100ms",
+	})
+	require.NoError(t, err, "failed to start dummy-blockchain container from image %q", dummyBlockchainImage)
+	defer dummyBlockchainContainer.Terminate(ctx)
+	defer func() {
+		if !t.Failed() {
+			return
+		}
+		dumpContainerLogs(t, ctx, dummyBlockchainContainer)
+	}()
+
+	pricingConfig := deterministicPricingConfig()
+	gateways, err := impl.StartProviderGateway(
+		ctx,
+		"0.0.0.0:19001",
+		"0.0.0.0:19003",
+		env.User3.Address,
+		env.ChainID,
+		env.Collector.Address,
+		env.Escrow.Address,
+		env.RPCURL,
+		"http://"+substreamsEndpoint,
+		PostgresTestDSN,
+		sidecarlib.ServerTransportConfig{
+			Plaintext:   true,
+			TLSCertFile: "",
+			TLSKeyFile:  "",
+		},
+		pricingConfig,
+	)
+	require.NoError(t, err, "failed to start provider gateways")
+	defer gateways.Shutdown(nil)
+
+	require.NoError(t, waitForGatewayHealth(ctx, "http://localhost:19001/healthz", 30*time.Second), "payment gateway failed to become healthy")
+	require.NoError(t, waitForGatewayHealth(ctx, "http://localhost:19003/healthz", 30*time.Second), "plugin gateway failed to become healthy")
+
+	consumerSidecar := sidecar.New(&sidecar.Config{
+		ListenAddr:      ":9002",
+		SignerKey:       setup.SignerKey,
+		Domain:          horizon.NewDomain(env.ChainID, env.Collector.Address),
+		TransportConfig: sidecarlib.ServerTransportConfig{Plaintext: true},
+	}, firecoreLog)
+	go consumerSidecar.Run()
+	defer consumerSidecar.Shutdown(nil)
+
+	require.NoError(t, waitForSidecarHealth(ctx, "http://localhost:9002/healthz", 10*time.Second), "consumer sidecar failed to become healthy")
+
+	err = runSDSSinkWithOptions(
+		ctx,
+		"common@v0.1.0",
+		"map_clocks",
+		substreamsEndpoint,
+		env.User2.Address.Pretty(),
+		env.User3.Address.Pretty(),
+		env.DataService.Address.Pretty(),
+		0,
+		100_000,
+		sdsSinkRunOptions{
+			ReportInterval: 100 * time.Millisecond,
+			Timeout:        30 * time.Second,
+		},
+	)
+	if isKnownFirecoreHeaderPropagationBlocker(err) {
+		dumpContainerLogs(t, ctx, dummyBlockchainContainer)
+		t.Skipf("MVP-016 blocked by external firecore/substreams header propagation: %v", err)
+	}
+	require.Error(t, err, "low-funds Firecore run must stop the live stream")
+	require.True(t, isQuotaExceededRuntimeFailure(err), "expected quota/resource exhausted runtime failure, got: %v", err)
+
+	evidence := loadFirecoreEvidenceForParticipants(t, ctx, testStartedAt, env.User2.Address, env.User3.Address, env.DataService.Address)
+	require.NotEmpty(t, evidence.SessionID, "expected a provider session to be created")
+	require.Equal(t, 1, evidence.SessionCount, "expected exactly one low-funds provider session")
+
+	providerClient := providerv1connect.NewPaymentGatewayServiceClient(http.DefaultClient, "http://localhost:19001")
+	require.Eventually(t, func() bool {
+		statusResp, err := providerClient.GetSessionStatus(ctx, connect.NewRequest(&providerv1.GetSessionStatusRequest{
+			SessionId: evidence.SessionID,
+		}))
+		if err != nil {
+			firecoreLog.Warn("failed to refresh low-funds gateway session status",
+				zap.String("session_id", evidence.SessionID),
+				zap.Error(err),
+			)
+			return false
+		}
+		if statusResp.Msg.GetActive() {
+			return false
+		}
+
+		state, err := loadFirecoreSessionState(ctx, evidence.SessionID)
+		if err != nil {
+			firecoreLog.Warn("failed to refresh low-funds session state",
+				zap.String("session_id", evidence.SessionID),
+				zap.Error(err),
+			)
+			return false
+		}
+
+		return state.Status == repository.SessionStatusTerminated &&
+			state.EndReason == commonv1.EndReason_END_REASON_PAYMENT_ISSUE &&
+			state.WorkerCount == 0
+	}, 10*time.Second, 100*time.Millisecond, "expected low-funds session termination and worker cleanup")
+}
+
 // waitForSidecarHealth polls the sidecar health endpoint until it returns 200 or timeout
 func waitForSidecarHealth(ctx context.Context, healthURL string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -243,9 +379,14 @@ func waitForSidecarHealth(ctx context.Context, healthURL string, timeout time.Du
 
 // newDummyBlockchainContainer creates a dummy blockchain container for testing
 // It starts reader-node, merger, relayer, and substreams-tier1 with SDS plugins
-func newDummyBlockchainContainer(ctx context.Context, image string, genesisBlockBurst int) (testcontainers.Container, error) {
+func newDummyBlockchainContainer(ctx context.Context, image string, opts dummyBlockchainOptions) (testcontainers.Container, error) {
 	// Build reader arguments for the dummy-blockchain binary
-	readerArgs := fmt.Sprintf("start --log-level=error --tracer=firehose --store-dir=/tmp/data --genesis-block-burst=%d --block-rate=120 --block-size=1500 --genesis-height=0 --server-addr=:9777", genesisBlockBurst)
+	readerArgs := fmt.Sprintf("start --log-level=error --tracer=firehose --store-dir=/tmp/data --genesis-block-burst=%d --block-rate=120 --block-size=1500 --genesis-height=0 --server-addr=:9777", opts.GenesisBlockBurst)
+
+	sessionPluginConfig := opts.SessionPluginConfig
+	if sessionPluginConfig == "" {
+		sessionPluginConfig = "sds://host.docker.internal:19003?plaintext=true"
+	}
 
 	// Build firecore start command - start required components
 	// Configure SDS plugins to connect to the Provider Gateway running on the host
@@ -260,7 +401,7 @@ func newDummyBlockchainContainer(ctx context.Context, image string, genesisBlock
 		// SDS Plugin configuration - connect to plugin gateway on host (port 19003)
 		// Use host.docker.internal to reach services running on the host machine
 		"--common-auth-plugin=sds://host.docker.internal:19003?plaintext=true",
-		"--common-session-plugin=sds://host.docker.internal:19003?plaintext=true",
+		"--common-session-plugin=" + sessionPluginConfig,
 		"--common-metering-plugin=sds://host.docker.internal:19003?plaintext=true&network=test",
 		"--reader-node-path=/app/dummy-blockchain",
 		"--reader-node-arguments=" + readerArgs,
@@ -307,9 +448,13 @@ func newDummyBlockchainContainer(ctx context.Context, image string, genesisBlock
 
 // startDummyBlockchainContainer starts a dummy blockchain container, retrieves its endpoint, and verifies it's healthy
 func startDummyBlockchainContainer(ctx context.Context, image string, genesisBlockBurst int) (testcontainers.Container, string, error) {
+	return startDummyBlockchainContainerWithOptions(ctx, image, dummyBlockchainOptions{GenesisBlockBurst: genesisBlockBurst})
+}
+
+func startDummyBlockchainContainerWithOptions(ctx context.Context, image string, opts dummyBlockchainOptions) (testcontainers.Container, string, error) {
 	firecoreLog.Info("setting up dummy-blockchain container", zap.String("image", image))
 
-	container, err := newDummyBlockchainContainer(ctx, image, genesisBlockBurst)
+	container, err := newDummyBlockchainContainer(ctx, image, opts)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to start dummy-blockchain container: %w", err)
 	}
@@ -403,6 +548,37 @@ func runSDSSink(
 	startBlock int64,
 	stopBlock uint64,
 ) error {
+	return runSDSSinkWithOptions(ctx, manifest, module, endpoint, payerAddress, receiverAddress, dataServiceAddress, startBlock, stopBlock, sdsSinkRunOptions{})
+}
+
+func runSDSSinkWithOptions(
+	ctx context.Context,
+	manifest string,
+	module string,
+	endpoint string,
+	payerAddress string,
+	receiverAddress string,
+	dataServiceAddress string,
+	startBlock int64,
+	stopBlock uint64,
+	opts sdsSinkRunOptions,
+) error {
+	_, err := runSDSSinkCommand(ctx, manifest, module, endpoint, payerAddress, receiverAddress, dataServiceAddress, startBlock, stopBlock, opts)
+	return err
+}
+
+func runSDSSinkCommand(
+	ctx context.Context,
+	manifest string,
+	module string,
+	endpoint string,
+	payerAddress string,
+	receiverAddress string,
+	dataServiceAddress string,
+	startBlock int64,
+	stopBlock uint64,
+	opts sdsSinkRunOptions,
+) (string, error) {
 	args := []string{
 		"run",
 		"./cmd/sds",
@@ -419,6 +595,9 @@ func runSDSSink(
 		fmt.Sprintf("--start-block=%d", startBlock),
 		fmt.Sprintf("--stop-block=%d", stopBlock),
 	}
+	if opts.ReportInterval > 0 {
+		args = append(args, "--report-interval="+opts.ReportInterval.String())
+	}
 
 	firecoreLog.Info("running sds sink command",
 		zap.String("manifest", manifest),
@@ -429,13 +608,17 @@ func runSDSSink(
 	)
 
 	// Create a context with timeout for the sink execution
-	sinkCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	timeout := opts.Timeout
+	if timeout <= 0 {
+		timeout = 2 * time.Minute
+	}
+	sinkCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	// Get the repository root
 	cwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
+		return "", fmt.Errorf("failed to get working directory: %w", err)
 	}
 	repoRoot := filepath.Join(cwd, "..", "..")
 
@@ -449,14 +632,14 @@ func runSDSSink(
 			zap.Error(err),
 			zap.String("output", string(output)),
 		)
-		return fmt.Errorf("sds sink failed: %w\nOutput: %s", err, string(output))
+		return string(output), fmt.Errorf("sds sink failed: %w\nOutput: %s", err, string(output))
 	}
 
 	firecoreLog.Info("sds sink command completed successfully",
 		zap.String("output", string(output)),
 	)
 
-	return nil
+	return string(output), nil
 }
 
 type firecoreSessionEvidence struct {
@@ -467,13 +650,22 @@ type firecoreSessionEvidence struct {
 	UsageBlocks     int64
 	UsageBytes      int64
 	UsageRequests   int64
+	Status          repository.SessionStatus
+	EndReason       commonv1.EndReason
 }
 
 type firecoreSessionRow struct {
-	ID string `db:"id"`
+	ID        string        `db:"id"`
+	Status    string        `db:"status"`
+	EndReason sql.NullInt32 `db:"end_reason"`
 }
 
 func loadFirecoreEvidence(t *testing.T, ctx context.Context, createdAfter time.Time, env *TestEnv) firecoreSessionEvidence {
+	t.Helper()
+	return loadFirecoreEvidenceForParticipants(t, ctx, createdAfter, env.Payer.Address, env.ServiceProvider.Address, env.DataService.Address)
+}
+
+func loadFirecoreEvidenceForParticipants(t *testing.T, ctx context.Context, createdAfter time.Time, payer, receiver, dataService eth.Address) firecoreSessionEvidence {
 	t.Helper()
 
 	dbConn, err := psqlrepo.GetConnectionFromDSN(ctx, toPostgresDriverDSN(PostgresTestDSN))
@@ -482,20 +674,24 @@ func loadFirecoreEvidence(t *testing.T, ctx context.Context, createdAfter time.T
 
 	sessionRows := make([]firecoreSessionRow, 0, 1)
 	err = dbConn.SelectContext(ctx, &sessionRows, `
-		SELECT id
+		SELECT id, status, end_reason
 		FROM sessions
 		WHERE payer = $1
 		  AND receiver = $2
 		  AND data_service = $3
 		  AND created_at >= $4
 		ORDER BY created_at ASC
-	`, env.Payer.Address.Bytes(), env.ServiceProvider.Address.Bytes(), env.DataService.Address.Bytes(), createdAfter)
+	`, payer.Bytes(), receiver.Bytes(), dataService.Bytes(), createdAfter)
 	require.NoError(t, err, "query firecore-created provider sessions")
 	require.Len(t, sessionRows, 1, "expected one provider session for the test payer/provider/data service tuple")
 
 	var evidence firecoreSessionEvidence
 	evidence.SessionID = sessionRows[0].ID
 	evidence.SessionCount = len(sessionRows)
+	evidence.Status = repository.SessionStatus(sessionRows[0].Status)
+	if sessionRows[0].EndReason.Valid {
+		evidence.EndReason = commonv1.EndReason(sessionRows[0].EndReason.Int32)
+	}
 
 	err = dbConn.GetContext(ctx, &evidence.WorkerCount, `SELECT COUNT(*) FROM workers WHERE session_id = $1`, evidence.SessionID)
 	require.NoError(t, err, "count worker rows for firecore session")
@@ -514,6 +710,39 @@ func loadFirecoreEvidence(t *testing.T, ctx context.Context, createdAfter time.T
 	require.NoError(t, err, "sum usage event rows for firecore session")
 
 	return evidence
+}
+
+func loadFirecoreSessionState(ctx context.Context, sessionID string) (firecoreSessionEvidence, error) {
+	dbConn, err := psqlrepo.GetConnectionFromDSN(ctx, toPostgresDriverDSN(PostgresTestDSN))
+	if err != nil {
+		return firecoreSessionEvidence{}, err
+	}
+	defer dbConn.Close()
+
+	var row firecoreSessionRow
+	if err := dbConn.GetContext(ctx, &row, `
+		SELECT id, status, end_reason
+		FROM sessions
+		WHERE id = $1
+	`, sessionID); err != nil {
+		return firecoreSessionEvidence{}, err
+	}
+
+	var workerCount int64
+	if err := dbConn.GetContext(ctx, &workerCount, `SELECT COUNT(*) FROM workers WHERE session_id = $1`, sessionID); err != nil {
+		return firecoreSessionEvidence{}, err
+	}
+
+	state := firecoreSessionEvidence{
+		SessionID:   row.ID,
+		Status:      repository.SessionStatus(row.Status),
+		WorkerCount: workerCount,
+	}
+	if row.EndReason.Valid {
+		state.EndReason = commonv1.EndReason(row.EndReason.Int32)
+	}
+
+	return state, nil
 }
 
 func loadFirecoreUsageEvidence(ctx context.Context, sessionID string) (firecoreSessionEvidence, error) {
@@ -540,6 +769,17 @@ func loadFirecoreUsageEvidence(ctx context.Context, sessionID string) (firecoreS
 	}
 
 	return evidence, nil
+}
+
+func isQuotaExceededRuntimeFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := err.Error()
+	return strings.Contains(msg, "Quota exceeded") ||
+		strings.Contains(msg, "ResourceExhausted") ||
+		strings.Contains(msg, "resource exhausted")
 }
 
 func toPostgresDriverDSN(dsn string) string {

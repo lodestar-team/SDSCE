@@ -2,6 +2,7 @@ package repository_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -80,6 +81,7 @@ func TestInMemory_SessionGet_NotFound(t *testing.T) {
 
 	_, err := repo.SessionGet(ctx, "missing")
 	require.Error(t, err)
+	assert.ErrorIs(t, err, repository.ErrNotFound)
 	assert.Contains(t, err.Error(), "not found")
 }
 
@@ -211,6 +213,7 @@ func TestInMemory_WorkerGet_NotFound(t *testing.T) {
 
 	_, err := repo.WorkerGet(ctx, "missing")
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, repository.ErrNotFound))
 }
 
 func TestInMemory_WorkerDelete(t *testing.T) {

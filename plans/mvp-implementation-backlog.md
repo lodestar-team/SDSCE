@@ -102,8 +102,8 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-012 | `done` | funding-control | none | `MVP-004` | `A`, `C` | Add deterministic cost-based RAV issuance thresholds suitable for real runtime behavior |
 | MVP-013 | `deferred` | consumer | `A3` | none | none | Post-MVP only: implement true provider-authoritative payment-session reconnect/resume semantics |
 | MVP-014 | `done` | provider-integration | `A3` | `MVP-004` | `A` | Integrate the public Payment Gateway and private Plugin Gateway into the real provider streaming path |
-| MVP-015 | `in_progress` | provider-integration | `A3` | `MVP-004`, `MVP-014` | `A`, `C` | Wire real byte metering and session correlation from the plugin path into the payment-state repository used by the gateway |
-| MVP-016 | `not_started` | provider-integration | `A6` | `MVP-010`, `MVP-014` | `C` | Enforce gateway Continue/Stop decisions in the live provider stream lifecycle |
+| MVP-015 | `done` | provider-integration | `A3` | `MVP-004`, `MVP-014` | `A`, `C` | Wire real byte metering and session correlation from the plugin path into the payment-state repository used by the gateway |
+| MVP-016 | `done` | provider-integration | `A6` | `MVP-010`, `MVP-014` | `C` | Enforce gateway Continue/Stop decisions in the live provider stream lifecycle |
 | MVP-017 | `not_started` | consumer-integration | `A1`, `A2`, `A3` | `MVP-007`, `MVP-011`, `MVP-033` | `A`, `C` | Implement the consumer sidecar as a Substreams-compatible endpoint/proxy rather than only a wrapper-controlled lifecycle service |
 | MVP-018 | `not_started` | tooling | none | `MVP-032` | `E` | Implement operator funding CLI flows for approve/deposit/top-up beyond local demo assumptions |
 | MVP-019 | `not_started` | tooling | `A5` | `MVP-009`, `MVP-022` | `D`, `F` | Implement provider inspection CLI flows for accepted and collectible RAV data |
@@ -124,6 +124,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-034 | `done` | validation | none | none | none | Fix repository PostgreSQL tests so migrations resolve from repo-relative state rather than a machine-specific absolute path |
 | MVP-035 | `done` | validation | none | none | none | Make integration devenv startup resilient to local fixed-port collisions so the shared test environment is reproducible |
 | MVP-036 | `not_started` | operations | `A5` | `MVP-014` | `A`, `G` | Publish refreshed upstream `firehose-core` and `dummy-blockchain` images built against the current SDS plugin/runtime contract so default integration paths no longer rely on local override tags |
+| MVP-037 | `not_started` | validation | none | `MVP-014`, `MVP-016` | `A`, `C` | Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs |
 
 ## Protocol and Contract Tasks
 
@@ -407,16 +408,30 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - `go test ./test/integration -run TestConsumerSidecar_ReportUsage_WiresPaymentSessionLoop -count=1` passes to confirm the existing wrapper-oriented payment loop still works.
     - `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-local go test ./test/integration -run TestFirecore -count=1 -v` passes with `GetSessionStatus().payment_status.accumulated_usage_value` exactly matching the provider-priced total derived from persisted plugin metering evidence.
 
-- [ ] MVP-016 Enforce gateway Continue/Stop decisions in the live provider stream lifecycle.
+- [x] MVP-016 Enforce gateway Continue/Stop decisions in the live provider stream lifecycle.
   - Context:
     - Provider-side control logic is incomplete if the live provider stream does not obey it.
+    - The repo-local acceptance path is now validated: plugin keepalive enforcement stops the live Firecore/Substreams stream when the provider session is no longer allowed to continue, while preserving the exact real-path `MVP-014` happy-path flow.
+    - The local-first acceptance run was validated on 2026-03-28 against:
+      - SDS `1171ed0bbf7a7254f6655d98c1e7947f5a3bd776` plus the current uncommitted `MVP-016` worktree changes
+      - `firehose-core` `b574a98babcb0338198e0ff4db7ebd0e404f6529`
+      - `dummy-blockchain` `1cea671e78cbb069d64333fdbf4a6c9dd5502d58`
+      - `substreams` `8897dccff3e2f989867b7711be91d613d256a36a`
+      - image tags `ghcr.io/streamingfast/firehose-core:sds-local` and `ghcr.io/streamingfast/dummy-blockchain:sds-local`
   - Assumptions:
     - `A6`
   - Done when:
     - The real provider path can enforce SDS control decisions during live streaming.
     - Gateway-driven low-funds stop behavior interrupts the live provider stream lifecycle appropriately rather than only ending the control-plane session.
   - Verify:
-    - Add manual or automated verification where the provider stops the live stream based on gateway control decisions.
+    - `go test ./provider/session ./provider/plugin ./provider/repository -count=1` passes with fail-closed provider session-service coverage and plugin error-mapping coverage.
+    - `go test ./test/integration -run TestConsumerSidecar_ReportUsage_StopsOnLowFunds -count=1 -v` passes to confirm the preexisting wrapper-oriented low-funds stop path still works.
+    - `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-local go test ./test/integration -run 'TestFirecore|TestFirecoreStopsStreamOnLowFunds' -count=1 -v` passes with:
+      - the normal `TestFirecore` happy path still succeeding
+      - the dedicated low-funds Firecore path stopping the live stream early
+      - provider session state ending with `END_REASON_PAYMENT_ISSUE`
+      - worker cleanup eventually completing after the stop
+    - The prebuilt `ghcr.io/streamingfast/dummy-blockchain:v1.7.7` image remains stale and still blocks the default image path on the known header-propagation/runtime-drift issue; that remains tracked under `MVP-036`.
 
 - [ ] MVP-017 Implement the consumer sidecar as a Substreams-compatible endpoint/proxy rather than only a wrapper-controlled lifecycle service.
   - Context:
@@ -634,6 +649,21 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Port-allocation failures stop being a common non-product cause of integration test failure.
   - Verify:
     - Run `go test ./test/integration/...` with the default local port already occupied and confirm startup either succeeds using the supported fallback/override path or fails fast with a clear, actionable configuration message.
+
+- [ ] MVP-037 Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs.
+  - Context:
+    - `MVP-014` introduced the heavier real-path Firecore acceptance harness, and `MVP-016` extends that harness with a real low-funds stream-stop scenario.
+    - These tests are intentionally closer to a natural provider/runtime environment than typical unit-style integration tests: they boot the local chain/contracts, provider payment gateway, plugin gateway, consumer sidecar, Postgres, and dummy-blockchain/firecore together.
+    - The current integration suite still shares one devenv/chain state across multiple tests, so helpers like `SetupCustomPaymentParticipantsWithSigner` can accumulate escrow/provision state for reused payer/provider pairs and make low-funds assertions order-dependent.
+  - Assumptions:
+    - none
+  - Done when:
+    - The real-path Firecore and consumer low-funds tests no longer rely on mutable shared payer/provider state across suite runs.
+    - Full `go test ./test/integration/...` runs are deterministic with respect to escrow/provision setup for the low-funds scenarios used by `MVP-014` and `MVP-016`.
+    - The repo documents whether those tests use per-test fresh chain state, snapshot/restore isolation, or strictly unique on-chain identities per scenario.
+  - Verify:
+    - Run the affected low-funds and Firecore tests both in isolation and as part of a broader `./test/integration/...` run and confirm they produce the same result.
+    - Add an assertion or helper-level guard that proves the expected pre-test escrow state before the behavioral assertion is evaluated.
 
 - [ ] MVP-026 Refresh protocol/runtime docs so they match the revised MVP architecture and remaining open questions.
   - Context:

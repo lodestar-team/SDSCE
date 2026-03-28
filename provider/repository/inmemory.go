@@ -61,7 +61,7 @@ func (r *InMemoryRepository) SessionCreate(_ context.Context, session *Session) 
 func (r *InMemoryRepository) SessionGet(_ context.Context, sessionID string) (*Session, error) {
 	s, ok := r.sessions.Get(sessionID)
 	if !ok {
-		return nil, fmt.Errorf("session %q not found", sessionID)
+		return nil, fmt.Errorf("session %q: %w", sessionID, ErrNotFound)
 	}
 	return s, nil
 }
@@ -143,7 +143,7 @@ func (r *InMemoryRepository) WorkerCreate(_ context.Context, worker *Worker) err
 func (r *InMemoryRepository) WorkerGet(_ context.Context, workerKey string) (*Worker, error) {
 	w, ok := r.workers.Get(workerKey)
 	if !ok {
-		return nil, fmt.Errorf("worker %q not found", workerKey)
+		return nil, fmt.Errorf("worker %q: %w", workerKey, ErrNotFound)
 	}
 	return w, nil
 }

@@ -121,12 +121,13 @@ Completed foundation:
 - `MVP-012` Add deterministic cost-based RAV issuance thresholds suitable for real runtime behavior
 - `MVP-014` Integrate provider gateway validation into the real provider streaming path
 - `MVP-015` Wire real byte metering from the provider/plugin path into gateway payment state
+- `MVP-016` Enforce gateway Continue/Stop decisions in the live provider stream lifecycle
 
 Recommended next sequence:
 
-1. `MVP-016` Enforce gateway Continue/Stop decisions in the live provider stream lifecycle
-2. `MVP-011` Propagate provider low-funds stop decisions through consumer sidecar into the real client path
-3. `MVP-031` Wire the live PaymentSession and RAV-control loop into the real client/provider runtime path
+1. `MVP-011` Propagate provider low-funds stop decisions through consumer sidecar into the real client path
+2. `MVP-031` Wire the live PaymentSession and RAV-control loop into the real client/provider runtime path
+3. `MVP-037` Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs
 
 Notes:
 
@@ -138,10 +139,11 @@ Notes:
   - cost-based only
   - compares unbaselined `delta_cost` against a provider-side `rav_request_threshold`
   - defaults to `10 GRT` when the provider does not configure a threshold explicitly
-- `MVP-014` and `MVP-015` are now complete under the local-first runtime workflow:
+- `MVP-014`, `MVP-015`, and `MVP-016` are now complete under the local-first runtime workflow:
   - `TestFirecore` passes against `ghcr.io/streamingfast/dummy-blockchain:sds-local`
   - plugin metering updates the same provider session/payment state surfaced by `GetSessionStatus`
   - the Firecore acceptance path now asserts the exact gateway-visible accumulated usage value derived from persisted metering totals and provider pricing
+  - the live Firecore/Substreams stream now stops on provider-enforced low-funds termination through the existing session-plugin keepalive cancellation path, with low-funds termination surfacing as runtime `ResourceExhausted`
 - `MVP-014` remains the main integration foundation in this lane.
   - Current status: repo-local gateway wiring and the real-path `TestFirecore` harness are in place, and local-first acceptance now passes when the test is pointed at a locally rebuilt `firecore`/`dummy-blockchain` image via `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE`.
   - The validated local runtime tuple on 2026-03-28 was:
@@ -150,7 +152,8 @@ Notes:
     - `dummy-blockchain` `1cea671e78cbb069d64333fdbf4a6c9dd5502d58`
     - `substreams` `8897dccff3e2f989867b7711be91d613d256a36a`
   - The prebuilt published `dummy-blockchain` image remains stale and still embeds an older SDS-compatible runtime snapshot, so publishing refreshed upstream images is tracked separately under `MVP-036`, while `MVP-030` remains the compatibility/preflight hardening follow-up.
-- `MVP-011` is partially advanced because the current sidecar wrapper path already stops on `NeedMoreFunds`, but the real client-facing ingress path is still unfinished.
+- `MVP-011` is now the main remaining low-funds/runtime-control gap.
+  - Current status: the sidecar wrapper path already stops on `NeedMoreFunds`, and the provider-side live stream now stops on enforced low-funds termination, but the real client-facing ingress path is still unfinished.
 - `MVP-031` is effectively the capstone runtime-payment task because it depends on real provider and consumer integration plus thresholding.
 
 ### Lane C: Provider State, Settlement, And Operator Retrieval

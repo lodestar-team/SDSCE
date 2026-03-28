@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"sync"
 	"time"
 
@@ -74,6 +75,27 @@ func (r *InMemoryRepository) SessionUpdate(_ context.Context, session *Session) 
 		return fmt.Errorf("session %q not found", session.ID)
 	}
 	r.sessions.Set(session.ID, session)
+	return nil
+}
+
+// SessionApplyUsage appends a usage event and advances the owning session aggregates.
+func (r *InMemoryRepository) SessionApplyUsage(ctx context.Context, sessionID string, usage *UsageEvent, cost *big.Int) error {
+	if usage == nil {
+		return fmt.Errorf("usage event must not be nil")
+	}
+
+	session, ok := r.sessions.Get(sessionID)
+	if !ok {
+		return fmt.Errorf("session %q: %w", sessionID, ErrNotFound)
+	}
+
+	if err := r.UsageAdd(ctx, sessionID, usage); err != nil {
+		return err
+	}
+
+	blocks, bytes, requests := usage.SanitizedTotals()
+	session.AddUsage(blocks, bytes, requests, cost)
+	r.sessions.Set(sessionID, session)
 	return nil
 }
 

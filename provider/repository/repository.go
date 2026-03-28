@@ -24,6 +24,7 @@ type GlobalRepository interface {
 	SessionCreate(ctx context.Context, session *Session) error
 	SessionGet(ctx context.Context, sessionID string) (*Session, error)
 	SessionUpdate(ctx context.Context, session *Session) error
+	SessionApplyUsage(ctx context.Context, sessionID string, usage *UsageEvent, cost *big.Int) error
 	SessionList(ctx context.Context, filter SessionFilter) ([]*Session, error)
 	SessionCount(ctx context.Context) int
 
@@ -223,6 +224,22 @@ type UsageEvent struct {
 	Blocks    int64
 	Bytes     int64
 	Requests  int64
+}
+
+// SanitizedTotals returns the event counters clamped to non-negative uint64 values.
+func (u *UsageEvent) SanitizedTotals() (blocks, bytes, requests uint64) {
+	if u == nil {
+		return 0, 0, 0
+	}
+
+	return sanitizeUsageMetric(u.Blocks), sanitizeUsageMetric(u.Bytes), sanitizeUsageMetric(u.Requests)
+}
+
+func sanitizeUsageMetric(v int64) uint64 {
+	if v <= 0 {
+		return 0
+	}
+	return uint64(v)
 }
 
 // UsageSummary aggregates total usage across all events for a session.

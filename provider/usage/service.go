@@ -4,6 +4,7 @@ package usage
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"connectrpc.com/connect"
@@ -20,14 +21,15 @@ var zlog, _ = logging.PackageLogger("sds_usage", "github.com/graphprotocol/subst
 // It receives batched metering events from the dmetering plugin and stores
 // them in the GlobalRepository for later aggregation and reporting.
 type UsageService struct {
-	repo repository.GlobalRepository
+	repo          repository.GlobalRepository
+	pricingConfig repository.PricingConfig
 }
 
 var _ usagev1connect.UsageServiceHandler = (*UsageService)(nil)
 
-// NewUsageService creates a new UsageService backed by the given repository.
-func NewUsageService(repo repository.GlobalRepository) *UsageService {
-	return &UsageService{repo: repo}
+// NewUsageService creates a new UsageService backed by the given repository and provider pricing.
+func NewUsageService(repo repository.GlobalRepository, pricingConfig repository.PricingConfig) *UsageService {
+	return &UsageService{repo: repo, pricingConfig: pricingConfig}
 }
 
 // Report receives a batch of metering events from the dmetering plugin.
@@ -60,8 +62,18 @@ func (s *UsageService) Report(
 		}
 
 		usageEvent := protoEventToUsageEvent(event)
+		blocks, bytes, _ := usageEvent.SanitizedTotals()
+		cost := s.pricingConfig.CalculateUsageCost(blocks, bytes).BigInt()
 
-		if err := s.repo.UsageAdd(ctx, sessionID, usageEvent); err != nil {
+		if err := s.repo.SessionApplyUsage(ctx, sessionID, usageEvent, cost); err != nil {
+			if errors.Is(err, repository.ErrNotFound) {
+				zlog.Warn("usage event references unknown session",
+					zap.String("organization_id", event.OrganizationId),
+					zap.String("session_id", sessionID),
+					zap.Error(err),
+				)
+				continue
+			}
 			zlog.Warn("failed to record usage event",
 				zap.String("organization_id", event.OrganizationId),
 				zap.String("session_id", sessionID),

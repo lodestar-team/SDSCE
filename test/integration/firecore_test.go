@@ -179,8 +179,26 @@ func TestFirecore(t *testing.T) {
 		evidence.UsageBytes = usageEvidence.UsageBytes
 		evidence.UsageRequests = usageEvidence.UsageRequests
 
-		return evidence.UsageBlocks+evidence.UsageBytes+evidence.UsageRequests >= 1
-	}, 3*time.Second, 100*time.Millisecond, "expected metering to record non-zero usage")
+		statusResp, err = providerClient.GetSessionStatus(ctx, connect.NewRequest(&providerv1.GetSessionStatusRequest{
+			SessionId: evidence.SessionID,
+		}))
+		if err != nil {
+			firecoreLog.Warn("failed to refresh gateway session status",
+				zap.String("session_id", evidence.SessionID),
+				zap.Error(err),
+			)
+			return false
+		}
+
+		paymentStatus := statusResp.Msg.GetPaymentStatus()
+		if paymentStatus == nil || paymentStatus.GetAccumulatedUsageValue() == nil {
+			return false
+		}
+
+		return evidence.UsageBlocks+evidence.UsageBytes+evidence.UsageRequests >= 1 &&
+			paymentStatus.GetAccumulatedUsageValue().ToBigInt().Sign() > 0
+	}, 3*time.Second, 100*time.Millisecond, "expected metering to update the payment-state repository")
+	require.Positive(t, statusResp.Msg.GetPaymentStatus().GetAccumulatedUsageValue().ToBigInt().Sign(), "expected non-zero accumulated usage value from plugin metering")
 
 	firecoreLog.Info("E2E Substreams request completed successfully",
 		zap.String("session_id", evidence.SessionID),

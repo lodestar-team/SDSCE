@@ -389,4 +389,44 @@ func TestUsageAddAndGetTotal(t *testing.T) {
 	})
 }
 
+func TestSessionApplyUsage(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+
+		pricingConfig := sds.PricingConfig{
+			PricePerBlock: sds.MustNewGRT(100),
+			PricePerByte:  sds.MustNewGRT(10),
+		}
+
+		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
+		receiver := eth.MustNewAddress("0x2234567890123456789012345678901234567890")
+		dataService := eth.MustNewAddress("0x3234567890123456789012345678901234567890")
+
+		session := repository.NewSession("session-apply-usage", payer, receiver, dataService, pricingConfig)
+		require.NoError(t, db.SessionCreate(ctx, session))
+
+		event := &repository.UsageEvent{
+			Timestamp: time.Now(),
+			Blocks:    100,
+			Bytes:     2000,
+			Requests:  10,
+		}
+		cost := pricingConfig.CalculateUsageCost(100, 2000).BigInt()
+
+		require.NoError(t, db.SessionApplyUsage(ctx, "session-apply-usage", event, cost))
+
+		retrieved, err := db.SessionGet(ctx, "session-apply-usage")
+		require.NoError(t, err)
+		assert.Equal(t, uint64(100), retrieved.BlocksProcessed)
+		assert.Equal(t, uint64(2000), retrieved.BytesTransferred)
+		assert.Equal(t, uint64(10), retrieved.Requests)
+		assert.Equal(t, 0, retrieved.TotalCost.Cmp(cost))
+
+		var usageEventCount int
+		err = db.GetContext(ctx, &usageEventCount, `SELECT COUNT(*) FROM usage_events WHERE session_id = $1`, "session-apply-usage")
+		require.NoError(t, err)
+		assert.Equal(t, 1, usageEventCount)
+	})
+}
+
 // TestCascadeDelete was removed because SessionDelete is not used in production code

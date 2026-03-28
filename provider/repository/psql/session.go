@@ -10,6 +10,7 @@ import (
 
 func init() {
 	registerFiles([]string{
+		"session/apply_usage.sql",
 		"session/create.sql",
 		"session/get.sql",
 		"session/update.sql",

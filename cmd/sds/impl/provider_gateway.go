@@ -9,6 +9,7 @@ import (
 	"github.com/graphprotocol/substreams-data-service/provider/auth"
 	"github.com/graphprotocol/substreams-data-service/provider/gateway"
 	"github.com/graphprotocol/substreams-data-service/provider/plugin"
+	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/graphprotocol/substreams-data-service/provider/session"
 	"github.com/graphprotocol/substreams-data-service/provider/usage"
 	sidecarlib "github.com/graphprotocol/substreams-data-service/sidecar"
@@ -141,7 +142,7 @@ func StartProviderGateway(
 	}
 
 	authService := auth.NewAuthService(serviceProviderAddr, domain, collectorQuerier, repo)
-	usageService := usage.NewUsageService(repo)
+	usageService := usage.NewUsageService(repo, toRepositoryPricingConfig(pricingConfig))
 	sessionService := session.NewSessionService(repo, nil) // Use default quota config
 
 	// Create Plugin Gateway
@@ -235,7 +236,7 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 	}
 
 	authService := auth.NewAuthService(serviceProviderAddr, domain, collectorQuerier, repo)
-	usageService := usage.NewUsageService(repo)
+	usageService := usage.NewUsageService(repo, toRepositoryPricingConfig(providerPricingConfig.ToPricingConfig()))
 	sessionService := session.NewSessionService(repo, nil) // Use default quota config
 
 	// Create Plugin Gateway
@@ -255,4 +256,15 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 	app.SuperviseAndStart(pluginGateway)
 
 	return app.WaitForTermination(providerLog, 0*time.Second, 30*time.Second)
+}
+
+func toRepositoryPricingConfig(pc *sidecarlib.PricingConfig) repository.PricingConfig {
+	if pc == nil {
+		pc = sidecarlib.DefaultPricingConfig()
+	}
+
+	return repository.PricingConfig{
+		PricePerBlock: pc.PricePerBlock,
+		PricePerByte:  pc.PricePerByte,
+	}
 }

@@ -386,10 +386,16 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-local go test ./test/integration -run TestFirecore -v -count=1` passes without skip against a firecore/dummy-blockchain runtime rebuilt from current SDS-compatible sources.
     - The backlog and runtime-compatibility docs explicitly identify the prebuilt `dummy-blockchain:v1.7.7` image as incompatible with the current SDS provider/plugin contract until `MVP-036` lands.
 
-- [ ] MVP-015 Wire real byte metering and session correlation from the plugin path into the payment-state repository used by the gateway.
+- [x] MVP-015 Wire real byte metering and session correlation from the plugin path into the payment-state repository used by the gateway.
   - Context:
     - The recent commit range fixed session ID propagation and pushed more correlation through typed plugin fields and shared repository state.
-    - The remaining work is to validate the billing and payment-state behavior at acceptance level.
+    - The repo-local acceptance path is now validated: provider-side plugin metering advances the same session aggregates and accumulated cost surfaced by `GetSessionStatus`, and the real Firecore path proves that exact pricing alignment against persisted metering evidence.
+    - The local-first acceptance run was validated on 2026-03-28 against:
+      - SDS `1171ed0bbf7a7254f6655d98c1e7947f5a3bd776` plus `ad3420a6ac9c11f48f6a9d7f478cf487233357d7`
+      - `firehose-core` `b574a98babcb0338198e0ff4db7ebd0e404f6529`
+      - `dummy-blockchain` `1cea671e78cbb069d64333fdbf4a6c9dd5502d58`
+      - `substreams` `8897dccff3e2f989867b7711be91d613d256a36a`
+      - image tags `ghcr.io/streamingfast/firehose-core:sds-local` and `ghcr.io/streamingfast/dummy-blockchain:sds-local`
   - Assumptions:
     - `A3`
   - Done when:
@@ -397,7 +403,9 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Session correlation is stable across auth, session, usage, and gateway-side payment state.
     - The runtime path does not rely on consumer-reported bytes as the billing source of truth.
   - Verify:
-    - Add tests or manual instrumentation evidence showing live provider/plugin activity updates the payment-state repository consistently.
+    - `go test ./provider/usage ./provider/repository/psql -count=1` passes with repository/service coverage for authoritative metering application.
+    - `go test ./test/integration -run TestConsumerSidecar_ReportUsage_WiresPaymentSessionLoop -count=1` passes to confirm the existing wrapper-oriented payment loop still works.
+    - `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-local go test ./test/integration -run TestFirecore -count=1 -v` passes with `GetSessionStatus().payment_status.accumulated_usage_value` exactly matching the provider-priced total derived from persisted plugin metering evidence.
 
 - [ ] MVP-016 Enforce gateway Continue/Stop decisions in the live provider stream lifecycle.
   - Context:

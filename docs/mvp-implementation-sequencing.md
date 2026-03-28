@@ -119,14 +119,14 @@ Completed foundation:
 
 - `MVP-010` Implement session-local low-funds detection and provider terminal stop behavior during streaming
 - `MVP-012` Add deterministic cost-based RAV issuance thresholds suitable for real runtime behavior
+- `MVP-014` Integrate provider gateway validation into the real provider streaming path
+- `MVP-015` Wire real byte metering from the provider/plugin path into gateway payment state
 
 Recommended next sequence:
 
-1. `MVP-014` Integrate provider gateway validation into the real provider streaming path
-2. `MVP-015` Wire real byte metering from the provider/plugin path into gateway payment state
-3. `MVP-011` Propagate provider low-funds stop decisions through consumer sidecar into the real client path
-4. `MVP-016` Enforce gateway Continue/Stop decisions in the live provider stream lifecycle
-5. `MVP-031` Wire the live PaymentSession and RAV-control loop into the real client/provider runtime path
+1. `MVP-016` Enforce gateway Continue/Stop decisions in the live provider stream lifecycle
+2. `MVP-011` Propagate provider low-funds stop decisions through consumer sidecar into the real client path
+3. `MVP-031` Wire the live PaymentSession and RAV-control loop into the real client/provider runtime path
 
 Notes:
 
@@ -138,6 +138,10 @@ Notes:
   - cost-based only
   - compares unbaselined `delta_cost` against a provider-side `rav_request_threshold`
   - defaults to `10 GRT` when the provider does not configure a threshold explicitly
+- `MVP-014` and `MVP-015` are now complete under the local-first runtime workflow:
+  - `TestFirecore` passes against `ghcr.io/streamingfast/dummy-blockchain:sds-local`
+  - plugin metering updates the same provider session/payment state surfaced by `GetSessionStatus`
+  - the Firecore acceptance path now asserts the exact gateway-visible accumulated usage value derived from persisted metering totals and provider pricing
 - `MVP-014` remains the main integration foundation in this lane.
   - Current status: repo-local gateway wiring and the real-path `TestFirecore` harness are in place, and local-first acceptance now passes when the test is pointed at a locally rebuilt `firecore`/`dummy-blockchain` image via `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE`.
   - The validated local runtime tuple on 2026-03-28 was:
@@ -266,7 +270,6 @@ Already resolved:
 
 ### Phase 2: Integrate Runtime And Retrieval Paths
 
-- `MVP-015`
 - `MVP-011`
 - `MVP-016`
 - `MVP-017`

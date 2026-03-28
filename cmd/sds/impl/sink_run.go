@@ -139,10 +139,7 @@ func runSinkRun(cmd *cobra.Command, args []string) error {
 
 	sinkerConfig.ClientConfig = newClientConfigForDataPlaneEndpoint(sinkerConfig.ClientConfig, initResult.DataPlaneEndpoint)
 
-	// Create the sinker from config after the provider handshake so the real data-plane
-	// endpoint uses the provider-returned session-specific value.
-	sinker, err := sink.NewFromConfig(sinkerConfig)
-	cli.NoError(err, "unable to create sinker")
+	var extraHeaders []string
 
 	// Add the RAV header for authentication with the Substreams endpoint
 	if initResult.PaymentRAV != nil {
@@ -150,15 +147,28 @@ func runSinkRun(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to encode RAV header: %w", err)
 		}
-		sinker.ExtraHeaders = append(sinker.ExtraHeaders, sds.HeaderRAV+":"+ravHeader)
+		extraHeaders = append(extraHeaders, sds.HeaderRAV+":"+ravHeader)
 		sinkLog.Debug("added x-sds-rav header to sinker")
 	}
 
 	// Add the session ID header for session tracking
 	if wrapper.sessionID != "" {
-		sinker.ExtraHeaders = append(sinker.ExtraHeaders, sds.HeaderSessionID+":"+wrapper.sessionID)
+		extraHeaders = append(extraHeaders, sds.HeaderSessionID+":"+wrapper.sessionID)
 		sinkLog.Debug("added x-sds-session-id header to sinker", zap.String("session_id", wrapper.sessionID))
 	}
+
+	if len(extraHeaders) > 0 {
+		sinkerConfig.ExtraHeaders = append(append([]string(nil), sinkerConfig.ExtraHeaders...), extraHeaders...)
+		sinkLog.Info("configured SDS data-plane headers",
+			zap.Int("header_count", len(sinkerConfig.ExtraHeaders)),
+			zap.Strings("headers", sinkerConfig.ExtraHeaders),
+		)
+	}
+
+	// Create the sinker from config after the provider handshake so the real data-plane
+	// endpoint uses the provider-returned session-specific value.
+	sinker, err := sink.NewFromConfig(sinkerConfig)
+	cli.NoError(err, "unable to create sinker")
 
 	// Supervise the sinker - app will shutdown sinker on termination signal
 	app.Supervise(sinker)

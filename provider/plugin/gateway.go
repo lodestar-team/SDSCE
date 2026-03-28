@@ -60,7 +60,8 @@ func (g *PluginGateway) Run() {
 	// Connect/HTTP server for SDS plugin services
 	handlerGetters := []connectrpc.HandlerGetter{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return authv1connect.NewAuthServiceHandler(g.authService, opts...)
+			path, handler := authv1connect.NewAuthServiceHandler(g.authService, opts...)
+			return path, wrapAuthTransport(handler, g.logger)
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return usagev1connect.NewUsageServiceHandler(g.usageService, opts...)

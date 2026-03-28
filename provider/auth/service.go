@@ -105,7 +105,9 @@ func (s *AuthService) ValidateAuth(
 	// Extract x-sds-rav header
 	ravHeaders, ok := lowerHeaders[strings.ToLower(sds.HeaderRAV)]
 	if !ok || len(ravHeaders) == 0 {
-		logger.Warn("missing x-sds-rav header")
+		logger.Warn("missing x-sds-rav header",
+			zap.Strings("received_header_names", slices.Collect(maps.Keys(lowerHeaders))),
+		)
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("missing %s header", sds.HeaderRAV))
 	}
 

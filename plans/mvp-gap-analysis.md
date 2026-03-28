@@ -324,6 +324,8 @@ The most important recent status changes versus the original draft are:
   - The provider now requests new RAVs based on unbaselined `delta_cost` reaching a provider-side `rav_request_threshold`, with a built-in `10 GRT` fallback when not configured.
 - Real-path integration scaffolding is stronger.
   - The repo now includes stronger firecore/plugin integration setup and a `TestFirecore` scaffold, even though that path is not yet MVP-complete.
+  - The current blocker is now identified more precisely: the prebuilt `dummy-blockchain`/`firecore` runtime used by that scaffold embeds an older SDS snapshot and therefore drifts from the current auth/session/usage plugin contracts implemented in this repo.
+  - This is protocol drift caused by SDS contract evolution, not just a generic “firecore test is flaky” issue.
 - Consumer-side MVP UX is still notably behind the revised scope.
   - The code still reflects a control-plane RPC plus wrapper model rather than the endpoint/proxy boundary the scope now requires.
 

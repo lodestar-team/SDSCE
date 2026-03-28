@@ -7,12 +7,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/graphprotocol/substreams-data-service/cmd/sds/impl"
 	"github.com/graphprotocol/substreams-data-service/consumer/sidecar"
 	"github.com/graphprotocol/substreams-data-service/horizon"
+	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
+	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
+	psqlrepo "github.com/graphprotocol/substreams-data-service/provider/repository/psql"
 	sidecarlib "github.com/graphprotocol/substreams-data-service/sidecar"
 	"github.com/streamingfast/logging"
 	"github.com/stretchr/testify/require"
@@ -28,12 +33,24 @@ func TestFirecore(t *testing.T) {
 		t.Skip("Skipping firecore integration test in short mode")
 	}
 
-	t.Skip("Not ready for prime time, still working on it")
-
 	ctx := context.Background()
 	env := SetupEnv(t)
+	testStartedAt := time.Now().UTC()
 
-	// Step 1: Start provider gateways (payment + plugin) with Postgres repository
+	// Step 1: Start dummy-blockchain/firecore and capture the host-reachable data plane endpoint.
+	// The provider handshake must advertise the mapped host port, not the in-container :10016.
+	dummyBlockchainContainer, substreamsEndpoint, err := startDummyBlockchainContainer(ctx, 100)
+	require.NoError(t, err, "failed to start dummy-blockchain container")
+	defer dummyBlockchainContainer.Terminate(ctx)
+	defer func() {
+		if !t.Failed() {
+			return
+		}
+		dumpContainerLogs(t, ctx, dummyBlockchainContainer)
+	}()
+	providerDataPlaneEndpoint := "http://" + substreamsEndpoint
+
+	// Step 2: Start provider gateways (payment + plugin) with Postgres repository
 	// Listen on 0.0.0.0 so Docker containers can reach them via host.docker.internal
 	//
 	// Port allocation:
@@ -55,7 +72,7 @@ func TestFirecore(t *testing.T) {
 		env.Collector.Address,
 		env.Escrow.Address,
 		env.RPCURL,
-		"localhost:10016",
+		providerDataPlaneEndpoint,
 		PostgresTestDSN,
 		sidecarlib.ServerTransportConfig{
 			Plaintext:   true,
@@ -78,24 +95,19 @@ func TestFirecore(t *testing.T) {
 	require.NoError(t, err, "plugin gateway failed to become healthy")
 	firecoreLog.Info("plugin gateway is healthy")
 
-	// Step 3: Setup dummy-blockchain container
-	// Use genesis-block-burst=100 to rapidly produce blocks and reach real-time sync faster
-	dummyBlockchainContainer, substreamsEndpoint, err := startDummyBlockchainContainer(ctx, 100)
-	require.NoError(t, err, "failed to start dummy-blockchain container")
-	defer dummyBlockchainContainer.Terminate(ctx)
-
 	firecoreLog.Info("all infrastructure started successfully",
 		zap.String("substreams_endpoint", substreamsEndpoint),
 		zap.String("provider_control_plane_endpoint", "http://localhost:19001"),
 	)
 
-	// Step 4: Start consumer sidecar
+	// Step 3: Start consumer sidecar
 	firecoreLog.Info("starting consumer sidecar", zap.String("listen_addr", ":9002"))
 
 	sidecarConfig := &sidecar.Config{
-		ListenAddr: ":9002",
-		SignerKey:  env.Payer.PrivateKey,
-		Domain:     horizon.NewDomain(env.ChainID, env.Collector.Address),
+		ListenAddr:      ":9002",
+		SignerKey:       env.Payer.PrivateKey,
+		Domain:          horizon.NewDomain(env.ChainID, env.Collector.Address),
+		TransportConfig: sidecarlib.ServerTransportConfig{Plaintext: true},
 	}
 
 	consumerSidecar := sidecar.New(sidecarConfig, firecoreLog)
@@ -107,31 +119,9 @@ func TestFirecore(t *testing.T) {
 	require.NoError(t, err, "consumer sidecar failed to become healthy")
 	firecoreLog.Info("consumer sidecar is healthy")
 
-	// Step 5: Run E2E Substreams request (blocks 0-20)
-	// This tests if SDS auth plugins are working correctly
+	// Step 4: Run E2E Substreams request (blocks 0-20)
+	// This exercises the real provider path through firecore.
 	firecoreLog.Info("running E2E Substreams request for blocks 0-20")
-
-	// Dump firecore container logs for debugging
-	// Sleep briefly to let logs flush
-	time.Sleep(1 * time.Second)
-	logs, err := dummyBlockchainContainer.Logs(ctx)
-	if err == nil {
-		var logBuf []byte
-		buf := make([]byte, 4096)
-		for {
-			n, err := logs.Read(buf)
-			if n > 0 {
-				logBuf = append(logBuf, buf[:n]...)
-			}
-			if err != nil {
-				break
-			}
-		}
-		logs.Close()
-		if len(logBuf) > 0 {
-			firecoreLog.Debug("firecore container logs", zap.String("logs", string(logBuf)))
-		}
-	}
 
 	err = runSDSSink(
 		ctx,
@@ -144,17 +134,31 @@ func TestFirecore(t *testing.T) {
 		0,
 		20,
 	)
-
-	if err != nil {
-		firecoreLog.Warn("E2E Substreams request failed (expected due to auth header bug)",
-			zap.Error(err),
-		)
-		t.Logf("⚠️  E2E test failed as expected: %v", err)
-		t.Log("⚠️  Known issue: auth context not setting header properly")
-	} else {
-		firecoreLog.Info("E2E Substreams request completed successfully!")
-		t.Log("✅ E2E Substreams request completed successfully!")
+	if isKnownFirecoreHeaderPropagationBlocker(err) {
+		dumpContainerLogs(t, ctx, dummyBlockchainContainer)
+		t.Skipf("MVP-014 blocked by external firecore/substreams header propagation: %v", err)
 	}
+	require.NoError(t, err, "firecore-backed sds sink run must succeed")
+
+	evidence := loadFirecoreEvidence(t, ctx, testStartedAt, env)
+	require.NotEmpty(t, evidence.SessionID, "expected a provider session to be created")
+	require.Equal(t, 1, evidence.SessionCount, "expected exactly one matching provider session")
+	require.GreaterOrEqual(t, evidence.WorkerCount+evidence.UsageEventCount, int64(1), "expected plugin activity to leave worker or usage evidence")
+
+	providerClient := providerv1connect.NewPaymentGatewayServiceClient(http.DefaultClient, "http://localhost:19001")
+	statusResp, err := providerClient.GetSessionStatus(ctx, connect.NewRequest(&providerv1.GetSessionStatusRequest{
+		SessionId: evidence.SessionID,
+	}))
+	require.NoError(t, err, "payment gateway must expose repo-backed session status")
+	require.True(t, statusResp.Msg.GetActive(), "session should still be active after the short stream")
+	require.NotNil(t, statusResp.Msg.GetPaymentStatus(), "payment status must be present")
+	require.GreaterOrEqual(t, evidence.UsageBlocks+evidence.UsageBytes+evidence.UsageRequests, int64(1), "expected metering to record non-zero usage")
+
+	firecoreLog.Info("E2E Substreams request completed successfully",
+		zap.String("session_id", evidence.SessionID),
+		zap.Int64("worker_count", evidence.WorkerCount),
+		zap.Int64("usage_event_count", evidence.UsageEventCount),
+	)
 }
 
 // waitForSidecarHealth polls the sidecar health endpoint until it returns 200 or timeout
@@ -393,4 +397,103 @@ func runSDSSink(
 	)
 
 	return nil
+}
+
+type firecoreSessionEvidence struct {
+	SessionID       string
+	SessionCount    int
+	WorkerCount     int64
+	UsageEventCount int64
+	UsageBlocks     int64
+	UsageBytes      int64
+	UsageRequests   int64
+}
+
+type firecoreSessionRow struct {
+	ID string `db:"id"`
+}
+
+func loadFirecoreEvidence(t *testing.T, ctx context.Context, createdAfter time.Time, env *TestEnv) firecoreSessionEvidence {
+	t.Helper()
+
+	dbConn, err := psqlrepo.GetConnectionFromDSN(ctx, PostgresTestDSN)
+	require.NoError(t, err, "connect to provider postgres repo")
+	defer dbConn.Close()
+
+	sessionRows := make([]firecoreSessionRow, 0, 1)
+	err = dbConn.SelectContext(ctx, &sessionRows, `
+		SELECT id
+		FROM sessions
+		WHERE payer = $1
+		  AND receiver = $2
+		  AND data_service = $3
+		  AND created_at >= $4
+		ORDER BY created_at ASC
+	`, env.Payer.Address.Bytes(), env.ServiceProvider.Address.Bytes(), env.DataService.Address.Bytes(), createdAfter)
+	require.NoError(t, err, "query firecore-created provider sessions")
+	require.Len(t, sessionRows, 1, "expected one provider session for the test payer/provider/data service tuple")
+
+	var evidence firecoreSessionEvidence
+	evidence.SessionID = sessionRows[0].ID
+	evidence.SessionCount = len(sessionRows)
+
+	err = dbConn.GetContext(ctx, &evidence.WorkerCount, `SELECT COUNT(*) FROM workers WHERE session_id = $1`, evidence.SessionID)
+	require.NoError(t, err, "count worker rows for firecore session")
+
+	err = dbConn.GetContext(ctx, &evidence.UsageEventCount, `SELECT COUNT(*) FROM usage_events WHERE session_id = $1`, evidence.SessionID)
+	require.NoError(t, err, "count usage event rows for firecore session")
+
+	err = dbConn.QueryRowxContext(ctx, `
+		SELECT
+			COALESCE(SUM(blocks), 0) AS blocks,
+			COALESCE(SUM(bytes), 0) AS bytes,
+			COALESCE(SUM(requests), 0) AS requests
+		FROM usage_events
+		WHERE session_id = $1
+	`, evidence.SessionID).Scan(&evidence.UsageBlocks, &evidence.UsageBytes, &evidence.UsageRequests)
+	require.NoError(t, err, "sum usage event rows for firecore session")
+
+	return evidence
+}
+
+func dumpContainerLogs(t *testing.T, ctx context.Context, container testcontainers.Container) {
+	t.Helper()
+
+	logs, err := container.Logs(ctx)
+	if err != nil {
+		t.Logf("failed to retrieve firecore container logs: %v", err)
+		return
+	}
+	defer logs.Close()
+
+	buf := make([]byte, 4096)
+	var logBuf []byte
+	for {
+		n, readErr := logs.Read(buf)
+		if n > 0 {
+			logBuf = append(logBuf, buf[:n]...)
+		}
+		if readErr != nil {
+			break
+		}
+	}
+
+	if len(logBuf) == 0 {
+		t.Log("firecore container produced no readable logs")
+		return
+	}
+
+	firecoreLog.Info("firecore container logs",
+		zap.String("logs", string(logBuf)),
+	)
+}
+
+func isKnownFirecoreHeaderPropagationBlocker(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := err.Error()
+	return strings.Contains(msg, "stream auth failure") &&
+		strings.Contains(msg, "missing x-sds-rav header")
 }

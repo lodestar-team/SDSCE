@@ -75,6 +75,8 @@ func TestFirecore(t *testing.T) {
 		zap.String("postgres_dsn", sanitizeDSN(PostgresTestDSN)),
 	)
 
+	pricingConfig := sidecarlib.DefaultPricingConfig()
+
 	gateways, err := impl.StartProviderGateway(
 		ctx,
 		"0.0.0.0:19001", // Payment Gateway - for consumer sidecars
@@ -91,7 +93,7 @@ func TestFirecore(t *testing.T) {
 			TLSCertFile: "",
 			TLSKeyFile:  "",
 		},
-		sidecarlib.DefaultPricingConfig(),
+		pricingConfig,
 	)
 	require.NoError(t, err, "failed to start provider gateways")
 	defer gateways.Shutdown(nil)
@@ -195,10 +197,16 @@ func TestFirecore(t *testing.T) {
 			return false
 		}
 
-		return evidence.UsageBlocks+evidence.UsageBytes+evidence.UsageRequests >= 1 &&
-			paymentStatus.GetAccumulatedUsageValue().ToBigInt().Sign() > 0
-	}, 3*time.Second, 100*time.Millisecond, "expected metering to update the payment-state repository")
-	require.Positive(t, statusResp.Msg.GetPaymentStatus().GetAccumulatedUsageValue().ToBigInt().Sign(), "expected non-zero accumulated usage value from plugin metering")
+		if evidence.UsageBlocks+evidence.UsageBytes+evidence.UsageRequests < 1 {
+			return false
+		}
+
+		expectedAccumulatedValue := pricingConfig.CalculateUsageCost(uint64(evidence.UsageBlocks), uint64(evidence.UsageBytes)).BigInt()
+		return paymentStatus.GetAccumulatedUsageValue().ToBigInt().Cmp(expectedAccumulatedValue) == 0
+	}, 3*time.Second, 100*time.Millisecond, "expected metering to update the payment-state repository with the exact provider-priced value")
+
+	expectedAccumulatedValue := pricingConfig.CalculateUsageCost(uint64(evidence.UsageBlocks), uint64(evidence.UsageBytes)).BigInt()
+	require.Equal(t, 0, statusResp.Msg.GetPaymentStatus().GetAccumulatedUsageValue().ToBigInt().Cmp(expectedAccumulatedValue), "expected payment status to match the exact provider-priced plugin metering total")
 
 	firecoreLog.Info("E2E Substreams request completed successfully",
 		zap.String("session_id", evidence.SessionID),

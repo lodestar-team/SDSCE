@@ -125,19 +125,29 @@ go test ./test/integration/... -v  # Integration tests (requires Docker)
 
 ### Running Full System with Firecore
 
-To run the full Substreams Data Service stack with a Firehose provider, you need `firecore` and `dummy-blockchain` binaries (see [Prerequisites](#prerequisites)). Clone the repositories and build from source:
+`MVP-014` is currently validated through a local-first runtime workflow. The published `ghcr.io/streamingfast/dummy-blockchain:v1.7.7` image is still stale for the current SDS provider/plugin contract, so the supported path is to rebuild `firehose-core` and `dummy-blockchain` locally and point `TestFirecore` at that local image.
+
+Build the local runtime images from sibling checkouts:
 
 ```bash
-# Build firecore
-#
-# IMPORTANT: `firecore` must include SDS plugin registration support, otherwise the `sds://...` plugins
-# configured in `devel/firecore.config.yaml` won't load. Use at least this commit:
-#   536bcd99495f42a27b67b340ccf8416f0fc967bf
-go install github.com/streamingfast/firehose-core/cmd/firecore@536bcd99495f42a27b67b340ccf8416f0fc967bf
+# Build a local firecore image. If SDS plugin/runtime contracts changed after the
+# currently pinned SDS dependency in firehose-core, update that dependency first.
+cd ../firehose-core
+docker build -t ghcr.io/streamingfast/firehose-core:sds-local .
 
-# Build dummy-blockchain
-go install github.com/streamingfast/dummy-blockchain@latest
+# Build a local dummy-blockchain image on top of the local firecore tag.
+cd ../dummy-blockchain
+docker build \
+  --build-arg FIRECORE_VERSION=sds-local \
+  -t ghcr.io/streamingfast/dummy-blockchain:sds-local .
+
+# Run the SDS firecore integration test against the local runtime image.
+cd ../data-service
+SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-local \
+  go test ./test/integration -run TestFirecore -v
 ```
+
+`TestFirecore` defaults to `ghcr.io/streamingfast/dummy-blockchain:v1.7.7`. Override it with `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE` when validating locally rebuilt runtimes. Refreshing the upstream published images so the default path works again is tracked in `MVP-036`.
 
 A sample firecore configuration is provided in `devel/firecore.config.yaml` that uses dummy-blockchain as the reader node and configures the SDS plugins (auth, session, metering) to connect to the provider gateway on `:9001`.
 
@@ -149,6 +159,7 @@ Sanity check (what to look for in logs):
 - Bad:
   - `executable file not found in $PATH` for `dummy-blockchain` → ensure `$(go env GOPATH)/bin` is on `PATH`
   - errors about unknown `sds` plugin kind/scheme → your `firecore` binary is too old
+  - auth/session/usage contract mismatch against the current SDS provider/plugin gateway → rebuild the local `firehose-core` and `dummy-blockchain` images and rerun `TestFirecore`
 
 ## Architecture
 

@@ -28,6 +28,11 @@ import (
 
 var firecoreLog, _ = logging.PackageLogger("firecore_test", "github.com/graphprotocol/substreams-data-service/test/integration/firecore")
 
+const (
+	defaultDummyBlockchainImage = "ghcr.io/streamingfast/dummy-blockchain:v1.7.7"
+	dummyBlockchainImageEnvVar  = "SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE"
+)
+
 func TestFirecore(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping firecore integration test in short mode")
@@ -36,11 +41,18 @@ func TestFirecore(t *testing.T) {
 	ctx := context.Background()
 	env := SetupEnv(t)
 	testStartedAt := time.Now().UTC()
+	dummyBlockchainImage := getDummyBlockchainImage()
+
+	firecoreLog.Info("selected dummy-blockchain runtime image",
+		zap.String("image", dummyBlockchainImage),
+		zap.String("env_var", dummyBlockchainImageEnvVar),
+	)
+	t.Logf("using dummy-blockchain image: %s", dummyBlockchainImage)
 
 	// Step 1: Start dummy-blockchain/firecore and capture the host-reachable data plane endpoint.
 	// The provider handshake must advertise the mapped host port, not the in-container :10016.
-	dummyBlockchainContainer, substreamsEndpoint, err := startDummyBlockchainContainer(ctx, 100)
-	require.NoError(t, err, "failed to start dummy-blockchain container")
+	dummyBlockchainContainer, substreamsEndpoint, err := startDummyBlockchainContainer(ctx, dummyBlockchainImage, 100)
+	require.NoError(t, err, "failed to start dummy-blockchain container from image %q", dummyBlockchainImage)
 	defer dummyBlockchainContainer.Terminate(ctx)
 	defer func() {
 		if !t.Failed() {
@@ -152,7 +164,23 @@ func TestFirecore(t *testing.T) {
 	require.NoError(t, err, "payment gateway must expose repo-backed session status")
 	require.True(t, statusResp.Msg.GetActive(), "session should still be active after the short stream")
 	require.NotNil(t, statusResp.Msg.GetPaymentStatus(), "payment status must be present")
-	require.GreaterOrEqual(t, evidence.UsageBlocks+evidence.UsageBytes+evidence.UsageRequests, int64(1), "expected metering to record non-zero usage")
+	require.Eventually(t, func() bool {
+		usageEvidence, err := loadFirecoreUsageEvidence(ctx, evidence.SessionID)
+		if err != nil {
+			firecoreLog.Warn("failed to refresh firecore usage evidence",
+				zap.String("session_id", evidence.SessionID),
+				zap.Error(err),
+			)
+			return false
+		}
+
+		evidence.UsageEventCount = usageEvidence.UsageEventCount
+		evidence.UsageBlocks = usageEvidence.UsageBlocks
+		evidence.UsageBytes = usageEvidence.UsageBytes
+		evidence.UsageRequests = usageEvidence.UsageRequests
+
+		return evidence.UsageBlocks+evidence.UsageBytes+evidence.UsageRequests >= 1
+	}, 3*time.Second, 100*time.Millisecond, "expected metering to record non-zero usage")
 
 	firecoreLog.Info("E2E Substreams request completed successfully",
 		zap.String("session_id", evidence.SessionID),
@@ -189,10 +217,7 @@ func waitForSidecarHealth(ctx context.Context, healthURL string, timeout time.Du
 
 // newDummyBlockchainContainer creates a dummy blockchain container for testing
 // It starts reader-node, merger, relayer, and substreams-tier1 with SDS plugins
-func newDummyBlockchainContainer(ctx context.Context, genesisBlockBurst int) (testcontainers.Container, error) {
-	// Use the new dummy-blockchain image with SDS plugin support
-	image := "ghcr.io/streamingfast/dummy-blockchain:v1.7.7"
-
+func newDummyBlockchainContainer(ctx context.Context, image string, genesisBlockBurst int) (testcontainers.Container, error) {
 	// Build reader arguments for the dummy-blockchain binary
 	readerArgs := fmt.Sprintf("start --log-level=error --tracer=firehose --store-dir=/tmp/data --genesis-block-burst=%d --block-rate=120 --block-size=1500 --genesis-height=0 --server-addr=:9777", genesisBlockBurst)
 
@@ -255,10 +280,10 @@ func newDummyBlockchainContainer(ctx context.Context, genesisBlockBurst int) (te
 }
 
 // startDummyBlockchainContainer starts a dummy blockchain container, retrieves its endpoint, and verifies it's healthy
-func startDummyBlockchainContainer(ctx context.Context, genesisBlockBurst int) (testcontainers.Container, string, error) {
-	firecoreLog.Info("setting up dummy-blockchain container")
+func startDummyBlockchainContainer(ctx context.Context, image string, genesisBlockBurst int) (testcontainers.Container, string, error) {
+	firecoreLog.Info("setting up dummy-blockchain container", zap.String("image", image))
 
-	container, err := newDummyBlockchainContainer(ctx, genesisBlockBurst)
+	container, err := newDummyBlockchainContainer(ctx, image, genesisBlockBurst)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to start dummy-blockchain container: %w", err)
 	}
@@ -298,6 +323,15 @@ func startDummyBlockchainContainer(ctx context.Context, genesisBlockBurst int) (
 	firecoreLog.Info("Substreams tier1 endpoint available", zap.String("endpoint", substreamsEndpoint))
 
 	return container, substreamsEndpoint, nil
+}
+
+func getDummyBlockchainImage() string {
+	image := strings.TrimSpace(os.Getenv(dummyBlockchainImageEnvVar))
+	if image == "" {
+		return defaultDummyBlockchainImage
+	}
+
+	return image
 }
 
 // waitForGatewayHealth polls the gateway health endpoint until it returns 200 or timeout
@@ -416,7 +450,7 @@ type firecoreSessionRow struct {
 func loadFirecoreEvidence(t *testing.T, ctx context.Context, createdAfter time.Time, env *TestEnv) firecoreSessionEvidence {
 	t.Helper()
 
-	dbConn, err := psqlrepo.GetConnectionFromDSN(ctx, PostgresTestDSN)
+	dbConn, err := psqlrepo.GetConnectionFromDSN(ctx, toPostgresDriverDSN(PostgresTestDSN))
 	require.NoError(t, err, "connect to provider postgres repo")
 	defer dbConn.Close()
 
@@ -454,6 +488,36 @@ func loadFirecoreEvidence(t *testing.T, ctx context.Context, createdAfter time.T
 	require.NoError(t, err, "sum usage event rows for firecore session")
 
 	return evidence
+}
+
+func loadFirecoreUsageEvidence(ctx context.Context, sessionID string) (firecoreSessionEvidence, error) {
+	dbConn, err := psqlrepo.GetConnectionFromDSN(ctx, toPostgresDriverDSN(PostgresTestDSN))
+	if err != nil {
+		return firecoreSessionEvidence{}, fmt.Errorf("connect to provider postgres repo: %w", err)
+	}
+	defer dbConn.Close()
+
+	evidence := firecoreSessionEvidence{SessionID: sessionID}
+	if err := dbConn.GetContext(ctx, &evidence.UsageEventCount, `SELECT COUNT(*) FROM usage_events WHERE session_id = $1`, sessionID); err != nil {
+		return firecoreSessionEvidence{}, fmt.Errorf("count usage event rows for firecore session: %w", err)
+	}
+
+	if err := dbConn.QueryRowxContext(ctx, `
+		SELECT
+			COALESCE(SUM(blocks), 0) AS blocks,
+			COALESCE(SUM(bytes), 0) AS bytes,
+			COALESCE(SUM(requests), 0) AS requests
+		FROM usage_events
+		WHERE session_id = $1
+	`, sessionID).Scan(&evidence.UsageBlocks, &evidence.UsageBytes, &evidence.UsageRequests); err != nil {
+		return firecoreSessionEvidence{}, fmt.Errorf("sum usage event rows for firecore session: %w", err)
+	}
+
+	return evidence, nil
+}
+
+func toPostgresDriverDSN(dsn string) string {
+	return strings.Replace(dsn, "psql://", "postgres://", 1)
 }
 
 func dumpContainerLogs(t *testing.T, ctx context.Context, container testcontainers.Container) {

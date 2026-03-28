@@ -18,6 +18,23 @@ func newTestRepo() *repository.InMemoryRepository {
 	return repository.NewInMemoryRepository()
 }
 
+type capturingRepo struct {
+	*repository.InMemoryRepository
+	usageBySession map[string][]*repository.UsageEvent
+}
+
+func newCapturingRepo() *capturingRepo {
+	return &capturingRepo{
+		InMemoryRepository: repository.NewInMemoryRepository(),
+		usageBySession:     make(map[string][]*repository.UsageEvent),
+	}
+}
+
+func (r *capturingRepo) UsageAdd(_ context.Context, sessionID string, usage *repository.UsageEvent) error {
+	r.usageBySession[sessionID] = append(r.usageBySession[sessionID], usage)
+	return nil
+}
+
 func TestUsageService_Report_Empty(t *testing.T) {
 	repo := newTestRepo()
 	svc := usage.NewUsageService(repo)
@@ -157,4 +174,30 @@ func TestUsageService_Report_AllMetrics(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	// All metrics are stored (UsageGetTotal removed as unused method)
+}
+
+func TestUsageService_Report_FirehoseCoreMetricNames(t *testing.T) {
+	repo := newCapturingRepo()
+	svc := usage.NewUsageService(repo)
+
+	resp, err := svc.Report(context.Background(), connect.NewRequest(&usagev1.ReportRequest{
+		Events: []*usagev1.Event{
+			{
+				OrganizationId: "0xpayer1",
+				SdsSessionId:   "session-1",
+				Metrics: []*usagev1.Metric{
+					{Name: "block_count", Value: 20},
+					{Name: "message_count", Value: 3},
+					{Name: "egress_bytes", Value: 2048},
+				},
+			},
+		},
+	}))
+	require.NoError(t, err)
+	assert.False(t, resp.Msg.Revoked)
+
+	require.Len(t, repo.usageBySession["session-1"], 1)
+	assert.Equal(t, int64(23), repo.usageBySession["session-1"][0].Blocks)
+	assert.Equal(t, int64(2048), repo.usageBySession["session-1"][0].Bytes)
+	assert.Equal(t, int64(0), repo.usageBySession["session-1"][0].Requests)
 }

@@ -139,9 +139,13 @@ Notes:
   - compares unbaselined `delta_cost` against a provider-side `rav_request_threshold`
   - defaults to `10 GRT` when the provider does not configure a threshold explicitly
 - `MVP-014` remains the main integration foundation in this lane.
-  - Current status: repo-local gateway wiring and the real-path `TestFirecore` harness are in place, but acceptance is blocked by drift between the current SDS plugin/gateway protocol and the prebuilt `dummy-blockchain`/`firecore` image currently used in tests.
-  - The embedded runtime links an older SDS snapshot that still speaks the pre-header auth contract (`payment_rav`, `organization_id`, `metadata`) and older session/usage correlation fields (`trace_id`, `meta`), while the current repo expects the newer raw-header/trusted-header contract plus SDS `session_id` / `sds_session_id`.
-  - Treat rebuilding `firecore` and `dummy-blockchain` against the current SDS contract, or otherwise formalizing runtime compatibility checks in `MVP-030`, as the prerequisite to declaring `MVP-014` complete.
+  - Current status: repo-local gateway wiring and the real-path `TestFirecore` harness are in place, and local-first acceptance now passes when the test is pointed at a locally rebuilt `firecore`/`dummy-blockchain` image via `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE`.
+  - The validated local runtime tuple on 2026-03-28 was:
+    - SDS `f9bcdbfdccaa9bc1de9fd655c613a59699596c47`
+    - `firehose-core` `b574a98babcb0338198e0ff4db7ebd0e404f6529`
+    - `dummy-blockchain` `1cea671e78cbb069d64333fdbf4a6c9dd5502d58`
+    - `substreams` `8897dccff3e2f989867b7711be91d613d256a36a`
+  - The prebuilt published `dummy-blockchain` image remains stale and still embeds an older SDS-compatible runtime snapshot, so publishing refreshed upstream images is tracked separately under `MVP-036`, while `MVP-030` remains the compatibility/preflight hardening follow-up.
 - `MVP-011` is partially advanced because the current sidecar wrapper path already stops on `NeedMoreFunds`, but the real client-facing ingress path is still unfinished.
 - `MVP-031` is effectively the capstone runtime-payment task because it depends on real provider and consumer integration plus thresholding.
 

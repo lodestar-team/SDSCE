@@ -91,9 +91,9 @@ func protoEventToUsageEvent(event *usagev1.Event) *repository.UsageEvent {
 			continue
 		}
 		switch m.Name {
-		case "blocks_count", "blocks":
+		case "blocks_count", "blocks", "block_count", "message_count":
 			ue.Blocks += m.Value
-		case "bytes_count", "bytes":
+		case "bytes_count", "bytes", "egress_bytes":
 			ue.Bytes += m.Value
 		case "requests_count", "requests":
 			ue.Requests += m.Value

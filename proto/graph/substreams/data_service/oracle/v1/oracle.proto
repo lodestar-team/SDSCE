@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package graph.substreams.data_service.oracle.v1;
+
+import "graph/substreams/data_service/common/v1/types.proto";
+
+// OracleService provides read-only provider discovery for the SDS MVP.
+//
+// The consumer sidecar calls this service with an already-normalized canonical
+// network key. The oracle returns the eligible provider set, a deterministic
+// recommendation, canonical pricing, and the selected provider's control-plane
+// endpoint.
+service OracleService {
+  rpc DiscoverProviders(DiscoverProvidersRequest) returns (DiscoverProvidersResponse);
+}
+
+message DiscoverProvidersRequest {
+  // Canonical Graph network key. The oracle performs exact matching only.
+  string network = 1;
+}
+
+message EligibleProvider {
+  // Stable provider identifier from oracle configuration.
+  string provider_id = 1;
+  // Service provider address for the provider.
+  common.v1.Address service_provider = 2;
+  // Provider control-plane endpoint used for session initialization.
+  string control_plane_endpoint = 3;
+}
+
+message DiscoverProvidersResponse {
+  // Canonical network key used for this discovery result.
+  string network = 1;
+  // Canonical oracle-authoritative pricing for the network.
+  common.v1.PricingConfig canonical_pricing = 2;
+  // All providers eligible for the requested network.
+  repeated EligibleProvider eligible_providers = 3;
+  // Provider ID chosen as the oracle recommendation.
+  string recommended_provider_id = 4;
+  // Full selected provider details for the recommended provider.
+  EligibleProvider selected_provider = 5;
+}

@@ -91,10 +91,15 @@ Minimum prerequisites:
 
 Recommended sequence:
 
-1. `MVP-005` Implement a standalone oracle service with manual whitelist and recommended-provider response
-2. `MVP-007` Integrate consumer sidecar with oracle discovery while preserving direct-provider fallback
-3. `MVP-017` Integrate the real consumer/client path with consumer sidecar init, usage reporting, and session end
-4. `MVP-030` Add runtime compatibility and preflight checks for real provider/plugin deployments
+Completed foundation:
+
+- `MVP-005` Implement a standalone oracle service with manual whitelist and recommended-provider response
+
+Recommended next sequence:
+
+1. `MVP-007` Integrate consumer sidecar with oracle discovery while preserving direct-provider fallback
+2. `MVP-017` Integrate the real consumer/client path with consumer sidecar init, usage reporting, and session end
+3. `MVP-030` Add runtime compatibility and preflight checks for real provider/plugin deployments
 
 Notes:
 
@@ -104,6 +109,12 @@ Notes:
   - explicit input remains supported only as fallback when package derivation is unavailable
   - mismatch between explicit and package-derived values fails fast after normalization
   - missing usable network also fails fast
+- `MVP-005` is now complete under the config-managed MVP discovery model:
+  - standalone Connect/gRPC oracle service
+  - deployment-managed whitelist/provider metadata YAML
+  - canonical pricing by network
+  - eligible-provider set plus deterministic recommendation
+  - selected provider control-plane endpoint return
 - `MVP-017` also depends on `MVP-011`, so only the entry/lifecycle portion should move first.
 - `MVP-030` is late in the lane because it depends on real-path integration existing.
 
@@ -261,7 +272,6 @@ Already resolved:
 ### Phase 1: Start The First Implementable Lanes
 
 - Discovery foundation:
-  - `MVP-005`
   - `MVP-007`
 - Runtime foundation:
   - `MVP-014`
@@ -312,8 +322,6 @@ This section is interpretive guidance based on the assumptions register and depe
 
 ### Safe To Start If Assumptions Remain Explicit
 
-- `MVP-005`
-  - Can begin before `MVP-001` is fully closed if pricing authority remains clearly non-final in the API/implementation.
 - `MVP-024`
   - Can proceed in a reduced/basic form before `MVP-023` is fully closed.
 

@@ -1,6 +1,6 @@
 # Substreams Data Service — MVP Implementation Backlog
 
-_Last updated: 2026-03-27_
+_Last updated: 2026-03-30_
 
 This document translates [docs/mvp-scope.md](../docs/mvp-scope.md) into concrete implementation tasks for the MVP.
 
@@ -92,7 +92,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-002 | `done` | protocol | `A2`, `A3` | `MVP-033` | `A`, `B` | Freeze fresh-session init semantics and provider-returned data-plane endpoint behavior |
 | MVP-003 | `done` | protocol | `A3`, `A6` | `MVP-027` | `D`, `F` | Define and document the provider-side runtime persistence model and its boundary with settlement lifecycle tracking |
 | MVP-004 | `done` | protocol | `A2`, `A3` | none | `A`, `C` | Define and document the real runtime payment contract used by the public payment gateway, private plugin gateway, and consumer/provider payment loop |
-| MVP-005 | `not_started` | oracle | `A1`, `A2`, `A5` | `MVP-033` | `A` | Implement a standalone oracle service with manual whitelist, canonical pricing, recommended-provider response, and control-plane endpoint return |
+| MVP-005 | `done` | oracle | `A1`, `A2`, `A5` | `MVP-033` | `A` | Implement a standalone oracle service with manual whitelist, canonical pricing, recommended-provider response, and control-plane endpoint return |
 | MVP-006 | `not_started` | oracle | `A5` | `MVP-028` | `A`, `G` | Add admin-only oracle whitelist/provider metadata management workflow for the curated MVP provider set |
 | MVP-007 | `not_started` | consumer | `A1`, `A2`, `A3` | `MVP-005`, `MVP-033` | `A` | Integrate consumer sidecar with oracle discovery while preserving direct-provider fallback and provider-returned data-plane resolution |
 | MVP-008 | `in_progress` | provider-state | `A3`, `A6` | `MVP-003` | `D`, `F` | Complete durable provider runtime storage for sessions, usage, and accepted RAV state, distinct from collection lifecycle tracking |
@@ -215,7 +215,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 
 ## Oracle Tasks
 
-- [ ] MVP-005 Implement a standalone oracle service with manual whitelist, canonical pricing, recommended-provider response, and control-plane endpoint return.
+- [x] MVP-005 Implement a standalone oracle service with manual whitelist, canonical pricing, recommended-provider response, and control-plane endpoint return.
   - Context:
     - The oracle is a mandatory MVP component.
     - The revised scope fixes both the selection default and the pricing authority model.
@@ -230,6 +230,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - It does not require the oracle to resolve the final stream endpoint up front.
   - Verify:
     - Add tests for whitelist lookup, response validation, and deterministic recommendation behavior.
+    - Review [proto/graph/substreams/data_service/oracle/v1/oracle.proto](../proto/graph/substreams/data_service/oracle/v1/oracle.proto), [oracle/config.go](../oracle/config.go), [oracle/oracle.go](../oracle/oracle.go), and [cmd/sds/impl/oracle.go](../cmd/sds/impl/oracle.go).
 
 - [ ] MVP-006 Add admin-only oracle whitelist/provider metadata management workflow for the curated MVP provider set.
   - Context:

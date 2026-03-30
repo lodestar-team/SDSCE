@@ -1,7 +1,7 @@
 # MVP Gap Analysis
 
 Drafted: 2026-03-12  
-Revised: 2026-03-27
+Revised: 2026-03-30
 
 This document maps the current repository state against the MVP defined in `docs/mvp-scope.md`.
 
@@ -45,8 +45,7 @@ Validation infrastructure is also healthier than before:
 
 The biggest remaining MVP gaps are now:
 
-- standalone oracle/discovery component
-- consumer-side Substreams-compatible endpoint/proxy behavior
+- consumer-side oracle integration plus Substreams-compatible endpoint/proxy behavior
 - provider collection lifecycle persistence and inspection/collection APIs
 - full low-funds propagation through the real provider/client streaming path
 - operator funding and collection tooling
@@ -57,7 +56,7 @@ The biggest remaining MVP gaps are now:
 
 | Scenario | Status | Notes |
 | --- | --- | --- |
-| A. Discovery to paid streaming | `partial` | Paid session flow and provider runtime foundations exist, but the standalone oracle is still missing and the consumer sidecar is not yet the Substreams-compatible ingress described by the scope |
+| A. Discovery to paid streaming | `partial` | The standalone oracle now exists, but the consumer sidecar is not yet integrated with oracle discovery and is not yet the Substreams-compatible ingress described by the scope |
 | B. Fresh session after interruption | `partial` | Fresh-session semantics are implemented in the init contract, but broader real-path interruption validation still remains |
 | C. Low funds during streaming | `partial` | Session-local low-funds stop behavior now exists in the payment-session path, but full real provider/client streaming-path enforcement is still incomplete |
 | D. Provider restart without losing collectible state | `partial` | Provider persistence is no longer purely in-memory because PostgreSQL support exists, but collectible/collection lifecycle tracking is still incomplete |
@@ -163,16 +162,30 @@ What is still missing for MVP:
 
 ### Oracle
 
-Status: `missing`
+Status: `implemented`
 
-What MVP requires:
+Evidence:
 
-- standalone service
-- manual whitelist
-- canonical pricing for the curated provider set
-- eligible provider set plus recommended provider response
+- `proto/graph/substreams/data_service/oracle/v1/oracle.proto`
+- `oracle/config.go`
+- `oracle/oracle.go`
+- `cmd/sds/impl/oracle.go`
+- `oracle/config_test.go`
+- `oracle/oracle_test.go`
+
+What already exists:
+
+- standalone oracle service
+- deployment-managed manual whitelist/provider metadata config
+- canonical pricing by network
+- eligible provider set plus deterministic recommended provider response
 - selected provider control-plane endpoint return
-- admin/council-only whitelist/provider metadata governance, which may remain deployment-managed internal config for MVP
+- no data-plane endpoint resolution in the oracle response
+
+Notes:
+
+- Oracle governance remains deployment-managed internal config for MVP; no writable admin API is required yet.
+- Consumer-side oracle integration is still future work under `MVP-007`, so the existence of the standalone oracle does not by itself complete scenario A.
 
 ### Provider Persistence
 
@@ -237,6 +250,10 @@ What already exists:
 - PostgreSQL repository tests resolve migrations from repo-local state
 - integration bootstrap selects a safe devenv RPC port instead of assuming fixed host port `58545`
 - full-repo validation is no longer blocked by those two environment-specific failures
+
+Notes:
+
+- Shared-state integration flakiness still remains in the full-suite lane and is tracked separately under `MVP-037`.
 
 ### Funding CLI
 

@@ -38,6 +38,12 @@ func main() {
 		),
 
 		Group(
+			"oracle",
+			"Oracle/discovery commands",
+			impl.OracleServeCommand,
+		),
+
+		Group(
 			"consumer",
 			"Consumer-side commands",
 			consumerSidecarCmd,

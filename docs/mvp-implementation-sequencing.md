@@ -94,12 +94,12 @@ Recommended sequence:
 Completed foundation:
 
 - `MVP-005` Implement a standalone oracle service with manual whitelist and recommended-provider response
+- `MVP-007` Integrate consumer sidecar with oracle discovery while preserving direct-provider fallback
 
 Recommended next sequence:
 
-1. `MVP-007` Integrate consumer sidecar with oracle discovery while preserving direct-provider fallback
-2. `MVP-017` Integrate the real consumer/client path with consumer sidecar init, usage reporting, and session end
-3. `MVP-030` Add runtime compatibility and preflight checks for real provider/plugin deployments
+1. `MVP-017` Integrate the real consumer/client path with consumer sidecar init, usage reporting, and session end
+2. `MVP-030` Add runtime compatibility and preflight checks for real provider/plugin deployments
 
 Notes:
 
@@ -115,6 +115,11 @@ Notes:
   - canonical pricing by network
   - eligible-provider set plus deterministic recommendation
   - selected provider control-plane endpoint return
+- `MVP-007` is now complete under the current consumer-side discovery model:
+  - consumer sidecar derives network from the loaded Substreams package with explicit fallback only when package derivation is unavailable
+  - direct provider control-plane configuration remains a bypass/override
+  - oracle-backed provider selection now feeds the normal provider handshake, which still returns the session-specific data-plane endpoint
+  - oracle pricing is enforced as a ceiling, while lower provider pricing is accepted as the effective session pricing
 - `MVP-017` also depends on `MVP-011`, so only the entry/lifecycle portion should move first.
 - `MVP-030` is late in the lane because it depends on real-path integration existing.
 
@@ -263,18 +268,19 @@ Already resolved:
 - `MVP-002`
 - `MVP-003`
 - `MVP-004`
+- `MVP-005`
+- `MVP-007`
 - `MVP-010`
 - `MVP-012`
+- `MVP-014`
+- `MVP-015`
+- `MVP-016`
 - `MVP-028`
 - `MVP-027`
 - `MVP-033`
 
 ### Phase 1: Start The First Implementable Lanes
 
-- Discovery foundation:
-  - `MVP-007`
-- Runtime foundation:
-  - `MVP-014`
 - Provider state foundation:
   - `MVP-008`
   - `MVP-029`
@@ -284,7 +290,6 @@ Already resolved:
 ### Phase 2: Integrate Runtime And Retrieval Paths
 
 - `MVP-011`
-- `MVP-016`
 - `MVP-017`
 - `MVP-009`
 - `MVP-022`
@@ -327,8 +332,6 @@ This section is interpretive guidance based on the assumptions register and depe
 
 ### Should Usually Wait
 
-- `MVP-007`
-  - Should wait until the chain/network and pricing exposure contracts are stable enough.
 - `MVP-019` and `MVP-020`
   - Should wait until retrieval APIs, auth, and collection lifecycle semantics are in place.
 

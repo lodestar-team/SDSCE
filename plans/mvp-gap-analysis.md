@@ -45,7 +45,7 @@ Validation infrastructure is also healthier than before:
 
 The biggest remaining MVP gaps are now:
 
-- consumer-side oracle integration plus Substreams-compatible endpoint/proxy behavior
+- Substreams-compatible consumer-side ingress/proxy behavior on top of the now-implemented oracle-backed discovery flow
 - provider collection lifecycle persistence and inspection/collection APIs
 - full low-funds propagation through the real provider/client streaming path
 - operator funding and collection tooling
@@ -56,7 +56,7 @@ The biggest remaining MVP gaps are now:
 
 | Scenario | Status | Notes |
 | --- | --- | --- |
-| A. Discovery to paid streaming | `partial` | The standalone oracle now exists, but the consumer sidecar is not yet integrated with oracle discovery and is not yet the Substreams-compatible ingress described by the scope |
+| A. Discovery to paid streaming | `partial` | The standalone oracle and consumer-side oracle discovery flow now exist, but the consumer sidecar is not yet the Substreams-compatible ingress/proxy described by the scope |
 | B. Fresh session after interruption | `partial` | Fresh-session semantics are implemented in the init contract, but broader real-path interruption validation still remains |
 | C. Low funds during streaming | `partial` | Session-local low-funds stop behavior now exists in the payment-session path, but full real provider/client streaming-path enforcement is still incomplete |
 | D. Provider restart without losing collectible state | `partial` | Provider persistence is no longer purely in-memory because PostgreSQL support exists, but collectible/collection lifecycle tracking is still incomplete |
@@ -97,6 +97,8 @@ What already exists:
 - session init
 - usage reporting
 - end session
+- oracle-backed provider selection with direct-provider override fallback
+- package-derived network resolution with explicit fallback only when derivation is unavailable
 - payment-session loop wiring to provider gateway
 - `NeedMoreFunds` currently stops the wrapper-oriented `ReportUsage` flow
 
@@ -185,7 +187,7 @@ What already exists:
 Notes:
 
 - Oracle governance remains deployment-managed internal config for MVP; no writable admin API is required yet.
-- Consumer-side oracle integration is still future work under `MVP-007`, so the existence of the standalone oracle does not by itself complete scenario A.
+- Standalone oracle service plus consumer-side oracle discovery are now both implemented, but scenario A still remains partial until the consumer sidecar becomes the real Substreams-compatible ingress/proxy under `MVP-017`.
 
 ### Provider Persistence
 
@@ -346,29 +348,25 @@ The most important recent status changes versus the original draft are:
 - Consumer-side MVP UX is still notably behind the revised scope.
   - The code still reflects a control-plane RPC plus wrapper model rather than the endpoint/proxy boundary the scope now requires.
 
-## Backlog Alignment
+## Remaining Backlog Alignment
 
-The current MVP gaps now align with the rewritten MVP backlog as follows.
+The remaining MVP gaps now align with the rewritten MVP backlog as follows.
 
-Oracle and consumer ingress:
+Oracle, consumer ingress, and runtime compatibility:
 
-- `MVP-005`
-- `MVP-007`
+- `MVP-006`
 - `MVP-017`
+- `MVP-030`
+- `MVP-036`
 
 Provider runtime and payment control:
 
-- `MVP-010`
 - `MVP-011`
-- `MVP-012`
-- `MVP-014`
-- `MVP-015`
-- `MVP-016`
 - `MVP-031`
+- `MVP-037`
 
 Persistence and settlement:
 
-- `MVP-003`
 - `MVP-008`
 - `MVP-009`
 - `MVP-029`
@@ -386,8 +384,6 @@ Security and observability:
 - `MVP-022`
 - `MVP-023`
 - `MVP-024`
-- `MVP-028`
-- `MVP-030`
 
 Validation and docs:
 

@@ -94,7 +94,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-004 | `done` | protocol | `A2`, `A3` | none | `A`, `C` | Define and document the real runtime payment contract used by the public payment gateway, private plugin gateway, and consumer/provider payment loop |
 | MVP-005 | `done` | oracle | `A1`, `A2`, `A5` | `MVP-033` | `A` | Implement a standalone oracle service with manual whitelist, canonical pricing, recommended-provider response, and control-plane endpoint return |
 | MVP-006 | `not_started` | oracle | `A5` | `MVP-028` | `A`, `G` | Add admin-only oracle whitelist/provider metadata management workflow for the curated MVP provider set |
-| MVP-007 | `not_started` | consumer | `A1`, `A2`, `A3` | `MVP-005`, `MVP-033` | `A` | Integrate consumer sidecar with oracle discovery while preserving direct-provider fallback and provider-returned data-plane resolution |
+| MVP-007 | `done` | consumer | `A1`, `A2`, `A3` | `MVP-005`, `MVP-033` | `A` | Integrate consumer sidecar with oracle discovery while preserving direct-provider fallback and provider-returned data-plane resolution |
 | MVP-008 | `in_progress` | provider-state | `A3`, `A6` | `MVP-003` | `D`, `F` | Complete durable provider runtime storage for sessions, usage, and accepted RAV state, distinct from collection lifecycle tracking |
 | MVP-009 | `not_started` | provider-state | `A3`, `A5` | `MVP-003`, `MVP-022`, `MVP-029` | `D`, `F` | Expose provider inspection and settlement-data retrieval APIs for accepted and collectible RAV state |
 | MVP-010 | `done` | funding-control | `A6` | `MVP-004` | `C` | Implement session-local low-funds detection and provider terminal stop behavior during streaming |
@@ -247,7 +247,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 
 ## Consumer Tasks
 
-- [ ] MVP-007 Integrate consumer sidecar with oracle discovery while preserving direct-provider fallback and provider-returned data-plane resolution.
+- [x] MVP-007 Integrate consumer sidecar with oracle discovery while preserving direct-provider fallback and provider-returned data-plane resolution.
   - Context:
     - Consumer sidecar is the mandatory client-side integration point and must support oracle-driven default behavior.
   - Assumptions:

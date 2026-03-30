@@ -55,11 +55,6 @@ func (s *Sidecar) Init(
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <escrow_account.data_service>: %w", err))
 	}
 
-	providerControlPlaneEndpoint := strings.TrimSpace(req.Msg.ProviderControlPlaneEndpoint)
-	if providerControlPlaneEndpoint == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("<provider_control_plane_endpoint> is required"))
-	}
-
 	// Create a zero-value RAV for a fresh session. MVP init no longer accepts resume input.
 	var collectionID horizon.CollectionID
 	initialRAV, err := s.signRAV(
@@ -76,7 +71,18 @@ func (s *Sidecar) Init(
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	parsedEndpoint := sidecar.ParseEndpoint(providerControlPlaneEndpoint)
+	providerSelection, err := s.resolveProviderSelection(
+		ctx,
+		ea,
+		req.Msg.ProviderControlPlaneEndpoint,
+		req.Msg.SubstreamsPackage,
+		req.Msg.RequestedNetwork,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	parsedEndpoint := sidecar.ParseEndpoint(providerSelection.ControlPlaneEndpoint)
 	if parsedEndpoint.URL == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid <provider_control_plane_endpoint>"))
 	}
@@ -112,6 +118,8 @@ func (s *Sidecar) Init(
 		zap.String("provider_control_plane_endpoint", parsedEndpoint.URL),
 		zap.String("provider_session_id", sessionID),
 		zap.String("data_plane_endpoint", dataPlaneEndpoint),
+		zap.String("oracle_provider_id", providerSelection.ProviderID),
+		zap.String("network", providerSelection.Network),
 	)
 
 	var providerPricingConfig *sidecar.PricingConfig
@@ -122,6 +130,12 @@ func (s *Sidecar) Init(
 			zap.Stringer("price_per_byte", &providerPricingConfig.PricePerByte),
 		)
 	}
+
+	effectivePricingConfig, err := effectiveSessionPricing(providerPricingConfig, providerSelection.OraclePricing)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+	}
+	logPricingDeviation(s.logger, providerSelection.OraclePricing, providerPricingConfig)
 
 	if gatewayResp.Msg.UseRav != nil {
 		useRAV, err := sidecar.ProtoSignedRAVToHorizon(gatewayResp.Msg.UseRav)
@@ -139,8 +153,8 @@ func (s *Sidecar) Init(
 	}
 
 	session.SetRAV(initialRAV)
-	if providerPricingConfig != nil {
-		session.SetPricingConfig(providerPricingConfig)
+	if effectivePricingConfig != nil {
+		session.SetPricingConfig(effectivePricingConfig)
 	}
 	s.paymentSessions.SetEndpoint(sessionID, parsedEndpoint.URL)
 

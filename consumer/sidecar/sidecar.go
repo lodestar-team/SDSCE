@@ -35,6 +35,8 @@ type Sidecar struct {
 	signerKey *eth.PrivateKey
 	domain    *horizon.Domain
 
+	oracleEndpoint string
+
 	paymentSessionRoundtripTimeout time.Duration
 	transportConfig                sidecar.ServerTransportConfig
 }
@@ -43,6 +45,7 @@ type Config struct {
 	ListenAddr                     string
 	SignerKey                      *eth.PrivateKey
 	Domain                         *horizon.Domain
+	OracleEndpoint                 string
 	PaymentSessionRoundtripTimeout time.Duration
 	TransportConfig                sidecar.ServerTransportConfig
 }
@@ -61,6 +64,7 @@ func New(config *Config, logger *zap.Logger) *Sidecar {
 		paymentSessions:                newPaymentSessionManager(),
 		signerKey:                      config.SignerKey,
 		domain:                         config.Domain,
+		oracleEndpoint:                 config.OracleEndpoint,
 		paymentSessionRoundtripTimeout: paymentSessionRoundtripTimeout,
 		transportConfig:                config.TransportConfig,
 	}

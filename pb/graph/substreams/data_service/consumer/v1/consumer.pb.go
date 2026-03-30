@@ -8,6 +8,7 @@ package consumerv1
 
 import (
 	v1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
+	v11 "github.com/graphprotocol/substreams-data-service/pb/sf/substreams/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -26,12 +27,16 @@ type InitRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The escrow account to use for funding this session
 	EscrowAccount *v1.EscrowAccount `protobuf:"bytes,1,opt,name=escrow_account,json=escrowAccount,proto3" json:"escrow_account,omitempty"`
-	// Direct provider override used before oracle discovery is implemented.
+	// Direct provider override. When set, this bypasses oracle discovery.
 	// This is the provider control-plane endpoint used for session/payment management.
 	// Supports ?insecure=true query parameter for self-signed certificates.
 	ProviderControlPlaneEndpoint string `protobuf:"bytes,2,opt,name=provider_control_plane_endpoint,json=providerControlPlaneEndpoint,proto3" json:"provider_control_plane_endpoint,omitempty"`
-	unknownFields                protoimpl.UnknownFields
-	sizeCache                    protoimpl.SizeCache
+	// The already-loaded Substreams package used for network derivation.
+	SubstreamsPackage *v11.Package `protobuf:"bytes,5,opt,name=substreams_package,json=substreamsPackage,proto3" json:"substreams_package,omitempty"`
+	// Optional explicit network fallback when package derivation is unavailable.
+	RequestedNetwork string `protobuf:"bytes,6,opt,name=requested_network,json=requestedNetwork,proto3" json:"requested_network,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *InitRequest) Reset() {
@@ -74,6 +79,20 @@ func (x *InitRequest) GetEscrowAccount() *v1.EscrowAccount {
 func (x *InitRequest) GetProviderControlPlaneEndpoint() string {
 	if x != nil {
 		return x.ProviderControlPlaneEndpoint
+	}
+	return ""
+}
+
+func (x *InitRequest) GetSubstreamsPackage() *v11.Package {
+	if x != nil {
+		return x.SubstreamsPackage
+	}
+	return nil
+}
+
+func (x *InitRequest) GetRequestedNetwork() string {
+	if x != nil {
+		return x.RequestedNetwork
 	}
 	return ""
 }
@@ -370,10 +389,12 @@ var File_graph_substreams_data_service_consumer_v1_consumer_proto protoreflect.F
 
 const file_graph_substreams_data_service_consumer_v1_consumer_proto_rawDesc = "" +
 	"\n" +
-	"8graph/substreams/data_service/consumer/v1/consumer.proto\x12)graph.substreams.data_service.consumer.v1\x1a3graph/substreams/data_service/common/v1/types.proto\"\xbf\x01\n" +
+	"8graph/substreams/data_service/consumer/v1/consumer.proto\x12)graph.substreams.data_service.consumer.v1\x1a3graph/substreams/data_service/common/v1/types.proto\x1a\x1esf/substreams/v1/package.proto\"\xb6\x02\n" +
 	"\vInitRequest\x12]\n" +
 	"\x0eescrow_account\x18\x01 \x01(\v26.graph.substreams.data_service.common.v1.EscrowAccountR\rescrowAccount\x12E\n" +
-	"\x1fprovider_control_plane_endpoint\x18\x02 \x01(\tR\x1cproviderControlPlaneEndpointJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05\"\xe3\x01\n" +
+	"\x1fprovider_control_plane_endpoint\x18\x02 \x01(\tR\x1cproviderControlPlaneEndpoint\x12H\n" +
+	"\x12substreams_package\x18\x05 \x01(\v2\x19.sf.substreams.v1.PackageR\x11substreamsPackage\x12+\n" +
+	"\x11requested_network\x18\x06 \x01(\tR\x10requestedNetworkJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05\"\xe3\x01\n" +
 	"\fInitResponse\x12N\n" +
 	"\asession\x18\x01 \x01(\v24.graph.substreams.data_service.common.v1.SessionInfoR\asession\x12S\n" +
 	"\vpayment_rav\x18\x02 \x01(\v22.graph.substreams.data_service.common.v1.SignedRAVR\n" +
@@ -426,30 +447,32 @@ var file_graph_substreams_data_service_consumer_v1_consumer_proto_goTypes = []an
 	(*EndSessionRequest)(nil),   // 4: graph.substreams.data_service.consumer.v1.EndSessionRequest
 	(*EndSessionResponse)(nil),  // 5: graph.substreams.data_service.consumer.v1.EndSessionResponse
 	(*v1.EscrowAccount)(nil),    // 6: graph.substreams.data_service.common.v1.EscrowAccount
-	(*v1.SessionInfo)(nil),      // 7: graph.substreams.data_service.common.v1.SessionInfo
-	(*v1.SignedRAV)(nil),        // 8: graph.substreams.data_service.common.v1.SignedRAV
-	(*v1.Usage)(nil),            // 9: graph.substreams.data_service.common.v1.Usage
+	(*v11.Package)(nil),         // 7: sf.substreams.v1.Package
+	(*v1.SessionInfo)(nil),      // 8: graph.substreams.data_service.common.v1.SessionInfo
+	(*v1.SignedRAV)(nil),        // 9: graph.substreams.data_service.common.v1.SignedRAV
+	(*v1.Usage)(nil),            // 10: graph.substreams.data_service.common.v1.Usage
 }
 var file_graph_substreams_data_service_consumer_v1_consumer_proto_depIdxs = []int32{
 	6,  // 0: graph.substreams.data_service.consumer.v1.InitRequest.escrow_account:type_name -> graph.substreams.data_service.common.v1.EscrowAccount
-	7,  // 1: graph.substreams.data_service.consumer.v1.InitResponse.session:type_name -> graph.substreams.data_service.common.v1.SessionInfo
-	8,  // 2: graph.substreams.data_service.consumer.v1.InitResponse.payment_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
-	9,  // 3: graph.substreams.data_service.consumer.v1.ReportUsageRequest.usage:type_name -> graph.substreams.data_service.common.v1.Usage
-	8,  // 4: graph.substreams.data_service.consumer.v1.ReportUsageResponse.updated_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
-	9,  // 5: graph.substreams.data_service.consumer.v1.EndSessionRequest.final_usage:type_name -> graph.substreams.data_service.common.v1.Usage
-	8,  // 6: graph.substreams.data_service.consumer.v1.EndSessionResponse.final_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
-	9,  // 7: graph.substreams.data_service.consumer.v1.EndSessionResponse.total_usage:type_name -> graph.substreams.data_service.common.v1.Usage
-	0,  // 8: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.Init:input_type -> graph.substreams.data_service.consumer.v1.InitRequest
-	2,  // 9: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.ReportUsage:input_type -> graph.substreams.data_service.consumer.v1.ReportUsageRequest
-	4,  // 10: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.EndSession:input_type -> graph.substreams.data_service.consumer.v1.EndSessionRequest
-	1,  // 11: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.Init:output_type -> graph.substreams.data_service.consumer.v1.InitResponse
-	3,  // 12: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.ReportUsage:output_type -> graph.substreams.data_service.consumer.v1.ReportUsageResponse
-	5,  // 13: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.EndSession:output_type -> graph.substreams.data_service.consumer.v1.EndSessionResponse
-	11, // [11:14] is the sub-list for method output_type
-	8,  // [8:11] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	7,  // 1: graph.substreams.data_service.consumer.v1.InitRequest.substreams_package:type_name -> sf.substreams.v1.Package
+	8,  // 2: graph.substreams.data_service.consumer.v1.InitResponse.session:type_name -> graph.substreams.data_service.common.v1.SessionInfo
+	9,  // 3: graph.substreams.data_service.consumer.v1.InitResponse.payment_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
+	10, // 4: graph.substreams.data_service.consumer.v1.ReportUsageRequest.usage:type_name -> graph.substreams.data_service.common.v1.Usage
+	9,  // 5: graph.substreams.data_service.consumer.v1.ReportUsageResponse.updated_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
+	10, // 6: graph.substreams.data_service.consumer.v1.EndSessionRequest.final_usage:type_name -> graph.substreams.data_service.common.v1.Usage
+	9,  // 7: graph.substreams.data_service.consumer.v1.EndSessionResponse.final_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
+	10, // 8: graph.substreams.data_service.consumer.v1.EndSessionResponse.total_usage:type_name -> graph.substreams.data_service.common.v1.Usage
+	0,  // 9: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.Init:input_type -> graph.substreams.data_service.consumer.v1.InitRequest
+	2,  // 10: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.ReportUsage:input_type -> graph.substreams.data_service.consumer.v1.ReportUsageRequest
+	4,  // 11: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.EndSession:input_type -> graph.substreams.data_service.consumer.v1.EndSessionRequest
+	1,  // 12: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.Init:output_type -> graph.substreams.data_service.consumer.v1.InitResponse
+	3,  // 13: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.ReportUsage:output_type -> graph.substreams.data_service.consumer.v1.ReportUsageResponse
+	5,  // 14: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.EndSession:output_type -> graph.substreams.data_service.consumer.v1.EndSessionResponse
+	12, // [12:15] is the sub-list for method output_type
+	9,  // [9:12] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_graph_substreams_data_service_consumer_v1_consumer_proto_init() }

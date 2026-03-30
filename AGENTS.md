@@ -122,6 +122,17 @@ For MVP-scoped work:
 - Use `plans/mvp-implementation-backlog.md` as the active execution backlog.
 - Treat `plans/implementation-backlog.md` as historical context unless explicitly requested.
 
+## Commit Messages
+
+- When asked to create a commit, first inspect recent commits with `git log --format='%s%n%b' -n <N>` and follow the prevailing repo style instead of inventing a new format.
+- In this repo, the expected format is:
+  - one short imperative subject line
+  - a blank line
+  - a flat bullet list in the commit body, with each bullet starting with `- `
+- The commit body must contain real newlines. Never pass a single shell-escaped string containing literal `\n` sequences as the body.
+- Prefer either multiple `-m` flags or a temporary commit message file so Git receives the intended paragraph and bullet formatting verbatim.
+- Do not create a commit until `go vet ./...` and `go test ./...` pass unless the user explicitly asks otherwise.
+
 ## Notes
 
 - All builds must pass before committing

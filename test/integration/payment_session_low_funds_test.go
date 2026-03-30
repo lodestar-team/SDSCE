@@ -244,7 +244,7 @@ func TestConsumerSidecar_ReportUsage_StopsOnLowFunds(t *testing.T) {
 
 	config := DefaultTestSetupConfig()
 	config.EscrowAmount = big.NewInt(1)
-	setup, err := env.SetupCustomPaymentParticipantsWithSigner(env.User2, env.User3, config)
+	setup, err := env.SetupCustomPaymentParticipantsWithSigner(env.User1, env.User3, config)
 	require.NoError(t, err)
 
 	repo := repository.NewInMemoryRepository()
@@ -277,7 +277,7 @@ func TestConsumerSidecar_ReportUsage_StopsOnLowFunds(t *testing.T) {
 
 	initResp, err := consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{
 		EscrowAccount: &commonv1.EscrowAccount{
-			Payer:       commonv1.AddressFromEth(env.User2.Address),
+			Payer:       commonv1.AddressFromEth(env.User1.Address),
 			Receiver:    commonv1.AddressFromEth(env.User3.Address),
 			DataService: commonv1.AddressFromEth(env.DataService.Address),
 		},

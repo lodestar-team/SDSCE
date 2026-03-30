@@ -24,6 +24,7 @@ import (
 	"github.com/streamingfast/logging"
 	"github.com/streamingfast/substreams/client"
 	pbsubstreamsrpc "github.com/streamingfast/substreams/pb/sf/substreams/rpc/v2"
+	pbsubstreams "github.com/streamingfast/substreams/pb/sf/substreams/v1"
 	"github.com/streamingfast/substreams/sink"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
@@ -125,6 +126,8 @@ func runSinkRun(cmd *cobra.Command, args []string) error {
 		receiver,
 		dataService,
 		providerControlPlaneEndpoint,
+		sinkerConfig.Pkg,
+		sinkerConfig.Network,
 		reportInterval,
 		sinkLog,
 	)
@@ -219,6 +222,8 @@ type paymentWrapper struct {
 	receiver                     eth.Address
 	dataService                  eth.Address
 	providerControlPlaneEndpoint string
+	substreamsPackage            *pbsubstreams.Package
+	requestedNetwork             string
 	reportInterval               time.Duration
 	logger                       *zap.Logger
 
@@ -235,6 +240,8 @@ func newPaymentWrapper(
 	sidecarAddr string,
 	payer, receiver, dataService eth.Address,
 	providerControlPlaneEndpoint string,
+	substreamsPackage *pbsubstreams.Package,
+	requestedNetwork string,
 	reportInterval time.Duration,
 	logger *zap.Logger,
 ) *paymentWrapper {
@@ -246,6 +253,8 @@ func newPaymentWrapper(
 		receiver:                     receiver,
 		dataService:                  dataService,
 		providerControlPlaneEndpoint: providerControlPlaneEndpoint,
+		substreamsPackage:            substreamsPackage,
+		requestedNetwork:             requestedNetwork,
 		reportInterval:               reportInterval,
 		logger:                       logger,
 		usageTracker:                 sds.NewUsageTracker(priceConverter),
@@ -267,6 +276,8 @@ func (w *paymentWrapper) init(ctx context.Context) (*paymentInitResult, error) {
 			Receiver:    commonv1.AddressFromEth(w.receiver),
 			DataService: commonv1.AddressFromEth(w.dataService),
 		},
+		SubstreamsPackage:            w.substreamsPackage,
+		RequestedNetwork:             w.requestedNetwork,
 		ProviderControlPlaneEndpoint: w.providerControlPlaneEndpoint,
 	}))
 	if err != nil {

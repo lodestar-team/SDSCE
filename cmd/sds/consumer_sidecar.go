@@ -33,6 +33,7 @@ var consumerSidecarCmd = Command(
 		flags.String("signer-private-key", "", "Private key for signing RAVs (hex, required)")
 		flags.Uint64("chain-id", 1337, "Chain ID for EIP-712 domain")
 		flags.String("collector-address", "", "Collector contract address for EIP-712 domain (required)")
+		flags.String("oracle-endpoint", "", "Oracle endpoint used for provider discovery when no direct provider override is supplied")
 		flags.Bool("plaintext", false, "Serve plaintext h2c instead of TLS (local/demo only)")
 		flags.String("tls-cert-file", "", "Path to the TLS certificate PEM file")
 		flags.String("tls-key-file", "", "Path to the TLS private key PEM file")
@@ -45,6 +46,7 @@ func runConsumerSidecar(cmd *cobra.Command, args []string) error {
 	signerKeyHex := sflags.MustGetString(cmd, "signer-private-key")
 	chainID := sflags.MustGetUint64(cmd, "chain-id")
 	collectorHex := sflags.MustGetString(cmd, "collector-address")
+	oracleEndpoint := sflags.MustGetString(cmd, "oracle-endpoint")
 	plaintext := sflags.MustGetBool(cmd, "plaintext")
 	tlsCertFile := sflags.MustGetString(cmd, "tls-cert-file")
 	tlsKeyFile := sflags.MustGetString(cmd, "tls-key-file")
@@ -69,6 +71,7 @@ func runConsumerSidecar(cmd *cobra.Command, args []string) error {
 		ListenAddr:                     listenAddr,
 		SignerKey:                      signerKey,
 		Domain:                         horizon.NewDomain(chainID, collectorAddr),
+		OracleEndpoint:                 oracleEndpoint,
 		PaymentSessionRoundtripTimeout: paymentSessionRoundtripTimeout,
 		TransportConfig:                transportConfig,
 	}

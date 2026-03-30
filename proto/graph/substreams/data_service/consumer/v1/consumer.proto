@@ -3,6 +3,7 @@ syntax = "proto3";
 package graph.substreams.data_service.consumer.v1;
 
 import "graph/substreams/data_service/common/v1/types.proto";
+import "sf/substreams/v1/package.proto";
 
 // ConsumerSidecarService is the service that the substreams client calls to manage
 // payment sessions. It handles RAV signing and usage tracking on the consumer side.
@@ -26,12 +27,17 @@ service ConsumerSidecarService {
 message InitRequest {
   // The escrow account to use for funding this session
   common.v1.EscrowAccount escrow_account = 1;
-  // Direct provider override used before oracle discovery is implemented.
+  // Direct provider override. When set, this bypasses oracle discovery.
   // This is the provider control-plane endpoint used for session/payment management.
   // Supports ?insecure=true query parameter for self-signed certificates.
   string provider_control_plane_endpoint = 2;
 
   reserved 3, 4;
+
+  // The already-loaded Substreams package used for network derivation.
+  sf.substreams.v1.Package substreams_package = 5;
+  // Optional explicit network fallback when package derivation is unavailable.
+  string requested_network = 6;
 }
 
 message InitResponse {

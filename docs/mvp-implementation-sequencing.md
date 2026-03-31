@@ -120,7 +120,7 @@ Notes:
   - direct provider control-plane configuration remains a bypass/override
   - oracle-backed provider selection now feeds the normal provider handshake, which still returns the session-specific data-plane endpoint
   - oracle pricing is enforced as a ceiling, while lower provider pricing is accepted as the effective session pricing
-- `MVP-017` also depends on `MVP-011`, so only the ingress, handshake, and lifecycle-boundary portion should move first.
+- `MVP-017` still depends on `MVP-011`, but the ingress, handshake, and lifecycle-boundary portion has now landed, so the remaining work should stay narrowly focused on runtime convergence rather than first-time ingress creation.
 - `MVP-030` is late in the lane because it depends on real-path integration existing.
 
 ### Lane B: Runtime Payment And Stream Control
@@ -141,9 +141,8 @@ Completed foundation:
 
 Recommended next sequence:
 
-1. `MVP-011` Propagate provider low-funds stop decisions through consumer sidecar into the real ingress/client path
-2. `MVP-031` Wire the live provider-originated payment-control loop into the real client/provider runtime path
-3. `MVP-037` Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs
+1. `MVP-031` Wire the live provider-originated payment-control loop into the real client/provider runtime path
+2. `MVP-037` Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs
 
 Notes:
 
@@ -168,9 +167,11 @@ Notes:
     - `dummy-blockchain` `1cea671e78cbb069d64333fdbf4a6c9dd5502d58`
     - `substreams` `8897dccff3e2f989867b7711be91d613d256a36a`
   - The prebuilt published `dummy-blockchain` image remains stale and still embeds an older SDS-compatible runtime snapshot, so publishing refreshed upstream images is tracked separately under `MVP-036`, while `MVP-030` remains the compatibility/preflight hardening follow-up.
-- `MVP-011` is now the main remaining low-funds/runtime-control gap.
-  - Current status: the legacy sidecar wrapper path already relays `NeedMoreFunds`, and the provider-side live stream now stops on enforced low-funds termination, but the real client-facing ingress path is still unfinished.
+- `MVP-011` is now complete enough to treat as closed for sequencing purposes.
+  - Current status: the sidecar now exposes a real Substreams ingress, owns provider discovery/session bootstrap, and surfaces low-funds termination through the real client-facing path as runtime `ResourceExhausted`.
+  - Remaining runtime-payment work now belongs under `MVP-031`, because the ingress still advances payment state through an internalized sidecar usage loop rather than the final provider-originated runtime-control model.
 - `MVP-031` is effectively the capstone runtime-payment task because it depends on real provider and consumer integration plus thresholding.
+- `MVP-037` remains important because the affected low-funds and Firecore tests can still be order-dependent in full-suite runs even when they pass in isolation.
 
 ### Lane C: Provider State, Settlement, And Operator Retrieval
 
@@ -289,7 +290,6 @@ Already resolved:
 
 ### Phase 2: Integrate Runtime And Retrieval Paths
 
-- `MVP-011`
 - `MVP-017`
 - `MVP-009`
 - `MVP-022`
@@ -303,6 +303,7 @@ Already resolved:
 - `MVP-032`
 - `MVP-018`
 - `MVP-030`
+- `MVP-037`
 
 ### Phase 4: Finalize Visibility, Acceptance, And Documentation
 

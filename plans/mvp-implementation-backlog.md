@@ -1,6 +1,6 @@
 # Substreams Data Service — MVP Implementation Backlog
 
-_Last updated: 2026-03-30_
+_Last updated: 2026-03-31_
 
 This document translates [docs/mvp-scope.md](../docs/mvp-scope.md) into concrete implementation tasks for the MVP.
 
@@ -98,13 +98,13 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-008 | `in_progress` | provider-state | `A3`, `A6` | `MVP-003` | `D`, `F` | Complete durable provider runtime storage for sessions, usage, and accepted RAV state, distinct from collection lifecycle tracking |
 | MVP-009 | `not_started` | provider-state | `A3`, `A5` | `MVP-003`, `MVP-022`, `MVP-029` | `D`, `F` | Expose provider inspection and settlement-data retrieval APIs for accepted and collectible RAV state |
 | MVP-010 | `done` | funding-control | `A6` | `MVP-004` | `C` | Implement session-local low-funds detection and provider terminal stop behavior during streaming |
-| MVP-011 | `in_progress` | funding-control | `A6` | `MVP-010` | `C` | Propagate provider low-funds stop decisions through consumer sidecar into the real ingress/client path |
+| MVP-011 | `done` | funding-control | `A6` | `MVP-010` | `C` | Propagate provider low-funds stop decisions through consumer sidecar into the real ingress/client path |
 | MVP-012 | `done` | funding-control | none | `MVP-004` | `A`, `C` | Add deterministic cost-based RAV issuance thresholds suitable for real runtime behavior |
 | MVP-013 | `deferred` | consumer | `A3` | none | none | Post-MVP only: implement true provider-authoritative payment-session reconnect/resume semantics |
 | MVP-014 | `done` | provider-integration | `A3` | `MVP-004` | `A` | Integrate the public Payment Gateway and private Plugin Gateway into the real provider streaming path |
 | MVP-015 | `done` | provider-integration | `A3` | `MVP-004`, `MVP-014` | `A`, `C` | Wire real byte metering and session correlation from the plugin path into the payment-state repository used by the gateway |
 | MVP-016 | `done` | provider-integration | `A6` | `MVP-010`, `MVP-014` | `C` | Enforce gateway Continue/Stop decisions in the live provider stream lifecycle |
-| MVP-017 | `not_started` | consumer-integration | `A1`, `A2`, `A3` | `MVP-007`, `MVP-011`, `MVP-033` | `A`, `C` | Implement the consumer sidecar as the Substreams-compatible endpoint/proxy and primary SDS-facing runtime boundary |
+| MVP-017 | `in_progress` | consumer-integration | `A1`, `A2`, `A3` | `MVP-007`, `MVP-011`, `MVP-033` | `A`, `C` | Implement the consumer sidecar as the Substreams-compatible endpoint/proxy and primary SDS-facing runtime boundary |
 | MVP-018 | `not_started` | tooling | none | `MVP-032` | `E` | Implement operator funding CLI flows for approve/deposit/top-up beyond local demo assumptions |
 | MVP-019 | `not_started` | tooling | `A5` | `MVP-009`, `MVP-022` | `D`, `F` | Implement provider inspection CLI flows for accepted and collectible RAV data |
 | MVP-020 | `not_started` | tooling | `A5` | `MVP-009`, `MVP-022`, `MVP-029` | `F` | Implement manual collection CLI flow that fetches provider settlement state and crafts/signs/submits collect transactions locally |
@@ -336,17 +336,20 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - Verify:
     - Integration coverage exists for insufficient-funds stop, exact-balance continue, unknown-balance fail-open, and consumer-side stop behavior on `NeedMoreFunds`.
 
-- [ ] MVP-011 Propagate provider low-funds stop decisions through consumer sidecar into the real ingress/client path.
+- [x] MVP-011 Propagate provider low-funds stop decisions through consumer sidecar into the real ingress/client path.
   - Context:
     - Low-funds logic is incomplete until the client path actually obeys it.
-    - The provider is the authoritative source of low-funds stop decisions, but the real user-facing runtime path does not yet hide that control flow cleanly behind the consumer-sidecar ingress.
+    - The implemented ingress slice makes the consumer sidecar the runtime owner of provider discovery/session init, upstream stream setup, and low-funds termination propagation for real client-facing Substreams traffic.
+    - This task intentionally stopped short of the full provider-originated runtime-payment loop now tracked as the remaining scope of `MVP-031`.
   - Assumptions:
     - `A6`
   - Done when:
     - Consumer sidecar propagates provider-originated low-funds stop decisions through the real client-facing ingress path rather than relying on a wrapper-specific stop flow.
     - Real client integration honors those stop decisions and surfaces a clear client-visible reason.
   - Verify:
-    - Add integration/manual verification showing the real client path stops when the provider surfaces low funds during live streaming and the stop is honored through the ingress/runtime path.
+    - `go test ./test/integration -run TestConsumerIngress_StopsStreamOnLowFunds -count=1 -v` passes with downstream `ResourceExhausted` surfaced through the sidecar ingress.
+    - `go test ./test/integration -run TestConsumerIngress_UsesOracleSelectedProviderReceiver -count=1 -v` passes to confirm oracle-backed ingress derives the receiver/service provider from oracle-selected provider identity.
+    - `go test ./test/integration -run TestConsumerSidecar_ReportUsage_StopsOnLowFunds -count=1 -v` still passes to preserve the legacy wrapper-era stop path as transitional scaffolding.
 
 - [x] MVP-012 Add deterministic cost-based RAV issuance thresholds suitable for real runtime behavior.
   - Context:
@@ -437,7 +440,8 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 - [ ] MVP-017 Implement the consumer sidecar as the Substreams-compatible endpoint/proxy and primary SDS-facing runtime boundary.
   - Context:
     - The revised MVP scope elevates the consumer sidecar from helper service to user-facing SDS boundary.
-    - Existing `sds sink run` integration is useful foundation, but it does not satisfy the target data-plane/runtime boundary by itself.
+    - A minimal ingress slice is now implemented: the sidecar exposes Substreams gRPC services, performs oracle/direct provider selection, starts provider sessions internally, proxies upstream streams, and surfaces low-funds termination through the client-facing ingress.
+    - Existing `sds sink run` integration remains useful transitional scaffolding, but it no longer represents the only real-path integration shape.
   - Assumptions:
     - `A1`
     - `A2`
@@ -447,12 +451,16 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - The consumer sidecar hides oracle lookup, provider session init, and runtime payment/control coordination behind that ingress.
     - The user-facing runtime path does not require external wrapper-specific `Init` / `ReportUsage` / `EndSession` orchestration.
   - Verify:
-    - Add a real-path integration or documented manual scenario that runs through the consumer sidecar endpoint with a client talking to that endpoint rather than only `sds sink run`.
+    - Current status:
+      - The first two done-when bullets are partially satisfied by the new ingress slice and direct integration coverage.
+      - The remaining gap is that the ingress still internalizes the legacy sidecar `ReportUsage` loop rather than running the fully provider-originated runtime-payment flow expected by the final architecture.
+    - `go test ./test/integration -run 'TestConsumerIngress_UsesOracleSelectedProviderReceiver|TestConsumerIngress_StopsStreamOnLowFunds' -count=1 -v` passes.
+    - Remaining closure should add a real-path integration or documented manual scenario that uses the sidecar endpoint without relying on the transitional internalized wrapper-era usage loop.
 
 - [ ] MVP-031 Wire the long-lived provider-originated payment-control loop behind the consumer-sidecar ingress path used by real runtime traffic.
   - Context:
-    - MVP requires payment state to keep advancing during real streaming, not only through wrapper-driven flows.
-    - The loop should ultimately sit behind the same user-facing sidecar ingress the client uses, with provider-originated control driven from provider-side metering rather than a user-facing usage-report step.
+    - MVP runtime traffic now already flows through the sidecar ingress, but payment progression is still driven there by an internalized sidecar `ReportUsage` loop.
+    - The remaining work is to replace that transitional mechanism with the long-lived provider-originated payment-control loop driven from provider-side metering while keeping the same user-facing ingress boundary.
   - Assumptions:
     - `A2`
     - `A3`

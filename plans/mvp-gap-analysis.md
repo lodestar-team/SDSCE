@@ -1,7 +1,7 @@
 # MVP Gap Analysis
 
 Drafted: 2026-03-12  
-Revised: 2026-03-30
+Revised: 2026-03-31
 
 This document maps the current repository state against the MVP defined in `docs/mvp-scope.md`.
 
@@ -45,10 +45,9 @@ Validation infrastructure is also healthier than before:
 
 The biggest remaining MVP gaps are now:
 
-- Substreams-compatible consumer-side ingress/proxy behavior on top of the now-implemented oracle-backed discovery flow
-- provider-originated runtime payment/control behavior hidden behind that consumer-side ingress
+- full provider-originated runtime payment/control behavior behind the now-implemented consumer-side ingress
 - provider collection lifecycle persistence and inspection/collection APIs
-- full low-funds propagation through the real provider/client streaming path
+- consumer/runtime compatibility hardening beyond the initial ingress slice
 - operator funding and collection tooling
 - authenticated admin/operator surfaces
 - finalized observability floor
@@ -57,9 +56,9 @@ The biggest remaining MVP gaps are now:
 
 | Scenario | Status | Notes |
 | --- | --- | --- |
-| A. Discovery to paid streaming | `partial` | The standalone oracle and consumer-side oracle discovery flow now exist, but the consumer sidecar is not yet the Substreams-compatible ingress/proxy described by the scope |
+| A. Discovery to paid streaming | `partial` | The sidecar now exposes a Substreams-compatible ingress and can own discovery/session init/stream proxying, but the runtime still needs final compatibility hardening and full provider-originated payment-loop convergence |
 | B. Fresh session after interruption | `partial` | Fresh-session semantics are implemented in the init contract, but broader real-path interruption validation still remains |
-| C. Low funds during streaming | `partial` | Session-local low-funds stop behavior now exists in the payment-session path, but full real provider/client streaming-path enforcement is still incomplete |
+| C. Low funds during streaming | `partial` | Session-local low-funds stop behavior now reaches the real sidecar ingress path, but the broader provider-originated runtime-payment model and deterministic full-suite acceptance are still incomplete |
 | D. Provider restart without losing collectible state | `partial` | Provider persistence is no longer purely in-memory because PostgreSQL support exists, but collectible/collection lifecycle tracking is still incomplete |
 | E. Manual funding flow | `partial` | Demo-oriented setup/funding helpers exist, but real operator-grade funding CLI flows do not |
 | F. Manual collection flow | `missing` | RAV tooling exists, but provider-backed settlement inspection and collect workflow are not implemented |
@@ -102,12 +101,16 @@ What already exists:
 - package-derived network resolution with explicit fallback only when derivation is unavailable
 - payment-session loop wiring to provider gateway
 - provider-originated `NeedMoreFunds` currently reaches the legacy sidecar `ReportUsage` path
+- Substreams gRPC ingress services on the consumer sidecar (`sf.substreams.rpc.v2/v3/v4`)
+- sidecar-owned provider discovery/session bootstrap and upstream stream proxying behind that ingress
+- startup-driven ingress config via CLI/YAML, with oracle-first discovery and direct provider override as explicit bypass
+- low-funds termination surfaced through the client-facing ingress as runtime `ResourceExhausted`
 
 What is still missing for MVP:
 
-- the real user-facing integration is still wrapper-centric rather than endpoint-centric
-- the real runtime path still depends on external wrapper/RPC orchestration instead of hiding provider-originated control behind the sidecar ingress
-- full low-funds propagation through the real client-facing ingress path
+- the ingress still uses an internalized wrapper-era usage-report loop rather than the fully provider-originated runtime-payment loop expected by the target architecture
+- broader Substreams compatibility hardening remains, including final runtime/acceptance convergence around the sidecar ingress as the default entrypoint
+- some real-path acceptance still depends on the Firecore/runtime compatibility caveats tracked separately under `MVP-036` and `MVP-037`
 
 ### Provider Gateway
 
@@ -160,9 +163,9 @@ What already exists:
 
 What is still missing for MVP:
 
-- full live-provider-path acceptance in production-like usage
 - finalized byte-billing/runtime contract documentation
-- live stop behavior enforced in the provider stream lifecycle
+- the fully provider-originated payment/control loop used by the sidecar ingress rather than a sidecar-managed internal usage reporter
+- broader production-like validation around the current real-path runtime tuple
 
 ### Oracle
 
@@ -189,7 +192,7 @@ What already exists:
 Notes:
 
 - Oracle governance remains deployment-managed internal config for MVP; no writable admin API is required yet.
-- Standalone oracle service plus consumer-side oracle discovery are now both implemented, but scenario A still remains partial until the consumer sidecar becomes the real Substreams-compatible ingress/proxy under `MVP-017`.
+- Standalone oracle service plus consumer-side oracle discovery are now both implemented, and the first sidecar ingress slice has landed, but scenario A still remains partial until the remaining `MVP-017` / `MVP-031` runtime-convergence work is complete.
 
 ### Provider Persistence
 
@@ -223,22 +226,26 @@ Notes:
 
 ### Consumer Data-Plane Compatibility
 
-Status: `missing`
+Status: `partial`
 
 Evidence:
 
 - `proto/graph/substreams/data_service/consumer/v1/consumer.proto`
 - `cmd/sds/impl/sink_run.go`
+- `consumer/sidecar/ingress.go`
+- `test/integration/consumer_ingress_test.go`
 
 Current state:
 
-- the consumer sidecar is still used through SDS-specific RPC plus wrapper orchestration
-- `sds sink run` is the closest real-path integration today
+- the consumer sidecar now exposes a Substreams-compatible ingress and can proxy real client streams
+- oracle-backed ingress derives provider receiver identity from the oracle-selected provider
+- direct provider override remains available with startup-configured receiver identity
+- `sds sink run` still exists as transitional scaffolding and the ingress still internalizes the legacy usage-report loop
 
 What is still missing for MVP:
 
-- a Substreams-compatible consumer-side endpoint/proxy that hides SDS discovery, provider session initialization, and runtime payment/control coordination behind the data-plane ingress
-- a real user-facing runtime path that does not depend on an external client/wrapper `ReportUsage` step
+- full replacement of the transitional internal usage-report loop with the provider-originated runtime-payment flow
+- broader compatibility/acceptance hardening so the sidecar ingress is the clear default entrypoint for real runtime traffic
 
 ### Validation Infrastructure
 
@@ -348,8 +355,9 @@ The most important recent status changes versus the original draft are:
   - The repo now includes stronger firecore/plugin integration setup and a `TestFirecore` scaffold, even though that path is not yet MVP-complete.
   - The current blocker is now identified more precisely: the prebuilt `dummy-blockchain`/`firecore` runtime used by that scaffold embeds an older SDS snapshot and therefore drifts from the current auth/session/usage plugin contracts implemented in this repo.
   - This is protocol drift caused by SDS contract evolution, not just a generic “firecore test is flaky” issue.
-- Consumer-side MVP UX is still notably behind the revised scope.
-  - The code still reflects a control-plane RPC plus wrapper model rather than the endpoint/proxy boundary and provider-originated runtime-control model the scope now requires.
+- Consumer-side MVP UX is materially closer to the revised scope.
+  - The sidecar now exposes a Substreams-compatible ingress and propagates low-funds termination through that path.
+  - The remaining gap is no longer “missing ingress”, but rather the final convergence from the transitional sidecar-managed usage loop to the fully provider-originated runtime-payment model.
 
 ## Remaining Backlog Alignment
 
@@ -364,7 +372,6 @@ Oracle, consumer ingress, and runtime compatibility:
 
 Provider runtime and payment control:
 
-- `MVP-011`
 - `MVP-031`
 - `MVP-037`
 

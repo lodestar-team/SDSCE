@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"connectrpc.com/connect"
-	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	oraclev1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/oracle/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/oracle/v1/oraclev1connect"
 	sidecarlib "github.com/graphprotocol/substreams-data-service/sidecar"
+	"github.com/streamingfast/eth-go"
 	pbsubstreams "github.com/streamingfast/substreams/pb/sf/substreams/v1"
 	"go.uber.org/zap"
 )
@@ -20,6 +20,7 @@ type initProviderSelection struct {
 	ProviderID           string
 	Network              string
 	OraclePricing        *sidecarlib.PricingConfig
+	Receiver             eth.Address
 }
 
 var networkAliases = map[string]string{
@@ -110,13 +111,20 @@ func effectiveSessionPricing(
 
 func (s *Sidecar) resolveProviderSelection(
 	ctx context.Context,
-	req *commonv1.EscrowAccount,
+	expectedReceiver *eth.Address,
 	directEndpoint string,
 	substreamsPackage *pbsubstreams.Package,
 	requestedNetwork string,
 ) (*initProviderSelection, error) {
 	if endpoint := strings.TrimSpace(directEndpoint); endpoint != "" {
-		return &initProviderSelection{ControlPlaneEndpoint: endpoint}, nil
+		if expectedReceiver == nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("<receiver> is required when <provider_control_plane_endpoint> is set"))
+		}
+
+		return &initProviderSelection{
+			ControlPlaneEndpoint: endpoint,
+			Receiver:             *expectedReceiver,
+		}, nil
 	}
 
 	oracleEndpoint := strings.TrimSpace(s.oracleEndpoint)
@@ -147,10 +155,6 @@ func (s *Sidecar) resolveProviderSelection(
 		return nil, connect.NewError(connect.CodeInternal, errors.New("oracle returned no selected provider"))
 	}
 
-	if req.GetReceiver() == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("<escrow_account.receiver> is required"))
-	}
-
 	selectedProviderAddr := selectedProvider.GetServiceProvider()
 	if selectedProviderAddr == nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("oracle selected provider is missing <service_provider>"))
@@ -161,13 +165,8 @@ func (s *Sidecar) resolveProviderSelection(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("oracle returned invalid selected provider <service_provider>: %w", err))
 	}
 
-	requestedReceiver, err := req.GetReceiver().ToEth()
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid <escrow_account.receiver>: %w", err))
-	}
-
-	if !sidecarlib.AddressesEqual(selectedReceiver, requestedReceiver) {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("oracle selected provider %q (%s) does not match <escrow_account.receiver> %s", selectedProvider.GetProviderId(), selectedReceiver, requestedReceiver))
+	if expectedReceiver != nil && !sidecarlib.AddressesEqual(selectedReceiver, *expectedReceiver) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("oracle selected provider %q (%s) does not match <receiver> %s", selectedProvider.GetProviderId(), selectedReceiver, *expectedReceiver))
 	}
 
 	oraclePricing := oracleResp.Msg.GetCanonicalPricing()
@@ -185,6 +184,7 @@ func (s *Sidecar) resolveProviderSelection(
 		ProviderID:           selectedProvider.GetProviderId(),
 		Network:              network,
 		OraclePricing:        oraclePricingConfig,
+		Receiver:             selectedReceiver,
 	}, nil
 }
 

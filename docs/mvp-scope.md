@@ -1,7 +1,7 @@
 # Substreams Data Service MVP Scope
 
 Drafted: 2026-03-12  
-Revised: 2026-03-27
+Revised: 2026-03-30
 
 ## Purpose
 
@@ -27,9 +27,9 @@ This document is written for:
 
 ## MVP Definition
 
-The SDS MVP is a usable end-to-end payment-enabled Substreams stack, not just a local demo. It must support real provider discovery, real consumer and provider integration paths, paid streaming with provider-authoritative byte metering, live low-funds handling, durable provider-side payment state, manual operator-driven funding and settlement workflows, and a production-oriented transport/security posture.
+The SDS MVP is a usable end-to-end payment-enabled Substreams stack, not just a local demo. It must support real provider discovery, a real consumer-side endpoint/proxy, real provider integration, paid streaming with provider-authoritative byte metering and runtime control, live low-funds handling, durable provider-side payment state, manual operator-driven funding and settlement workflows, and a production-oriented transport/security posture.
 
-The MVP should preserve Substreams-compatible data-plane usage as much as possible. Existing users should be able to point Substreams tooling at a consumer sidecar endpoint and use it like a normal Substreams endpoint, while SDS-specific discovery, payment, and provider coordination happen behind that boundary.
+The MVP should preserve Substreams-compatible data-plane usage as much as possible. Existing users should be able to point Substreams tooling at a consumer sidecar endpoint and use it like a normal Substreams endpoint, while SDS-specific discovery, payment, metering-driven control, and provider coordination happen behind that boundary. The user-facing runtime flow should not require a separate external usage-reporting step from the client or a wrapper.
 
 The MVP may intentionally simplify parts of the system where doing so materially reduces implementation complexity without invalidating the architecture. In particular, the MVP may assume:
 
@@ -64,9 +64,9 @@ See `plans/mvp-gap-analysis.md` for a detailed status map.
 
 - Deliver a full SDS stack that can be used against a real provider deployment, initially expected to be StreamingFast.
 - Make the consumer sidecar the mandatory client-side SDS integration component and primary user entrypoint.
-- Preserve backwards-compatible Substreams data-plane interaction semantics through the consumer sidecar.
+- Preserve backwards-compatible Substreams data-plane interaction semantics through the consumer sidecar endpoint/proxy.
 - Use a standalone oracle service for provider discovery, while still supporting direct provider configuration as fallback.
-- Use provider-authoritative byte metering as the billing source of truth.
+- Use provider-authoritative byte metering and provider-originated runtime control as the source of truth for billing and stop behavior during live sessions.
 - Use provider-authoritative accepted payment state and durable provider-side settlement state.
 - Support manual operator-driven funding and collection workflows through CLI tooling.
 - Use TLS by default outside local/dev usage.
@@ -113,6 +113,7 @@ MVP network-discovery contract:
 - The consumer sidecar initiates the provider handshake using the selected provider control-plane endpoint.
 - Every new request or connection creates a fresh SDS payment session.
 - The provider returns session-specific information needed to begin streaming, including the data-plane endpoint for that session.
+- The consumer sidecar uses that handshake result to establish and manage the provider-side runtime path behind its own user-facing ingress.
 - The provider remains the authoritative side for accepted payment state.
 - The handshake is not a pricing negotiation step for MVP.
 - Pricing is already fixed by the oracle for the curated MVP provider set.
@@ -122,11 +123,13 @@ MVP network-discovery contract:
 - The real provider integration path meters streamed bytes using the provider-side metering plugin path.
 - The provider is authoritative for billable usage and low-funds decisions during live sessions.
 - The consumer sidecar coordinates payment/session control while preserving normal Substreams-style usage at its user-facing endpoint.
+- The user-facing runtime flow does not require a separate external usage-reporting step from the client.
 - While streaming:
-  - provider-authoritative usage advances
-  - RAVs are requested and updated as needed
-  - provider-driven RAV requests are triggered by a cost-based threshold over unbaselined usage rather than on every usage report
-  - accepted payment state advances on the provider side
+  - provider-side metering observes live streamed usage
+  - provider-authoritative usage and accepted payment state advance from that metering
+  - the provider emits runtime control messages as needed, including RAV requests and low-funds stop decisions
+  - RAVs are requested and updated as needed in response to provider-originated control flow
+  - provider-driven RAV requests are triggered by a cost-based threshold over unbaselined metered usage
   - low-funds conditions can be surfaced during the live stream
   - insufficient funds terminate the current SDS payment session for MVP rather than pausing it
 - For MVP, low-funds decisions are session-local, not payer-global across concurrent streams.
@@ -168,6 +171,7 @@ MVP network-discovery contract:
 | Direct provider connection | Supported as fallback/override | Useful bridge from current implementation and operational fallback |
 | Pricing authority | Oracle-authoritative pricing across the curated MVP provider set | Predictable pricing and simpler consumer/provider behavior while providers are manually curated |
 | Billing unit | Streamed bytes | Aligns with provider-authoritative metering path |
+| Runtime control loop | Provider-originated control based on provider-side metering, hidden behind the consumer sidecar ingress | Keeps the provider authoritative for live payment control without requiring wrapper-specific client orchestration |
 | Funding model | Session-local, stop-only low-funds logic | Avoids premature distributed liability accounting for concurrent streams while keeping MVP control behavior simple |
 | Funding UX | CLI/operator-driven with only lightweight consumer-side advisory guidance | Keeps MVP simple without pretending the consumer knows provider-side liability |
 | Concurrent streams | Documented limitation, not blocked | Simpler MVP with explicit limitation instead of partial enforcement |
@@ -217,10 +221,11 @@ That is a materially larger distributed-state problem than the session-local MVP
 - Primary user-facing SDS boundary
 - Presents a Substreams-compatible endpoint/proxy for normal data-plane usage
 - Supports oracle-backed discovery and direct provider fallback
-- Performs session initialization with the provider control plane
-- Receives the provider data-plane endpoint during session handshake
-- Maintains payment/session coordination during streaming
-- Works with the real client integration path, not only demo wrappers
+- Performs provider session initialization behind the user-facing ingress
+- Resolves and manages the provider data-plane endpoint behind that ingress
+- Maintains the runtime payment/control loop during streaming while reacting to provider-originated control events
+- Hides SDS discovery, handshake, and runtime payment coordination behind the Substreams-compatible endpoint/proxy
+- Does not require wrapper-specific orchestration as part of the intended MVP architecture
 - Does not require durable local payment-session persistence for MVP
 
 ### Provider Gateway / Provider Integration
@@ -229,8 +234,10 @@ That is a materially larger distributed-state problem than the session-local MVP
 - Real integration into the provider path is mandatory
 - Validates payment/session state for real streaming traffic
 - Uses provider-authoritative byte metering from the plugin/integration path
-- Drives RAV request/response flow
+- Advances runtime payment state from provider-side metering
+- Drives RAV request/response flow from that authoritative runtime state
 - Handles live low-funds conditions during streaming
+- Emits provider-originated runtime control decisions, including low-funds stop behavior, to the consumer sidecar/runtime path
 - Uses terminal stop behavior rather than pause when session-local funds are insufficient
 - Persists accepted RAV and settlement-relevant state durably
 - Exposes authenticated operator/admin surfaces for inspection and settlement data retrieval

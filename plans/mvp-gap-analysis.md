@@ -46,6 +46,7 @@ Validation infrastructure is also healthier than before:
 The biggest remaining MVP gaps are now:
 
 - Substreams-compatible consumer-side ingress/proxy behavior on top of the now-implemented oracle-backed discovery flow
+- provider-originated runtime payment/control behavior hidden behind that consumer-side ingress
 - provider collection lifecycle persistence and inspection/collection APIs
 - full low-funds propagation through the real provider/client streaming path
 - operator funding and collection tooling
@@ -95,16 +96,17 @@ Evidence:
 What already exists:
 
 - session init
-- usage reporting
+- wrapper-era `Init` / `ReportUsage` / `EndSession` RPC surfaces
 - end session
 - oracle-backed provider selection with direct-provider override fallback
 - package-derived network resolution with explicit fallback only when derivation is unavailable
 - payment-session loop wiring to provider gateway
-- `NeedMoreFunds` currently stops the wrapper-oriented `ReportUsage` flow
+- provider-originated `NeedMoreFunds` currently reaches the legacy sidecar `ReportUsage` path
 
 What is still missing for MVP:
 
 - the real user-facing integration is still wrapper-centric rather than endpoint-centric
+- the real runtime path still depends on external wrapper/RPC orchestration instead of hiding provider-originated control behind the sidecar ingress
 - full low-funds propagation through the real client-facing ingress path
 
 ### Provider Gateway
@@ -135,7 +137,7 @@ What already exists:
 What is still missing for MVP:
 
 - collection lifecycle state
-- enforcement of gateway low-funds/control outcomes in the live provider stream lifecycle
+- full provider-originated runtime-control flow behind the intended consumer ingress/proxy
 - authenticated admin/operator surfaces
 
 ### Provider Plugin Services
@@ -235,7 +237,8 @@ Current state:
 
 What is still missing for MVP:
 
-- a Substreams-compatible consumer-side endpoint/proxy that hides SDS discovery/session/payment coordination behind the data-plane ingress
+- a Substreams-compatible consumer-side endpoint/proxy that hides SDS discovery, provider session initialization, and runtime payment/control coordination behind the data-plane ingress
+- a real user-facing runtime path that does not depend on an external client/wrapper `ReportUsage` step
 
 ### Validation Infrastructure
 
@@ -346,7 +349,7 @@ The most important recent status changes versus the original draft are:
   - The current blocker is now identified more precisely: the prebuilt `dummy-blockchain`/`firecore` runtime used by that scaffold embeds an older SDS snapshot and therefore drifts from the current auth/session/usage plugin contracts implemented in this repo.
   - This is protocol drift caused by SDS contract evolution, not just a generic “firecore test is flaky” issue.
 - Consumer-side MVP UX is still notably behind the revised scope.
-  - The code still reflects a control-plane RPC plus wrapper model rather than the endpoint/proxy boundary the scope now requires.
+  - The code still reflects a control-plane RPC plus wrapper model rather than the endpoint/proxy boundary and provider-originated runtime-control model the scope now requires.
 
 ## Remaining Backlog Alignment
 

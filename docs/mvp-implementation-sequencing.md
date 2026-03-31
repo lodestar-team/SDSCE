@@ -98,7 +98,7 @@ Completed foundation:
 
 Recommended next sequence:
 
-1. `MVP-017` Integrate the real consumer/client path with consumer sidecar init, usage reporting, and session end
+1. `MVP-017` Integrate the real consumer/client path behind the consumer sidecar endpoint/proxy and internal session/runtime coordination
 2. `MVP-030` Add runtime compatibility and preflight checks for real provider/plugin deployments
 
 Notes:
@@ -120,7 +120,7 @@ Notes:
   - direct provider control-plane configuration remains a bypass/override
   - oracle-backed provider selection now feeds the normal provider handshake, which still returns the session-specific data-plane endpoint
   - oracle pricing is enforced as a ceiling, while lower provider pricing is accepted as the effective session pricing
-- `MVP-017` also depends on `MVP-011`, so only the entry/lifecycle portion should move first.
+- `MVP-017` also depends on `MVP-011`, so only the ingress, handshake, and lifecycle-boundary portion should move first.
 - `MVP-030` is late in the lane because it depends on real-path integration existing.
 
 ### Lane B: Runtime Payment And Stream Control
@@ -141,8 +141,8 @@ Completed foundation:
 
 Recommended next sequence:
 
-1. `MVP-011` Propagate provider low-funds stop decisions through consumer sidecar into the real client path
-2. `MVP-031` Wire the live PaymentSession and RAV-control loop into the real client/provider runtime path
+1. `MVP-011` Propagate provider low-funds stop decisions through consumer sidecar into the real ingress/client path
+2. `MVP-031` Wire the live provider-originated payment-control loop into the real client/provider runtime path
 3. `MVP-037` Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs
 
 Notes:
@@ -169,7 +169,7 @@ Notes:
     - `substreams` `8897dccff3e2f989867b7711be91d613d256a36a`
   - The prebuilt published `dummy-blockchain` image remains stale and still embeds an older SDS-compatible runtime snapshot, so publishing refreshed upstream images is tracked separately under `MVP-036`, while `MVP-030` remains the compatibility/preflight hardening follow-up.
 - `MVP-011` is now the main remaining low-funds/runtime-control gap.
-  - Current status: the sidecar wrapper path already stops on `NeedMoreFunds`, and the provider-side live stream now stops on enforced low-funds termination, but the real client-facing ingress path is still unfinished.
+  - Current status: the legacy sidecar wrapper path already relays `NeedMoreFunds`, and the provider-side live stream now stops on enforced low-funds termination, but the real client-facing ingress path is still unfinished.
 - `MVP-031` is effectively the capstone runtime-payment task because it depends on real provider and consumer integration plus thresholding.
 
 ### Lane C: Provider State, Settlement, And Operator Retrieval

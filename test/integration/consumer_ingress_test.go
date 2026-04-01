@@ -9,12 +9,14 @@ import (
 	"testing"
 	"time"
 
+	sds "github.com/graphprotocol/substreams-data-service"
 	consumersidecar "github.com/graphprotocol/substreams-data-service/consumer/sidecar"
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/graphprotocol/substreams-data-service/horizon/devenv"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	providergateway "github.com/graphprotocol/substreams-data-service/provider/gateway"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
+	providerusage "github.com/graphprotocol/substreams-data-service/provider/usage"
 	sidecarlib "github.com/graphprotocol/substreams-data-service/sidecar"
 	ssclient "github.com/streamingfast/substreams/client"
 	pbsubstreamsrpcv2 "github.com/streamingfast/substreams/pb/sf/substreams/rpc/v2"
@@ -89,9 +91,8 @@ networks:
 		Domain:         horizon.NewDomain(env.ChainID, env.Collector.Address),
 		OracleEndpoint: httpEndpoint(oracleAddr),
 		IngressConfig: &consumersidecar.IngressConfig{
-			Payer:          env.Payer.Address,
-			DataService:    env.DataService.Address,
-			ReportInterval: 250 * time.Millisecond,
+			Payer:       env.Payer.Address,
+			DataService: env.DataService.Address,
 		},
 		TransportConfig: sidecarlib.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("consumer"))
@@ -144,10 +145,19 @@ func TestConsumerIngress_StopsStreamOnLowFunds(t *testing.T) {
 
 	providerAddr := reserveLocalAddress(t)
 	sidecarAddr := reserveLocalAddress(t)
+	var usageService *providerusage.UsageService
 
 	upstreamEndpoint, _, shutdownUpstream := startFakeSubstreamsV3Server(t, func(_ *pbsubstreamsrpcv3.Request, stream grpc.ServerStreamingServer[pbsubstreamsrpcv2.Response]) error {
+		md, _ := metadata.FromIncomingContext(stream.Context())
+		sessionIDs := md.Get(sds.HeaderSessionID)
+		require.Len(t, sessionIDs, 1, "expected the ingress to propagate a single session id header")
+
 		require.NoError(t, stream.Send(testBlockResponse([]byte("block-1"))))
+		reportMeteredUsage(t, stream.Context(), usageService, env.User1.Address, env.User2.Address, sessionIDs[0], 1, 0, 1)
+
 		require.NoError(t, stream.Send(testBlockResponse([]byte("block-2"))))
+		reportMeteredUsage(t, stream.Context(), usageService, env.User1.Address, env.User2.Address, sessionIDs[0], 1, 0, 1)
+
 		<-stream.Context().Done()
 		return stream.Context().Err()
 	})
@@ -167,6 +177,7 @@ func TestConsumerIngress_StopsStreamOnLowFunds(t *testing.T) {
 		TransportConfig:     sidecarlib.ServerTransportConfig{Plaintext: true},
 		Repository:          repo,
 	}, zlog.Named("provider"))
+	usageService = providerusage.NewUsageService(repo, deterministicRepositoryPricingConfig(), providerGateway)
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)
@@ -181,7 +192,6 @@ func TestConsumerIngress_StopsStreamOnLowFunds(t *testing.T) {
 			Receiver:                     &receiver,
 			DataService:                  env.DataService.Address,
 			ProviderControlPlaneEndpoint: httpEndpoint(providerAddr),
-			ReportInterval:               200 * time.Millisecond,
 		},
 		TransportConfig: sidecarlib.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("consumer"))

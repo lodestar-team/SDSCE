@@ -142,7 +142,7 @@ func StartProviderGateway(
 	}
 
 	authService := auth.NewAuthService(serviceProviderAddr, domain, collectorQuerier, repo)
-	usageService := usage.NewUsageService(repo, toRepositoryPricingConfig(pricingConfig))
+	usageService := usage.NewUsageService(repo, toRepositoryPricingConfig(pricingConfig), paymentGateway)
 	sessionService := session.NewSessionService(repo, nil) // Use default quota config
 
 	// Create Plugin Gateway
@@ -236,7 +236,7 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 	}
 
 	authService := auth.NewAuthService(serviceProviderAddr, domain, collectorQuerier, repo)
-	usageService := usage.NewUsageService(repo, toRepositoryPricingConfig(providerPricingConfig.ToPricingConfig()))
+	usageService := usage.NewUsageService(repo, toRepositoryPricingConfig(providerPricingConfig.ToPricingConfig()), paymentGateway)
 	sessionService := session.NewSessionService(repo, nil) // Use default quota config
 
 	// Create Plugin Gateway

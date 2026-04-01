@@ -5,13 +5,13 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"math/big"
 	"sync"
-	"time"
 
-	"connectrpc.com/connect"
 	sds "github.com/graphprotocol/substreams-data-service"
+	"github.com/graphprotocol/substreams-data-service/horizon"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
-	consumerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1"
+	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	sidecarlib "github.com/graphprotocol/substreams-data-service/sidecar"
 	pbfirehose "github.com/streamingfast/pbgo/sf/firehose/v2"
 	ssclient "github.com/streamingfast/substreams/client"
@@ -164,12 +164,12 @@ func (s *Sidecar) proxyV2Stream(
 	req *pbsubstreamsrpcv2.Request,
 	input sessionBootstrapInput,
 ) error {
-	runtimeCtx, bootstrap, tracker, stopState, reporterDone, cancel, cleanup, err := s.prepareIngressRuntime(stream.Context(), input)
+	runtimeCtx, bootstrap, stopState, controlDone, cancel, cleanup, err := s.prepareIngressRuntime(stream.Context(), input)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	defer s.finishIngressRuntime(bootstrap.LocalSession.ID, tracker, stopState, cancel, reporterDone)
+	defer s.finishIngressRuntime(bootstrap.LocalSession.ID, stopState, cancel, controlDone)
 
 	upstreamConn, closeConn, callOpts, headers, err := newUpstreamStreamConn(bootstrap.DataPlaneEndpoint)
 	if err != nil {
@@ -202,7 +202,6 @@ func (s *Sidecar) proxyV2Stream(
 			return err
 		}
 
-		trackV2ResponseUsage(resp, tracker)
 		if err := stream.Send(resp); err != nil {
 			return err
 		}
@@ -214,12 +213,12 @@ func (s *Sidecar) proxyV3Stream(
 	req *pbsubstreamsrpcv3.Request,
 	input sessionBootstrapInput,
 ) error {
-	runtimeCtx, bootstrap, tracker, stopState, reporterDone, cancel, cleanup, err := s.prepareIngressRuntime(stream.Context(), input)
+	runtimeCtx, bootstrap, stopState, controlDone, cancel, cleanup, err := s.prepareIngressRuntime(stream.Context(), input)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	defer s.finishIngressRuntime(bootstrap.LocalSession.ID, tracker, stopState, cancel, reporterDone)
+	defer s.finishIngressRuntime(bootstrap.LocalSession.ID, stopState, cancel, controlDone)
 
 	upstreamConn, closeConn, callOpts, headers, err := newUpstreamStreamConn(bootstrap.DataPlaneEndpoint)
 	if err != nil {
@@ -252,7 +251,6 @@ func (s *Sidecar) proxyV3Stream(
 			return err
 		}
 
-		trackV2ResponseUsage(resp, tracker)
 		if err := stream.Send(resp); err != nil {
 			return err
 		}
@@ -264,12 +262,12 @@ func (s *Sidecar) proxyV4Stream(
 	req *pbsubstreamsrpcv3.Request,
 	input sessionBootstrapInput,
 ) error {
-	runtimeCtx, bootstrap, tracker, stopState, reporterDone, cancel, cleanup, err := s.prepareIngressRuntime(stream.Context(), input)
+	runtimeCtx, bootstrap, stopState, controlDone, cancel, cleanup, err := s.prepareIngressRuntime(stream.Context(), input)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	defer s.finishIngressRuntime(bootstrap.LocalSession.ID, tracker, stopState, cancel, reporterDone)
+	defer s.finishIngressRuntime(bootstrap.LocalSession.ID, stopState, cancel, controlDone)
 
 	upstreamConn, closeConn, callOpts, headers, err := newUpstreamStreamConn(bootstrap.DataPlaneEndpoint)
 	if err != nil {
@@ -302,7 +300,6 @@ func (s *Sidecar) proxyV4Stream(
 			return err
 		}
 
-		trackV4ResponseUsage(resp, tracker)
 		if err := stream.Send(resp); err != nil {
 			return err
 		}
@@ -312,104 +309,125 @@ func (s *Sidecar) proxyV4Stream(
 func (s *Sidecar) prepareIngressRuntime(
 	ctx context.Context,
 	input sessionBootstrapInput,
-) (context.Context, *sessionBootstrapResult, *sds.UsageTracker, *ingressStopState, chan struct{}, context.CancelFunc, func(), error) {
+) (context.Context, *sessionBootstrapResult, *ingressStopState, chan struct{}, context.CancelFunc, func(), error) {
 	bootstrap, err := s.bootstrapManagedSession(ctx, input)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, err
 	}
 
 	runtimeCtx, cancel := context.WithCancel(ctx)
-	tracker := sds.NewUsageTracker(nil)
 	stopState := newIngressStopState(cancel)
-	reporterDone := make(chan struct{})
+	controlDone := make(chan struct{})
 
-	go s.runIngressUsageReporter(runtimeCtx, bootstrap.LocalSession.ID, tracker, stopState, reporterDone)
+	go s.runIngressPaymentControl(runtimeCtx, bootstrap.LocalSession, stopState, controlDone)
 
 	cleanup := func() {
 		s.paymentSessions.Close(bootstrap.LocalSession.ID)
 	}
 
-	return runtimeCtx, bootstrap, tracker, stopState, reporterDone, cancel, cleanup, nil
+	return runtimeCtx, bootstrap, stopState, controlDone, cancel, cleanup, nil
 }
 
-func (s *Sidecar) runIngressUsageReporter(
+func (s *Sidecar) runIngressPaymentControl(
 	ctx context.Context,
-	sessionID string,
-	tracker *sds.UsageTracker,
+	session *sidecarlib.Session,
 	stopState *ingressStopState,
 	done chan struct{},
 ) {
 	defer close(done)
 
-	interval := s.ingressConfig.effectiveReportInterval()
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	if session == nil {
+		stopState.set(status.Error(codes.Internal, "consumer ingress session is required"))
+		return
+	}
+
+	client := s.paymentSessions.Get(session.ID)
+	if client == nil {
+		stopState.set(status.Error(codes.Unavailable, "provider payment session client is not configured"))
+		return
+	}
+
+	if err := client.BindSession(session.ID); err != nil {
+		stopState.set(status.Errorf(codes.Unavailable, "bind provider payment session: %v", err))
+		return
+	}
+
+	var pendingRAV *horizon.SignedRAV
 
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if err := s.reportIngressUsage(ctx, sessionID, tracker); err != nil {
-				stopState.set(err)
+		msg, err := client.Receive(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
 				return
 			}
+			stopState.set(status.Errorf(codes.Unavailable, "receive provider payment control: %v", err))
+			return
+		}
+		if msg == nil {
+			continue
+		}
+
+		if ravReq := msg.GetRavRequest(); ravReq != nil {
+			signed, err := s.signRAVForRequest(session, ravReq)
+			if err != nil {
+				stopState.set(status.Errorf(codes.Internal, "sign RAV for provider request: %v", err))
+				return
+			}
+
+			if usage := ravReq.GetUsage(); usage != nil {
+				var usageCost *big.Int
+				if usage.Cost != nil {
+					usageCost = usage.Cost.ToBigInt()
+				}
+				session.AddUsage(usage.BlocksProcessed, usage.BytesTransferred, usage.Requests, usageCost)
+			}
+
+			if err := client.SendRAVSubmission(session.ID, signed, ravReq.GetUsage()); err != nil {
+				stopState.set(status.Errorf(codes.Unavailable, "submit RAV on provider payment session: %v", err))
+				return
+			}
+
+			pendingRAV = signed
+			continue
+		}
+
+		if need := msg.GetNeedMoreFunds(); need != nil {
+			reason := "need more funds"
+			if minimum := need.GetMinimumNeeded(); minimum != nil {
+				minimumValue := minimum.ToNative()
+				reason = fmt.Sprintf("need more funds (minimum needed %s)", minimumValue.String())
+			}
+			stopState.set(status.Error(codes.ResourceExhausted, reason))
+			return
+		}
+
+		if ctrl := msg.GetSessionControl(); ctrl != nil {
+			if ctrl.GetAction() == providerv1.SessionControl_ACTION_CONTINUE {
+				if pendingRAV != nil {
+					session.SetRAV(pendingRAV)
+					pendingRAV = nil
+				}
+				continue
+			}
+
+			reason := ctrl.GetReason()
+			if reason == "" {
+				reason = "provider ended stream"
+			}
+			stopState.set(status.Error(codes.ResourceExhausted, reason))
+			return
 		}
 	}
-}
-
-func (s *Sidecar) reportIngressUsage(ctx context.Context, sessionID string, tracker *sds.UsageTracker) error {
-	_, blocksProcessed, bytes, reqs := tracker.SwapAndGetUsage()
-	if blocksProcessed == 0 && bytes == 0 {
-		return nil
-	}
-
-	resp, err := s.ReportUsage(ctx, connect.NewRequest(&consumerv1.ReportUsageRequest{
-		SessionId: sessionID,
-		Usage: &commonv1.Usage{
-			BlocksProcessed:  blocksProcessed,
-			BytesTransferred: bytes,
-			Requests:         reqs,
-			Cost:             commonv1.GRTFromNative(sds.ZeroGRT()),
-		},
-	}))
-	if err != nil {
-		return status.Errorf(codes.Unavailable, "report usage via consumer sidecar: %v", err)
-	}
-
-	if !resp.Msg.GetShouldContinue() {
-		reason := resp.Msg.GetStopReason()
-		if reason == "" {
-			reason = "provider ended stream due to payment issue"
-		}
-		return status.Error(codes.ResourceExhausted, reason)
-	}
-
-	return nil
 }
 
 func (s *Sidecar) finishIngressRuntime(
 	sessionID string,
-	tracker *sds.UsageTracker,
 	stopState *ingressStopState,
 	cancel context.CancelFunc,
-	reporterDone chan struct{},
+	controlDone chan struct{},
 ) {
-	if stopState.errValue() == nil {
-		flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = s.reportIngressUsage(flushCtx, sessionID, tracker)
-		flushCancel()
-	}
-
 	cancel()
-	<-reporterDone
-
-	if stopState.errValue() == nil {
-		endCtx, endCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_, _ = s.EndSession(endCtx, connect.NewRequest(&consumerv1.EndSessionRequest{SessionId: sessionID}))
-		endCancel()
-	}
-
+	<-controlDone
 	s.sessions.Delete(sessionID)
 }
 
@@ -454,40 +472,4 @@ func encodeRAVHeader(signedRAV *commonv1.SignedRAV) (string, error) {
 	}
 
 	return base64.StdEncoding.EncodeToString(protoBytes), nil
-}
-
-func trackV2ResponseUsage(resp *pbsubstreamsrpcv2.Response, tracker *sds.UsageTracker) {
-	if resp == nil || tracker == nil {
-		return
-	}
-
-	block := resp.GetBlockScopedData()
-	if block == nil {
-		return
-	}
-
-	tracker.AddBlock(blockOutputBytes(block))
-}
-
-func trackV4ResponseUsage(resp *pbsubstreamsrpcv4.Response, tracker *sds.UsageTracker) {
-	if resp == nil || tracker == nil {
-		return
-	}
-
-	blocks := resp.GetBlockScopedDatas()
-	if blocks == nil {
-		return
-	}
-
-	for _, block := range blocks.Items {
-		tracker.AddBlock(blockOutputBytes(block))
-	}
-}
-
-func blockOutputBytes(block *pbsubstreamsrpcv2.BlockScopedData) uint64 {
-	if block == nil || block.Output == nil || block.Output.MapOutput == nil {
-		return 0
-	}
-
-	return uint64(len(block.Output.MapOutput.Value))
 }

@@ -104,7 +104,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-014 | `done` | provider-integration | `A3` | `MVP-004` | `A` | Integrate the public Payment Gateway and private Plugin Gateway into the real provider streaming path |
 | MVP-015 | `done` | provider-integration | `A3` | `MVP-004`, `MVP-014` | `A`, `C` | Wire real byte metering and session correlation from the plugin path into the payment-state repository used by the gateway |
 | MVP-016 | `done` | provider-integration | `A6` | `MVP-010`, `MVP-014` | `C` | Enforce gateway Continue/Stop decisions in the live provider stream lifecycle |
-| MVP-017 | `in_progress` | consumer-integration | `A1`, `A2`, `A3` | `MVP-007`, `MVP-011`, `MVP-033` | `A`, `C` | Implement the consumer sidecar as the Substreams-compatible endpoint/proxy and primary SDS-facing runtime boundary |
+| MVP-017 | `done` | consumer-integration | `A1`, `A2`, `A3` | `MVP-007`, `MVP-011`, `MVP-033` | `A`, `C` | Implement the consumer sidecar as the Substreams-compatible endpoint/proxy and primary SDS-facing runtime boundary |
 | MVP-018 | `not_started` | tooling | none | `MVP-032` | `E` | Implement operator funding CLI flows for approve/deposit/top-up beyond local demo assumptions |
 | MVP-019 | `not_started` | tooling | `A5` | `MVP-009`, `MVP-022` | `D`, `F` | Implement provider inspection CLI flows for accepted and collectible RAV data |
 | MVP-020 | `not_started` | tooling | `A5` | `MVP-009`, `MVP-022`, `MVP-029` | `F` | Implement manual collection CLI flow that fetches provider settlement state and crafts/signs/submits collect transactions locally |
@@ -118,13 +118,14 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-028 | `done` | security | `A5` | none | `G` | Define the MVP authentication and authorization contract for provider operator APIs and future oracle admin surfaces |
 | MVP-029 | `not_started` | provider-state | `A3`, `A5` | `MVP-003`, `MVP-022` | `D`, `F` | Implement provider collection lifecycle transitions and update surfaces for `collectible`, `collect_pending`, `collected`, and retryable collection state |
 | MVP-030 | `in_progress` | provider-integration | `A5` | `MVP-014`, `MVP-017` | `A`, `G` | Add runtime compatibility and preflight checks for real provider/plugin deployments |
-| MVP-031 | `not_started` | runtime-payment | `A2`, `A3` | `MVP-004`, `MVP-012`, `MVP-014`, `MVP-017` | `A`, `C` | Wire the long-lived provider-originated payment-control loop behind the consumer-sidecar ingress path used by real runtime traffic |
+| MVP-031 | `done` | runtime-payment | `A2`, `A3` | `MVP-004`, `MVP-012`, `MVP-014`, `MVP-017` | `A`, `C` | Wire the long-lived provider-originated payment-control loop behind the consumer-sidecar ingress path used by real runtime traffic |
 | MVP-032 | `not_started` | operations | `A4`, `A5`, `A6` | `MVP-008`, `MVP-010`, `MVP-022` | `C`, `D`, `F`, `G` | Expose operator runtime/session/payment inspection APIs and CLI/status flows |
 | MVP-033 | `done` | protocol | `A1` | none | `A` | Freeze the chain/network discovery input contract across client, sidecar, and oracle |
 | MVP-034 | `done` | validation | none | none | none | Fix repository PostgreSQL tests so migrations resolve from repo-relative state rather than a machine-specific absolute path |
 | MVP-035 | `done` | validation | none | none | none | Make integration devenv startup resilient to local fixed-port collisions so the shared test environment is reproducible |
 | MVP-036 | `not_started` | operations | `A5` | `MVP-014` | `A`, `G` | Publish refreshed upstream `firehose-core` and `dummy-blockchain` images built against the current SDS plugin/runtime contract so default integration paths no longer rely on local override tags |
 | MVP-037 | `not_started` | validation | none | `MVP-014`, `MVP-016` | `A`, `C` | Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs |
+| MVP-038 | `not_started` | protocol | `A2`, `A3` | `MVP-017`, `MVP-031` | `A`, `C` | Remove the deprecated wrapper-era usage-report runtime path and protobuf surfaces once the sidecar-ingress flow is the only supported MVP runtime path |
 
 ## Protocol and Contract Tasks
 
@@ -437,7 +438,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
       - worker cleanup eventually completing after the stop
     - The prebuilt `ghcr.io/streamingfast/dummy-blockchain:v1.7.7` image remains stale and still blocks the default image path on the known header-propagation/runtime-drift issue; that remains tracked under `MVP-036`.
 
-- [ ] MVP-017 Implement the consumer sidecar as the Substreams-compatible endpoint/proxy and primary SDS-facing runtime boundary.
+- [x] MVP-017 Implement the consumer sidecar as the Substreams-compatible endpoint/proxy and primary SDS-facing runtime boundary.
   - Context:
     - The revised MVP scope elevates the consumer sidecar from helper service to user-facing SDS boundary.
     - A minimal ingress slice is now implemented: the sidecar exposes Substreams gRPC services, performs oracle/direct provider selection, starts provider sessions internally, proxies upstream streams, and surfaces low-funds termination through the client-facing ingress.
@@ -452,15 +453,16 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - The user-facing runtime path does not require external wrapper-specific `Init` / `ReportUsage` / `EndSession` orchestration.
   - Verify:
     - Current status:
-      - The first two done-when bullets are partially satisfied by the new ingress slice and direct integration coverage.
-      - The remaining gap is that the ingress still internalizes the legacy sidecar `ReportUsage` loop rather than running the fully provider-originated runtime-payment flow expected by the final architecture.
+      - The sidecar now exposes the real Substreams ingress path, owns discovery/session bootstrap behind that ingress, and coordinates runtime payment/control through the long-lived provider `PaymentSession` flow rather than an internalized usage-report loop.
+      - Legacy wrapper-era `Init` / `ReportUsage` / `EndSession` RPCs remain in-tree only as deprecated transitional surfaces and are no longer required for the supported runtime path.
     - `go test ./test/integration -run 'TestConsumerIngress_UsesOracleSelectedProviderReceiver|TestConsumerIngress_StopsStreamOnLowFunds' -count=1 -v` passes.
-    - Remaining closure should add a real-path integration or documented manual scenario that uses the sidecar endpoint without relying on the transitional internalized wrapper-era usage loop.
+    - `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-local go test ./test/integration -run 'TestFirecore|TestFirecoreStopsStreamOnLowFunds' -count=1 -v` passes against the rebuilt local runtime image path.
+    - The published `ghcr.io/streamingfast/dummy-blockchain:v1.7.7` image remains stale and still blocks the default image path; that runtime-compatibility follow-up remains tracked under `MVP-036`.
 
-- [ ] MVP-031 Wire the long-lived provider-originated payment-control loop behind the consumer-sidecar ingress path used by real runtime traffic.
+- [x] MVP-031 Wire the long-lived provider-originated payment-control loop behind the consumer-sidecar ingress path used by real runtime traffic.
   - Context:
-    - MVP runtime traffic now already flows through the sidecar ingress, but payment progression is still driven there by an internalized sidecar `ReportUsage` loop.
-    - The remaining work is to replace that transitional mechanism with the long-lived provider-originated payment-control loop driven from provider-side metering while keeping the same user-facing ingress boundary.
+    - MVP runtime traffic now flows through the sidecar ingress, and payment progression is driven from provider-side metering through the long-lived provider-originated `PaymentSession` control loop.
+    - Legacy wrapper-era usage-report surfaces remain only as explicit deprecated/rejected paths until later cleanup under `MVP-038`.
   - Assumptions:
     - `A2`
     - `A3`
@@ -469,7 +471,9 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Provider-driven RAV requests, acknowledgements, and control messages flow through the production runtime path rather than only through wrapper commands.
     - The production runtime path does not require a separate external client/wrapper `ReportUsage` step.
   - Verify:
-    - Add a real-path integration or documented manual verification showing stream start, at least one provider-driven payment update during live streaming, and synchronized session state until normal end or low-funds stop without an external wrapper-managed usage-report loop.
+    - `go test ./test/integration -run 'TestPaymentSession_ProviderRequestsRAVOnUsage|TestPaymentSession_AcceptedRAVResetsThresholdWindow|TestPaymentSession_StopsOnLowFunds' -count=1 -v` passes.
+    - `go test ./test/integration -run 'TestConsumerIngress_UsesOracleSelectedProviderReceiver|TestConsumerIngress_StopsStreamOnLowFunds' -count=1 -v` passes.
+    - `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-local go test ./test/integration -run 'TestFirecore|TestFirecoreStopsStreamOnLowFunds' -count=1 -v` passes against the rebuilt local runtime image path, demonstrating provider-originated runtime control during live streaming without an external usage-report loop.
 
 ## Operator Tooling Tasks
 
@@ -674,6 +678,22 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - Verify:
     - Run the affected low-funds and Firecore tests both in isolation and as part of a broader `./test/integration/...` run and confirm they produce the same result.
     - Add an assertion or helper-level guard that proves the expected pre-test escrow state before the behavioral assertion is evaluated.
+
+- [ ] MVP-038 Remove the deprecated wrapper-era usage-report runtime path and protobuf surfaces once the sidecar-ingress flow is the only supported MVP runtime path.
+  - Context:
+    - `MVP-017` and `MVP-031` intentionally kept explicit rejection handling for the legacy wrapper-era `ReportUsage` and `PaymentSession usage_report` paths so the transition remained fail-fast while the runtime shape was still settling.
+    - The repo does not need to preserve that compatibility long-term once the consumer sidecar ingress is the only supported runtime integration path.
+    - This task is specifically about removing the deprecated usage-report path end-to-end, not about preserving a deprecation shim indefinitely.
+  - Assumptions:
+    - `A2`
+    - `A3`
+  - Done when:
+    - The deprecated consumer-side `ReportUsage` runtime path is removed rather than only rejected at runtime.
+    - The deprecated provider `PaymentSessionRequest.usage_report` protobuf and handler path are removed.
+    - Generated protobuf code, tests, and docs no longer describe wrapper-era usage-report progression as part of the supported MVP runtime contract.
+  - Verify:
+    - Regenerate protobuf outputs and confirm the repo builds cleanly without `usage_report` support.
+    - Run the relevant provider, consumer-sidecar, and integration suites and confirm all supported ingress/runtime scenarios still pass without wrapper-era usage-report coverage.
 
 - [ ] MVP-026 Refresh protocol/runtime docs so they match the revised MVP architecture and remaining open questions.
   - Context:

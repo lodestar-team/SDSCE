@@ -22,7 +22,7 @@ import (
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
-func TestConsumerSidecar_ReportUsage_WiresPaymentSessionLoop(t *testing.T) {
+func TestConsumerSidecar_ReportUsage_IsDeprecatedForProviderManagedSessions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -86,7 +86,7 @@ func TestConsumerSidecar_ReportUsage_WiresPaymentSessionLoop(t *testing.T) {
 	sessionID := initResp.Msg.GetSession().GetSessionId()
 	require.NotEmpty(t, sessionID)
 
-	usageResp, err := consumerClient.ReportUsage(ctx, connect.NewRequest(&consumerv1.ReportUsageRequest{
+	_, err = consumerClient.ReportUsage(ctx, connect.NewRequest(&consumerv1.ReportUsageRequest{
 		SessionId: sessionID,
 		Usage: &commonv1.Usage{
 			BlocksProcessed:  1,
@@ -95,16 +95,14 @@ func TestConsumerSidecar_ReportUsage_WiresPaymentSessionLoop(t *testing.T) {
 			Cost:             nil, // provider is cost-authoritative in PaymentSession loop
 		},
 	}))
-	require.NoError(t, err)
-	require.True(t, usageResp.Msg.GetShouldContinue())
-	require.NotNil(t, usageResp.Msg.GetUpdatedRav())
-	require.NotNil(t, usageResp.Msg.GetUpdatedRav().GetRav())
-	require.Equal(t, 0, usageResp.Msg.GetUpdatedRav().GetRav().GetValueAggregate().ToBigInt().Cmp(big.NewInt(1)))
+	require.Error(t, err)
+	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	require.Contains(t, err.Error(), "deprecated for provider-managed sessions")
 
 	statusResp, err := providerClient.GetSessionStatus(ctx, connect.NewRequest(&providerv1.GetSessionStatusRequest{
 		SessionId: sessionID,
 	}))
 	require.NoError(t, err)
 	require.NotNil(t, statusResp.Msg.GetPaymentStatus())
-	require.Equal(t, 0, statusResp.Msg.GetPaymentStatus().GetCurrentRavValue().ToBigInt().Cmp(big.NewInt(1)))
+	require.Equal(t, 0, statusResp.Msg.GetPaymentStatus().GetCurrentRavValue().ToBigInt().Cmp(big.NewInt(0)))
 }

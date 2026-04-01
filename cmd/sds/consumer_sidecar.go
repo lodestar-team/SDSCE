@@ -39,7 +39,6 @@ var consumerSidecarCmd = Command(
 		flags.String("payer-address", "", "Ingress runtime payer address")
 		flags.String("receiver-address", "", "Ingress runtime receiver/service provider address (required only with direct provider override)")
 		flags.String("data-service-address", "", "Ingress runtime data service contract address")
-		flags.Duration("ingress-report-interval", time.Second, "Interval between internal ingress usage reports")
 		flags.Bool("plaintext", false, "Serve plaintext h2c instead of TLS (local/demo only)")
 		flags.String("tls-cert-file", "", "Path to the TLS certificate PEM file")
 		flags.String("tls-key-file", "", "Path to the TLS private key PEM file")
@@ -76,16 +75,6 @@ func runConsumerSidecar(cmd *cobra.Command, args []string) error {
 		return sflags.MustGetString(cmd, flagName)
 	}
 
-	resolveDuration := func(flagName string, fileValue time.Duration) time.Duration {
-		if flags.Changed(flagName) {
-			return sflags.MustGetDuration(cmd, flagName)
-		}
-		if fileConfig != nil && fileValue > 0 {
-			return fileValue
-		}
-		return sflags.MustGetDuration(cmd, flagName)
-	}
-
 	oracleEndpoint := resolveString("oracle-endpoint", func() string {
 		if fileConfig == nil {
 			return ""
@@ -115,12 +104,6 @@ func runConsumerSidecar(cmd *cobra.Command, args []string) error {
 			return ""
 		}
 		return fileConfig.DataServiceAddress
-	}())
-	ingressReportInterval := resolveDuration("ingress-report-interval", func() time.Duration {
-		if fileConfig == nil {
-			return 0
-		}
-		return fileConfig.IngressReportInterval
 	}())
 
 	cli.Ensure(signerKeyHex != "", "<signer-private-key> is required")
@@ -166,7 +149,6 @@ func runConsumerSidecar(cmd *cobra.Command, args []string) error {
 			Receiver:                     receiver,
 			DataService:                  dataService,
 			ProviderControlPlaneEndpoint: providerControlPlaneEndpoint,
-			ReportInterval:               ingressReportInterval,
 		}
 	}
 

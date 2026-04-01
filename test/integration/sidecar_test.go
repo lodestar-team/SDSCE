@@ -23,12 +23,10 @@ import (
 	pbsubstreams "github.com/streamingfast/substreams/pb/sf/substreams/v1"
 )
 
-// TestPaymentFlowBasic tests a basic payment flow:
-// 1. Consumer sidecar Init -> creates session with initial RAV
-// 2. Provider sidecar validates the RAV
-// 3. Usage reporting and RAV updates
-// 4. Session ends with final RAV
-func TestPaymentFlowBasic(t *testing.T) {
+// TestPaymentFlowBasic_LegacyWrapperMethodsAreDeprecatedForManagedSessions
+// verifies that Init still bootstraps a managed provider session while the
+// legacy wrapper-era ReportUsage/EndSession calls are rejected.
+func TestPaymentFlowBasic_LegacyWrapperMethodsAreDeprecatedForManagedSessions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -103,44 +101,31 @@ func TestPaymentFlowBasic(t *testing.T) {
 	// Consumer Init should have started a provider gateway session
 	require.Equal(t, 1, providerGateway.SessionCount(), "expected provider gateway session to be created via StartSession during Init")
 
-	// Step 2: Report usage on consumer side
-	t.Log("Step 2: Report usage on consumer side")
-	reportReq := &consumerv1.ReportUsageRequest{
+	t.Log("Step 2: Report usage on consumer side is deprecated for managed sessions")
+	_, err = consumerClient.ReportUsage(ctx, connect.NewRequest(&consumerv1.ReportUsageRequest{
 		SessionId: consumerSessionID,
 		Usage: &commonv1.Usage{
 			BlocksProcessed:  100,
 			BytesTransferred: 50000,
 			Requests:         1,
-			Cost:             commonv1.GRTFromBigInt(big.NewInt(100000000)), // 0.1 GRT
+			Cost:             commonv1.GRTFromBigInt(big.NewInt(100000000)),
 		},
-	}
-	reportResp, err := consumerClient.ReportUsage(ctx, connect.NewRequest(reportReq))
-	require.NoError(t, err, "consumer ReportUsage failed")
-	assert.True(t, reportResp.Msg.ShouldContinue, "session should continue")
-	assert.NotNil(t, reportResp.Msg.UpdatedRav, "expected updated RAV")
-	t.Log("Consumer reported usage, got updated RAV")
+	}))
+	require.Error(t, err, "consumer ReportUsage must reject provider-managed wrapper flow")
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 
-	// Step 3: End session on consumer side
-	t.Log("Step 3: End session")
-	endReq := &consumerv1.EndSessionRequest{
+	t.Log("Step 3: End session is deprecated for managed sessions")
+	_, err = consumerClient.EndSession(ctx, connect.NewRequest(&consumerv1.EndSessionRequest{
 		SessionId: consumerSessionID,
 		FinalUsage: &commonv1.Usage{
 			BlocksProcessed:  50,
 			BytesTransferred: 25000,
 			Requests:         1,
-			Cost:             commonv1.GRTFromBigInt(big.NewInt(50000000)), // 0.05 GRT
+			Cost:             commonv1.GRTFromBigInt(big.NewInt(50000000)),
 		},
-	}
-	endResp, err := consumerClient.EndSession(ctx, connect.NewRequest(endReq))
-	require.NoError(t, err, "consumer EndSession failed")
-	assert.NotNil(t, endResp.Msg.FinalRav, "expected final RAV")
-	assert.Equal(t, uint64(150), endResp.Msg.TotalUsage.BlocksProcessed, "expected 150 total blocks")
-
-	// Convert final RAV value
-	finalValue := endResp.Msg.FinalRav.Rav.ValueAggregate.ToBigInt()
-	t.Logf("Session ended. Final RAV value: %s", finalValue.String())
-
-	t.Log("Payment flow test completed successfully!")
+	}))
+	require.Error(t, err, "consumer EndSession must reject provider-managed wrapper flow")
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 }
 
 func TestInit_CreatesFreshSessionWithoutResumeSemantics(t *testing.T) {
@@ -203,22 +188,6 @@ func TestInit_CreatesFreshSessionWithoutResumeSemantics(t *testing.T) {
 	require.NotNil(t, initResp.Msg.PaymentRav)
 	require.NotEmpty(t, initResp.Msg.Session.GetSessionId())
 	require.Equal(t, "substreams.provider.example:443", initResp.Msg.GetDataPlaneEndpoint())
-
-	reportResp, err := consumerClient.ReportUsage(ctx, connect.NewRequest(&consumerv1.ReportUsageRequest{
-		SessionId: initResp.Msg.Session.GetSessionId(),
-		Usage: &commonv1.Usage{
-			BlocksProcessed:  1,
-			BytesTransferred: 0,
-			Requests:         1,
-			Cost:             nil, // provider is cost-authoritative in PaymentSession loop
-		},
-	}))
-	require.NoError(t, err, "consumer ReportUsage failed")
-	require.NotNil(t, reportResp.Msg.GetUpdatedRav())
-	require.NotNil(t, reportResp.Msg.GetUpdatedRav().GetRav())
-
-	firstValue := reportResp.Msg.GetUpdatedRav().GetRav().GetValueAggregate().ToBigInt()
-	require.Equal(t, 0, firstValue.Cmp(big.NewInt(1)))
 
 	// A later Init creates a fresh payment session instead of resuming prior payment lineage.
 	initResp2, err := consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{

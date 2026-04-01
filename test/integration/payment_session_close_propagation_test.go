@@ -21,7 +21,7 @@ import (
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
-func TestSessionClose_ConsumerEndSession_MakesProviderInactive(t *testing.T) {
+func TestSessionClose_ConsumerEndSession_IsDeprecatedForProviderManagedSessions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -81,30 +81,17 @@ func TestSessionClose_ConsumerEndSession_MakesProviderInactive(t *testing.T) {
 	sessionID := initResp.Msg.GetSession().GetSessionId()
 	require.NotEmpty(t, sessionID)
 
-	_, err = consumerClient.ReportUsage(ctx, connect.NewRequest(&consumerv1.ReportUsageRequest{
-		SessionId: sessionID,
-		Usage: &commonv1.Usage{
-			BlocksProcessed:  1,
-			BytesTransferred: 0,
-			Requests:         1,
-			Cost:             nil,
-		},
-	}))
-	require.NoError(t, err)
-
 	_, err = consumerClient.EndSession(ctx, connect.NewRequest(&consumerv1.EndSessionRequest{
 		SessionId:  sessionID,
 		FinalUsage: nil,
 	}))
-	require.NoError(t, err)
+	require.Error(t, err)
+	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	require.Contains(t, err.Error(), "deprecated for provider-managed sessions")
 
-	require.Eventually(t, func() bool {
-		statusResp, err := providerClient.GetSessionStatus(ctx, connect.NewRequest(&providerv1.GetSessionStatusRequest{
-			SessionId: sessionID,
-		}))
-		if err != nil {
-			return false
-		}
-		return !statusResp.Msg.GetActive()
-	}, 2*time.Second, 50*time.Millisecond)
+	statusResp, err := providerClient.GetSessionStatus(ctx, connect.NewRequest(&providerv1.GetSessionStatusRequest{
+		SessionId: sessionID,
+	}))
+	require.NoError(t, err)
+	require.True(t, statusResp.Msg.GetActive())
 }

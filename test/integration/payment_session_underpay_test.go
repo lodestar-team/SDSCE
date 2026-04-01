@@ -2,24 +2,21 @@ package integration
 
 import (
 	"context"
-	"crypto/tls"
 	"math/big"
-	"net"
-	"net/http"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/http2"
 
 	sds "github.com/graphprotocol/substreams-data-service"
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/graphprotocol/substreams-data-service/horizon/devenv"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
-	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
 	providergateway "github.com/graphprotocol/substreams-data-service/provider/gateway"
+	"github.com/graphprotocol/substreams-data-service/provider/repository"
+	providerusage "github.com/graphprotocol/substreams-data-service/provider/usage"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
@@ -44,7 +41,8 @@ func TestPaymentSession_RejectsUnderpayingRAV(t *testing.T) {
 		PricePerByte:  sds.ZeroGRT(),
 	}
 
-	providerGateway := providergateway.New(&providergateway.Config{
+	repo := repository.NewInMemoryRepository()
+	providerGateway, gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19014", &providergateway.Config{
 		ListenAddr:          ":19014",
 		ServiceProvider:     env.ServiceProvider.Address,
 		Domain:              domain,
@@ -55,21 +53,10 @@ func TestPaymentSession_RejectsUnderpayingRAV(t *testing.T) {
 		RAVRequestThreshold: sds.NewGRTFromUint64(1),
 		DataPlaneEndpoint:   "substreams.provider.example:443",
 		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
-	}, zlog.Named("provider"))
-	go providerGateway.Run()
-	defer providerGateway.Shutdown(nil)
-	time.Sleep(100 * time.Millisecond)
-
-	h2cClient := &http.Client{
-		Transport: &http2.Transport{
-			AllowHTTP: true,
-			DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
-				return (&net.Dialer{}).DialContext(ctx, network, addr)
-			},
-		},
-	}
-
-	gatewayClient := providerv1connect.NewPaymentGatewayServiceClient(h2cClient, "http://localhost:19014", connect.WithGRPC())
+		Repository:          repo,
+	})
+	defer shutdown()
+	usageService := providerusage.NewUsageService(repo, deterministicRepositoryPricingConfig(), providerGateway)
 
 	rav0 := &horizon.RAV{
 		Payer:           env.Payer.Address,
@@ -95,21 +82,8 @@ func TestPaymentSession_RejectsUnderpayingRAV(t *testing.T) {
 	require.NotEmpty(t, startResp.Msg.SessionId)
 	require.Equal(t, "substreams.provider.example:443", startResp.Msg.GetDataPlaneEndpoint())
 
-	stream := gatewayClient.PaymentSession(ctx)
-
-	require.NoError(t, stream.Send(&providerv1.PaymentSessionRequest{
-		SessionId: startResp.Msg.SessionId,
-		Message: &providerv1.PaymentSessionRequest_UsageReport{
-			UsageReport: &providerv1.UsageReport{
-				Usage: &commonv1.Usage{
-					BlocksProcessed:  1,
-					BytesTransferred: 0,
-					Requests:         1,
-					Cost:             nil, // provider computes cost
-				},
-			},
-		},
-	}))
+	stream := bindPaymentSession(t, ctx, gatewayClient, startResp.Msg.SessionId)
+	reportMeteredUsage(t, ctx, usageService, env.Payer.Address, env.ServiceProvider.Address, startResp.Msg.SessionId, 1, 0, 1)
 
 	resp, err := stream.Receive()
 	require.NoError(t, err)

@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +18,6 @@ receiver_address: "  0x2222222222222222222222222222222222222222 "
 data_service_address: " 0x3333333333333333333333333333333333333333 "
 oracle_endpoint: "  http://oracle.example:9000 "
 provider_control_plane_endpoint: " http://provider.example:9001 "
-ingress_report_interval: 250ms
 `), 0o600)
 	require.NoError(t, err)
 
@@ -30,5 +28,4 @@ ingress_report_interval: 250ms
 	require.Equal(t, "0x3333333333333333333333333333333333333333", cfg.DataServiceAddress)
 	require.Equal(t, "http://oracle.example:9000", cfg.OracleEndpoint)
 	require.Equal(t, "http://provider.example:9001", cfg.ProviderControlPlaneEndpoint)
-	require.Equal(t, 250*time.Millisecond, cfg.IngressReportInterval)
 }

@@ -47,6 +47,11 @@ var SinkRunCommand = Command(
 		The sink uses all standard substreams flags (endpoint, cursor, etc.)
 		plus additional flags for payment integration.
 
+		DEPRECATED: this command is transitional wrapper scaffolding. The supported
+		MVP runtime path is a Substreams client talking directly to the consumer
+		sidecar ingress endpoint. Expect this wrapper flow to fail against
+		provider-managed runtime sessions.
+
 		By default, runs in development mode. Use --production-mode for production workloads.
 
 		Example:
@@ -67,6 +72,8 @@ var SinkRunCommand = Command(
 )
 
 func runSinkRun(cmd *cobra.Command, args []string) error {
+	sinkLog.Warn("sds sink run is deprecated transitional scaffolding; provider-managed sessions use the consumer sidecar ingress endpoint directly")
+
 	manifestPath := "substreams.yaml"
 	outputModuleName := sink.InferOutputModuleFromPackage
 

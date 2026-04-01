@@ -1,7 +1,7 @@
 # Substreams Data Service MVP Scope
 
 Drafted: 2026-03-12  
-Revised: 2026-03-30
+Revised: 2026-04-01
 
 ## Purpose
 
@@ -39,24 +39,29 @@ The MVP may intentionally simplify parts of the system where doing so materially
 
 ## Current Status Summary
 
-As of 2026-03-24, the repo already contains important parts of the MVP foundation:
+As of 2026-04-01, the repo already contains important parts of the MVP foundation:
 
 - working Horizon V2 / TAP signing, verification, and aggregation
 - deterministic local chain/contracts and integration coverage
+- standalone oracle service and consumer-side oracle discovery
 - consumer sidecar and provider gateway RPC surfaces
-- sidecar-to-gateway session start and bidirectional payment session flow
+- sidecar-to-gateway session start and long-lived bidirectional payment session flow
+- consumer-side Substreams-compatible ingress with provider discovery/session bootstrap hidden behind it
+- provider-originated runtime payment/control driven from provider-side metering behind that ingress
 - provider-side Firehose plugin services (`auth`, `session`, `usage`)
+- local-first Firecore/dummy-blockchain acceptance against rebuilt SDS-compatible runtime images
 - a development/demo stack and sink wrapper
 
 However, the current repo does not yet constitute the MVP. Major remaining gaps include:
 
-- standalone oracle/discovery component
-- consumer-side endpoint compatibility that hides SDS control flow behind a Substreams-compatible ingress
-- provider-side durable persistence for accepted RAV and collection state
-- full low-funds propagation through the real provider/client streaming path
+- provider-side collection lifecycle persistence and settlement/inspection state exposure
 - operator funding and settlement CLI flows
 - authenticated admin/operator surfaces
+- runtime compatibility hardening and refreshed published firecore/dummy-blockchain images
+- TLS-by-default rollout outside local/dev usage
 - finalization of observability scope
+
+Legacy wrapper-era runtime RPCs remain in-tree only as deprecated transitional surfaces and are not part of the intended MVP runtime architecture.
 
 See `plans/mvp-gap-analysis.md` for a detailed status map.
 

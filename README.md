@@ -195,7 +195,7 @@ The project implements a payment layer for Substreams data streaming. Consumers 
 Runs alongside the Substreams client and handles:
 - Payment session initialization
 - RAV signing using EIP-712 typed data
-- Usage tracking and reporting
+- Long-lived provider payment/control coordination behind the user-facing ingress
 
 ```bash
 # Using devenv addresses (User1 as signer)
@@ -209,11 +209,11 @@ sds consumer sidecar \
 
 Runs alongside the data provider (substreams-tier1) and handles:
 - RAV validation and signature verification
-- Session management and usage tracking
+- Session management and runtime payment/control from metered usage
 - Escrow balance queries
 - Payment status monitoring
 
-**Usage metering note:** the provider gateway does **not** meter bytes/blocks directly from the Substreams/Firehose stream. Usage is reported via `PaymentGatewayService.PaymentSession` `usage_report` or through the Firehose plugin services (`sds://` URI scheme). The Firehose provider plugins handle authentication, session management, and usage reporting for production integrations.
+**Usage metering note:** the provider gateway does **not** meter bytes/blocks directly from the Substreams/Firehose stream. In the supported runtime path, authoritative usage comes from the Firehose provider plugin services (`sds://` URI scheme), which feed provider-originated payment/control decisions back through the long-lived `PaymentSession` stream. Legacy `PaymentSession usage_report` handling remains only as deprecated transitional scaffolding and is not part of the intended ingress/runtime flow.
 
 **Repository Options:**
 

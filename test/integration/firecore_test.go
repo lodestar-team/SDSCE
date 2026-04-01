@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"os"
@@ -14,17 +15,24 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/graphprotocol/substreams-data-service/cmd/sds/impl"
+	sds "github.com/graphprotocol/substreams-data-service"
 	"github.com/graphprotocol/substreams-data-service/consumer/sidecar"
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
+	providerauth "github.com/graphprotocol/substreams-data-service/provider/auth"
+	paymentgateway "github.com/graphprotocol/substreams-data-service/provider/gateway"
+	"github.com/graphprotocol/substreams-data-service/provider/plugin"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	psqlrepo "github.com/graphprotocol/substreams-data-service/provider/repository/psql"
+	providersession "github.com/graphprotocol/substreams-data-service/provider/session"
+	providerusage "github.com/graphprotocol/substreams-data-service/provider/usage"
 	sidecarlib "github.com/graphprotocol/substreams-data-service/sidecar"
 	"github.com/streamingfast/eth-go"
 	"github.com/streamingfast/logging"
+	"github.com/streamingfast/substreams/manifest"
+	pbsubstreamsrpcv3 "github.com/streamingfast/substreams/pb/sf/substreams/rpc/v3"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -46,6 +54,20 @@ type dummyBlockchainOptions struct {
 type sdsSinkRunOptions struct {
 	ReportInterval time.Duration
 	Timeout        time.Duration
+}
+
+type firecoreProviderStack struct {
+	PaymentGateway *paymentgateway.Gateway
+	PluginGateway  *plugin.PluginGateway
+}
+
+func (s *firecoreProviderStack) Shutdown(err error) {
+	if s.PaymentGateway != nil {
+		s.PaymentGateway.Shutdown(err)
+	}
+	if s.PluginGateway != nil {
+		s.PluginGateway.Shutdown(err)
+	}
 }
 
 func TestFirecore(t *testing.T) {
@@ -90,9 +112,8 @@ func TestFirecore(t *testing.T) {
 		zap.String("postgres_dsn", sanitizeDSN(PostgresTestDSN)),
 	)
 
-	pricingConfig := sidecarlib.DefaultPricingConfig()
-
-	gateways, err := impl.StartProviderGateway(
+	pricingConfig := deterministicPricingConfig()
+	gateways, err := startFirecoreProviderStack(
 		ctx,
 		"0.0.0.0:19001", // Payment Gateway - for consumer sidecars
 		"0.0.0.0:19003", // Plugin Gateway - for firehose-core sds:// plugins
@@ -109,6 +130,7 @@ func TestFirecore(t *testing.T) {
 			TLSKeyFile:  "",
 		},
 		pricingConfig,
+		sds.NewGRTFromUint64(1),
 	)
 	require.NoError(t, err, "failed to start provider gateways")
 	defer gateways.Shutdown(nil)
@@ -132,10 +154,17 @@ func TestFirecore(t *testing.T) {
 	// Step 3: Start consumer sidecar
 	firecoreLog.Info("starting consumer sidecar", zap.String("listen_addr", ":9002"))
 
+	receiver := env.ServiceProvider.Address
 	sidecarConfig := &sidecar.Config{
-		ListenAddr:      ":9002",
-		SignerKey:       env.Payer.PrivateKey,
-		Domain:          horizon.NewDomain(env.ChainID, env.Collector.Address),
+		ListenAddr: ":9002",
+		SignerKey:  env.Payer.PrivateKey,
+		Domain:     horizon.NewDomain(env.ChainID, env.Collector.Address),
+		IngressConfig: &sidecar.IngressConfig{
+			Payer:                        env.Payer.Address,
+			Receiver:                     &receiver,
+			DataService:                  env.DataService.Address,
+			ProviderControlPlaneEndpoint: "http://localhost:19001",
+		},
 		TransportConfig: sidecarlib.ServerTransportConfig{Plaintext: true},
 	}
 
@@ -152,14 +181,12 @@ func TestFirecore(t *testing.T) {
 	// This exercises the real provider path through firecore.
 	firecoreLog.Info("running E2E Substreams request for blocks 0-20")
 
-	err = runSDSSink(
+	blockCount, err := runSubstreamsViaSidecar(
+		t,
 		ctx,
 		"common@v0.1.0",
 		"map_clocks",
-		substreamsEndpoint,
-		env.Payer.Address.Pretty(),
-		env.ServiceProvider.Address.Pretty(),
-		env.DataService.Address.Pretty(),
+		"http://localhost:9002",
 		0,
 		20,
 	)
@@ -167,7 +194,8 @@ func TestFirecore(t *testing.T) {
 		dumpContainerLogs(t, ctx, dummyBlockchainContainer)
 		t.Skipf("MVP-014 blocked by external firecore/substreams header propagation: %v", err)
 	}
-	require.NoError(t, err, "firecore-backed sds sink run must succeed")
+	require.NoError(t, err, "firecore-backed sidecar ingress request must succeed")
+	require.Greater(t, blockCount, 0, "expected at least one streamed Substreams response")
 
 	evidence := loadFirecoreEvidence(t, ctx, testStartedAt, env)
 	require.NotEmpty(t, evidence.SessionID, "expected a provider session to be created")
@@ -181,6 +209,25 @@ func TestFirecore(t *testing.T) {
 	require.NoError(t, err, "payment gateway must expose repo-backed session status")
 	require.True(t, statusResp.Msg.GetActive(), "session should still be active after the short stream")
 	require.NotNil(t, statusResp.Msg.GetPaymentStatus(), "payment status must be present")
+	require.Eventually(t, func() bool {
+		statusResp, err = providerClient.GetSessionStatus(ctx, connect.NewRequest(&providerv1.GetSessionStatusRequest{
+			SessionId: evidence.SessionID,
+		}))
+		if err != nil {
+			firecoreLog.Warn("failed to refresh gateway session status for current rav check",
+				zap.String("session_id", evidence.SessionID),
+				zap.Error(err),
+			)
+			return false
+		}
+
+		paymentStatus := statusResp.Msg.GetPaymentStatus()
+		if paymentStatus == nil || paymentStatus.GetCurrentRavValue() == nil {
+			return false
+		}
+
+		return paymentStatus.GetCurrentRavValue().ToBigInt().Cmp(big.NewInt(0)) > 0
+	}, 5*time.Second, 100*time.Millisecond, "expected provider session current_rav_value to advance above zero during the live stream")
 	require.Eventually(t, func() bool {
 		usageEvidence, err := loadFirecoreUsageEvidence(ctx, evidence.SessionID)
 		if err != nil {
@@ -259,7 +306,7 @@ func TestFirecoreStopsStreamOnLowFunds(t *testing.T) {
 	}()
 
 	pricingConfig := deterministicPricingConfig()
-	gateways, err := impl.StartProviderGateway(
+	gateways, err := startFirecoreProviderStack(
 		ctx,
 		"0.0.0.0:19001",
 		"0.0.0.0:19003",
@@ -276,6 +323,7 @@ func TestFirecoreStopsStreamOnLowFunds(t *testing.T) {
 			TLSKeyFile:  "",
 		},
 		pricingConfig,
+		sds.NewGRTFromUint64(1),
 	)
 	require.NoError(t, err, "failed to start provider gateways")
 	defer gateways.Shutdown(nil)
@@ -283,10 +331,17 @@ func TestFirecoreStopsStreamOnLowFunds(t *testing.T) {
 	require.NoError(t, waitForGatewayHealth(ctx, "http://localhost:19001/healthz", 30*time.Second), "payment gateway failed to become healthy")
 	require.NoError(t, waitForGatewayHealth(ctx, "http://localhost:19003/healthz", 30*time.Second), "plugin gateway failed to become healthy")
 
+	receiver := env.User3.Address
 	consumerSidecar := sidecar.New(&sidecar.Config{
-		ListenAddr:      ":9002",
-		SignerKey:       setup.SignerKey,
-		Domain:          horizon.NewDomain(env.ChainID, env.Collector.Address),
+		ListenAddr: ":9002",
+		SignerKey:  setup.SignerKey,
+		Domain:     horizon.NewDomain(env.ChainID, env.Collector.Address),
+		IngressConfig: &sidecar.IngressConfig{
+			Payer:                        env.User2.Address,
+			Receiver:                     &receiver,
+			DataService:                  env.DataService.Address,
+			ProviderControlPlaneEndpoint: "http://localhost:19001",
+		},
 		TransportConfig: sidecarlib.ServerTransportConfig{Plaintext: true},
 	}, firecoreLog)
 	go consumerSidecar.Run()
@@ -294,20 +349,17 @@ func TestFirecoreStopsStreamOnLowFunds(t *testing.T) {
 
 	require.NoError(t, waitForSidecarHealth(ctx, "http://localhost:9002/healthz", 10*time.Second), "consumer sidecar failed to become healthy")
 
-	err = runSDSSinkWithOptions(
-		ctx,
+	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	_, err = runSubstreamsViaSidecar(
+		t,
+		runCtx,
 		"common@v0.1.0",
 		"map_clocks",
-		substreamsEndpoint,
-		env.User2.Address.Pretty(),
-		env.User3.Address.Pretty(),
-		env.DataService.Address.Pretty(),
+		"http://localhost:9002",
 		0,
 		100_000,
-		sdsSinkRunOptions{
-			ReportInterval: 100 * time.Millisecond,
-			Timeout:        30 * time.Second,
-		},
 	)
 	if isKnownFirecoreHeaderPropagationBlocker(err) {
 		dumpContainerLogs(t, ctx, dummyBlockchainContainer)
@@ -349,6 +401,115 @@ func TestFirecoreStopsStreamOnLowFunds(t *testing.T) {
 			state.EndReason == commonv1.EndReason_END_REASON_PAYMENT_ISSUE &&
 			state.WorkerCount == 0
 	}, 10*time.Second, 100*time.Millisecond, "expected low-funds session termination and worker cleanup")
+}
+
+func startFirecoreProviderStack(
+	ctx context.Context,
+	paymentListenAddr string,
+	pluginListenAddr string,
+	serviceProviderAddr eth.Address,
+	chainID uint64,
+	collectorAddr eth.Address,
+	escrowAddr eth.Address,
+	rpcEndpoint string,
+	dataPlaneEndpoint string,
+	repositoryDSN string,
+	transportConfig sidecarlib.ServerTransportConfig,
+	pricingConfig *sidecarlib.PricingConfig,
+	ravRequestThreshold sds.GRT,
+) (*firecoreProviderStack, error) {
+	repo, err := paymentgateway.NewRepositoryFromDSN(ctx, repositoryDSN, firecoreLog)
+	if err != nil {
+		return nil, err
+	}
+
+	domain := horizon.NewDomain(chainID, collectorAddr)
+
+	payment := paymentgateway.New(&paymentgateway.Config{
+		ListenAddr:          paymentListenAddr,
+		ServiceProvider:     serviceProviderAddr,
+		Domain:              domain,
+		CollectorAddr:       collectorAddr,
+		EscrowAddr:          escrowAddr,
+		RPCEndpoint:         rpcEndpoint,
+		PricingConfig:       pricingConfig,
+		RAVRequestThreshold: ravRequestThreshold,
+		DataPlaneEndpoint:   dataPlaneEndpoint,
+		Repository:          repo,
+		TransportConfig:     transportConfig,
+	}, firecoreLog)
+	go payment.Run()
+
+	var collectorQuerier providerauth.CollectorAuthorizer
+	if rpcEndpoint != "" && collectorAddr != nil {
+		collectorQuerier = sidecarlib.NewCollectorQuerier(rpcEndpoint, collectorAddr)
+	}
+
+	authService := providerauth.NewAuthService(serviceProviderAddr, domain, collectorQuerier, repo)
+	repoPricingConfig := repository.PricingConfig{}
+	if pricingConfig != nil {
+		repoPricingConfig.PricePerBlock = pricingConfig.PricePerBlock
+		repoPricingConfig.PricePerByte = pricingConfig.PricePerByte
+	}
+	usageService := providerusage.NewUsageService(repo, repoPricingConfig, payment)
+	sessionService := providersession.NewSessionService(repo, nil)
+
+	pluginGateway := plugin.NewPluginGateway(&plugin.PluginGatewayConfig{
+		ListenAddr:     pluginListenAddr,
+		AuthService:    authService,
+		UsageService:   usageService,
+		SessionService: sessionService,
+	}, firecoreLog)
+	go pluginGateway.Run()
+
+	return &firecoreProviderStack{
+		PaymentGateway: payment,
+		PluginGateway:  pluginGateway,
+	}, nil
+}
+
+func runSubstreamsViaSidecar(
+	t *testing.T,
+	ctx context.Context,
+	manifestPath string,
+	module string,
+	endpoint string,
+	startBlock int64,
+	stopBlock uint64,
+) (int, error) {
+	t.Helper()
+
+	reader, err := manifest.NewReader(manifestPath)
+	require.NoError(t, err, "create manifest reader")
+
+	bundle, err := reader.Read()
+	require.NoError(t, err, "load substreams package")
+
+	conn, closeConn := dialSubstreamsGRPC(t, endpoint)
+	defer closeConn()
+
+	stream, err := pbsubstreamsrpcv3.NewStreamClient(conn).Blocks(ctx, &pbsubstreamsrpcv3.Request{
+		StartBlockNum: startBlock,
+		StopBlockNum:  stopBlock,
+		OutputModule:  module,
+		Package:       bundle.Package,
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	blockCount := 0
+	for {
+		_, err := stream.Recv()
+		if err == nil {
+			blockCount++
+			continue
+		}
+		if err == io.EOF {
+			return blockCount, nil
+		}
+		return blockCount, err
+	}
 }
 
 // waitForSidecarHealth polls the sidecar health endpoint until it returns 200 or timeout
@@ -824,6 +985,8 @@ func isKnownFirecoreHeaderPropagationBlocker(err error) bool {
 	}
 
 	msg := err.Error()
-	return strings.Contains(msg, "stream auth failure") &&
-		strings.Contains(msg, "missing x-sds-rav header")
+	return strings.Contains(msg, "missing x-sds-rav header") &&
+		(strings.Contains(msg, "stream auth failure") ||
+			strings.Contains(msg, "authentication: unauthenticated") ||
+			strings.Contains(msg, "code = Unauthenticated"))
 }

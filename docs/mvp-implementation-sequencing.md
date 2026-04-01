@@ -98,8 +98,7 @@ Completed foundation:
 
 Recommended next sequence:
 
-1. `MVP-017` Integrate the real consumer/client path behind the consumer sidecar endpoint/proxy and internal session/runtime coordination
-2. `MVP-030` Add runtime compatibility and preflight checks for real provider/plugin deployments
+1. `MVP-030` Add runtime compatibility and preflight checks for real provider/plugin deployments
 
 Notes:
 
@@ -120,7 +119,8 @@ Notes:
   - direct provider control-plane configuration remains a bypass/override
   - oracle-backed provider selection now feeds the normal provider handshake, which still returns the session-specific data-plane endpoint
   - oracle pricing is enforced as a ceiling, while lower provider pricing is accepted as the effective session pricing
-- `MVP-017` still depends on `MVP-011`, but the ingress, handshake, and lifecycle-boundary portion has now landed, so the remaining work should stay narrowly focused on runtime convergence rather than first-time ingress creation.
+- `MVP-017` is now complete enough to treat as closed for sequencing purposes.
+  - Current status: the sidecar now exposes the real Substreams ingress, owns provider discovery/session bootstrap, and keeps the runtime payment/control loop active behind that ingress without requiring wrapper-era orchestration.
 - `MVP-030` is late in the lane because it depends on real-path integration existing.
 
 ### Lane B: Runtime Payment And Stream Control
@@ -138,11 +138,11 @@ Completed foundation:
 - `MVP-014` Integrate provider gateway validation into the real provider streaming path
 - `MVP-015` Wire real byte metering from the provider/plugin path into gateway payment state
 - `MVP-016` Enforce gateway Continue/Stop decisions in the live provider stream lifecycle
+- `MVP-031` Wire the live provider-originated payment-control loop into the real client/provider runtime path
 
 Recommended next sequence:
 
-1. `MVP-031` Wire the live provider-originated payment-control loop into the real client/provider runtime path
-2. `MVP-037` Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs
+1. `MVP-037` Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs
 
 Notes:
 
@@ -169,8 +169,9 @@ Notes:
   - The prebuilt published `dummy-blockchain` image remains stale and still embeds an older SDS-compatible runtime snapshot, so publishing refreshed upstream images is tracked separately under `MVP-036`, while `MVP-030` remains the compatibility/preflight hardening follow-up.
 - `MVP-011` is now complete enough to treat as closed for sequencing purposes.
   - Current status: the sidecar now exposes a real Substreams ingress, owns provider discovery/session bootstrap, and surfaces low-funds termination through the real client-facing path as runtime `ResourceExhausted`.
-  - Remaining runtime-payment work now belongs under `MVP-031`, because the ingress still advances payment state through an internalized sidecar usage loop rather than the final provider-originated runtime-control model.
-- `MVP-031` is effectively the capstone runtime-payment task because it depends on real provider and consumer integration plus thresholding.
+  - The remaining runtime-focused follow-up is no longer payment-loop convergence, but rather runtime-compatibility hardening and deterministic full-suite isolation.
+- `MVP-031` is now complete enough to treat as closed for sequencing purposes.
+  - Current status: provider-side metering now drives the long-lived `PaymentSession` control loop behind the sidecar ingress, including provider-originated RAV requests and low-funds stop behavior.
 - `MVP-037` remains important because the affected low-funds and Firecore tests can still be order-dependent in full-suite runs even when they pass in isolation.
 
 ### Lane C: Provider State, Settlement, And Operator Retrieval
@@ -290,19 +291,17 @@ Already resolved:
 
 ### Phase 2: Integrate Runtime And Retrieval Paths
 
-- `MVP-017`
 - `MVP-009`
 - `MVP-022`
+- `MVP-030`
 
 ### Phase 3: Complete Runtime Control And Operator Flows
 
-- `MVP-031`
 - `MVP-006`
 - `MVP-019`
 - `MVP-020`
 - `MVP-032`
 - `MVP-018`
-- `MVP-030`
 - `MVP-037`
 
 ### Phase 4: Finalize Visibility, Acceptance, And Documentation
@@ -310,6 +309,7 @@ Already resolved:
 - `MVP-024`
 - `MVP-025`
 - `MVP-026`
+- `MVP-038`
 
 ## Tasks That Can Safely Start Before Every Open Question Is Closed
 

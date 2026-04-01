@@ -4,18 +4,16 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
 type consumerSidecarRuntimeFileConfig struct {
-	PayerAddress                 string        `yaml:"payer_address"`
-	ReceiverAddress              string        `yaml:"receiver_address"`
-	DataServiceAddress           string        `yaml:"data_service_address"`
-	OracleEndpoint               string        `yaml:"oracle_endpoint"`
-	ProviderControlPlaneEndpoint string        `yaml:"provider_control_plane_endpoint"`
-	IngressReportInterval        time.Duration `yaml:"ingress_report_interval"`
+	PayerAddress                 string `yaml:"payer_address"`
+	ReceiverAddress              string `yaml:"receiver_address"`
+	DataServiceAddress           string `yaml:"data_service_address"`
+	OracleEndpoint               string `yaml:"oracle_endpoint"`
+	ProviderControlPlaneEndpoint string `yaml:"provider_control_plane_endpoint"`
 }
 
 func loadConsumerSidecarRuntimeFileConfig(path string) (*consumerSidecarRuntimeFileConfig, error) {

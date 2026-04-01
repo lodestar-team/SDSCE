@@ -23,13 +23,23 @@ var zlog, _ = logging.PackageLogger("sds_usage", "github.com/graphprotocol/subst
 type UsageService struct {
 	repo          repository.GlobalRepository
 	pricingConfig repository.PricingConfig
+	runtime       RuntimeNotifier
 }
 
 var _ usagev1connect.UsageServiceHandler = (*UsageService)(nil)
 
+type RuntimeNotifier interface {
+	OnMeteredUsage(context.Context, string) error
+}
+
 // NewUsageService creates a new UsageService backed by the given repository and provider pricing.
-func NewUsageService(repo repository.GlobalRepository, pricingConfig repository.PricingConfig) *UsageService {
-	return &UsageService{repo: repo, pricingConfig: pricingConfig}
+func NewUsageService(repo repository.GlobalRepository, pricingConfig repository.PricingConfig, runtime ...RuntimeNotifier) *UsageService {
+	var notifier RuntimeNotifier
+	if len(runtime) > 0 {
+		notifier = runtime[0]
+	}
+
+	return &UsageService{repo: repo, pricingConfig: pricingConfig, runtime: notifier}
 }
 
 // Report receives a batch of metering events from the dmetering plugin.
@@ -80,6 +90,15 @@ func (s *UsageService) Report(
 				zap.Error(err),
 			)
 			// Non-fatal: continue processing remaining events.
+		}
+
+		if s.runtime != nil {
+			if err := s.runtime.OnMeteredUsage(ctx, sessionID); err != nil {
+				zlog.Warn("failed to evaluate metered runtime payment control",
+					zap.String("session_id", sessionID),
+					zap.Error(err),
+				)
+			}
 		}
 	}
 

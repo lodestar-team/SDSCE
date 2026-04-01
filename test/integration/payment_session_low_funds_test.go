@@ -13,6 +13,7 @@ import (
 	"github.com/streamingfast/eth-go"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	sds "github.com/graphprotocol/substreams-data-service"
 	consumersidecar "github.com/graphprotocol/substreams-data-service/consumer/sidecar"
@@ -23,8 +24,10 @@ import (
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1/consumerv1connect"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
+	usagev1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/usage/v1"
 	providergateway "github.com/graphprotocol/substreams-data-service/provider/gateway"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
+	providerusage "github.com/graphprotocol/substreams-data-service/provider/usage"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
@@ -43,7 +46,7 @@ func TestPaymentSession_StopsOnLowFunds(t *testing.T) {
 	require.NoError(t, err)
 
 	repo := repository.NewInMemoryRepository()
-	gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19015", &providergateway.Config{
+	providerGateway, gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19015", &providergateway.Config{
 		ListenAddr:          ":19015",
 		ServiceProvider:     env.User2.Address,
 		Domain:              env.Domain(),
@@ -57,22 +60,11 @@ func TestPaymentSession_StopsOnLowFunds(t *testing.T) {
 		Repository:          repo,
 	})
 	defer shutdown()
+	usageService := providerusage.NewUsageService(repo, deterministicRepositoryPricingConfig(), providerGateway)
 
 	startResp := startGatewaySession(t, ctx, gatewayClient, env.User1.Address, env.User2.Address, env.DataService.Address, setup.SignerKey, env.Domain())
-	stream := gatewayClient.PaymentSession(ctx)
-
-	require.NoError(t, stream.Send(&providerv1.PaymentSessionRequest{
-		SessionId: startResp.Msg.SessionId,
-		Message: &providerv1.PaymentSessionRequest_UsageReport{
-			UsageReport: &providerv1.UsageReport{
-				Usage: &commonv1.Usage{
-					BlocksProcessed:  2,
-					BytesTransferred: 0,
-					Requests:         1,
-				},
-			},
-		},
-	}))
+	stream := bindPaymentSession(t, ctx, gatewayClient, startResp.Msg.SessionId)
+	reportMeteredUsage(t, ctx, usageService, env.User1.Address, env.User2.Address, startResp.Msg.SessionId, 2, 0, 1)
 
 	resp, err := stream.Receive()
 	require.NoError(t, err)
@@ -122,7 +114,7 @@ func TestPaymentSession_ExactBalanceContinues(t *testing.T) {
 	require.NoError(t, err)
 
 	repo := repository.NewInMemoryRepository()
-	gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19016", &providergateway.Config{
+	providerGateway, gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19016", &providergateway.Config{
 		ListenAddr:          ":19016",
 		ServiceProvider:     env.ServiceProvider.Address,
 		Domain:              env.Domain(),
@@ -136,22 +128,11 @@ func TestPaymentSession_ExactBalanceContinues(t *testing.T) {
 		Repository:          repo,
 	})
 	defer shutdown()
+	usageService := providerusage.NewUsageService(repo, deterministicRepositoryPricingConfig(), providerGateway)
 
 	startResp := startGatewaySession(t, ctx, gatewayClient, env.User3.Address, env.ServiceProvider.Address, env.DataService.Address, setup.SignerKey, env.Domain())
-	stream := gatewayClient.PaymentSession(ctx)
-
-	require.NoError(t, stream.Send(&providerv1.PaymentSessionRequest{
-		SessionId: startResp.Msg.SessionId,
-		Message: &providerv1.PaymentSessionRequest_UsageReport{
-			UsageReport: &providerv1.UsageReport{
-				Usage: &commonv1.Usage{
-					BlocksProcessed:  1,
-					BytesTransferred: 0,
-					Requests:         1,
-				},
-			},
-		},
-	}))
+	stream := bindPaymentSession(t, ctx, gatewayClient, startResp.Msg.SessionId)
+	reportMeteredUsage(t, ctx, usageService, env.User3.Address, env.ServiceProvider.Address, startResp.Msg.SessionId, 1, 0, 1)
 
 	resp, err := stream.Receive()
 	require.NoError(t, err)
@@ -181,7 +162,7 @@ func TestPaymentSession_FailsOpenWhenEscrowBalanceUnknown(t *testing.T) {
 	require.NotNil(t, env, "devenv not started")
 
 	repo := repository.NewInMemoryRepository()
-	gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19017", &providergateway.Config{
+	providerGateway, gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19017", &providergateway.Config{
 		ListenAddr:          ":19017",
 		ServiceProvider:     env.ServiceProvider.Address,
 		Domain:              env.Domain(),
@@ -194,22 +175,11 @@ func TestPaymentSession_FailsOpenWhenEscrowBalanceUnknown(t *testing.T) {
 		Repository:          repo,
 	})
 	defer shutdown()
+	usageService := providerusage.NewUsageService(repo, deterministicRepositoryPricingConfig(), providerGateway)
 
 	startResp := startGatewaySession(t, ctx, gatewayClient, env.Payer.Address, env.ServiceProvider.Address, env.DataService.Address, env.Payer.PrivateKey, env.Domain())
-	stream := gatewayClient.PaymentSession(ctx)
-
-	require.NoError(t, stream.Send(&providerv1.PaymentSessionRequest{
-		SessionId: startResp.Msg.SessionId,
-		Message: &providerv1.PaymentSessionRequest_UsageReport{
-			UsageReport: &providerv1.UsageReport{
-				Usage: &commonv1.Usage{
-					BlocksProcessed:  1,
-					BytesTransferred: 0,
-					Requests:         1,
-				},
-			},
-		},
-	}))
+	stream := bindPaymentSession(t, ctx, gatewayClient, startResp.Msg.SessionId)
+	reportMeteredUsage(t, ctx, usageService, env.Payer.Address, env.ServiceProvider.Address, startResp.Msg.SessionId, 1, 0, 1)
 
 	resp, err := stream.Receive()
 	require.NoError(t, err)
@@ -233,7 +203,7 @@ func TestPaymentSession_FailsOpenWhenEscrowBalanceUnknown(t *testing.T) {
 	_ = stream.CloseResponse()
 }
 
-func TestConsumerSidecar_ReportUsage_StopsOnLowFunds(t *testing.T) {
+func TestConsumerSidecar_ReportUsage_IsDeprecatedForProviderManagedLowFundsFlow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -247,8 +217,7 @@ func TestConsumerSidecar_ReportUsage_StopsOnLowFunds(t *testing.T) {
 	setup, err := env.SetupCustomPaymentParticipantsWithSigner(env.User1, env.User3, config)
 	require.NoError(t, err)
 
-	repo := repository.NewInMemoryRepository()
-	_, shutdownProvider := startPaymentGatewayForTest(t, ":19018", &providergateway.Config{
+	_, _, shutdownProvider := startPaymentGatewayForTest(t, ":19018", &providergateway.Config{
 		ListenAddr:          ":19018",
 		ServiceProvider:     env.User3.Address,
 		Domain:              env.Domain(),
@@ -259,7 +228,7 @@ func TestConsumerSidecar_ReportUsage_StopsOnLowFunds(t *testing.T) {
 		RAVRequestThreshold: sds.NewGRTFromUint64(1),
 		DataPlaneEndpoint:   "substreams.provider.example:443",
 		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
-		Repository:          repo,
+		Repository:          repository.NewInMemoryRepository(),
 	})
 	defer shutdownProvider()
 
@@ -286,7 +255,7 @@ func TestConsumerSidecar_ReportUsage_StopsOnLowFunds(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "substreams.provider.example:443", initResp.Msg.GetDataPlaneEndpoint())
 
-	usageResp, err := consumerClient.ReportUsage(ctx, connect.NewRequest(&consumerv1.ReportUsageRequest{
+	_, err = consumerClient.ReportUsage(ctx, connect.NewRequest(&consumerv1.ReportUsageRequest{
 		SessionId: initResp.Msg.GetSession().GetSessionId(),
 		Usage: &commonv1.Usage{
 			BlocksProcessed:  2,
@@ -294,15 +263,9 @@ func TestConsumerSidecar_ReportUsage_StopsOnLowFunds(t *testing.T) {
 			Requests:         1,
 		},
 	}))
-	require.NoError(t, err)
-	require.False(t, usageResp.Msg.GetShouldContinue())
-	require.Equal(t, "need more funds", usageResp.Msg.GetStopReason())
-	require.Nil(t, usageResp.Msg.GetUpdatedRav())
-
-	session, err := repo.SessionGet(ctx, initResp.Msg.GetSession().GetSessionId())
-	require.NoError(t, err)
-	require.Equal(t, repository.SessionStatusTerminated, session.Status)
-	require.Equal(t, commonv1.EndReason_END_REASON_PAYMENT_ISSUE, session.EndReason)
+	require.Error(t, err)
+	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	require.Contains(t, err.Error(), "deprecated for provider-managed sessions")
 }
 
 func deterministicPricingConfig() *sidecar.PricingConfig {
@@ -312,7 +275,15 @@ func deterministicPricingConfig() *sidecar.PricingConfig {
 	}
 }
 
-func startPaymentGatewayForTest(t *testing.T, endpoint string, config *providergateway.Config) (providerv1connect.PaymentGatewayServiceClient, func()) {
+func deterministicRepositoryPricingConfig() repository.PricingConfig {
+	pricingConfig := deterministicPricingConfig()
+	return repository.PricingConfig{
+		PricePerBlock: pricingConfig.PricePerBlock,
+		PricePerByte:  pricingConfig.PricePerByte,
+	}
+}
+
+func startPaymentGatewayForTest(t *testing.T, endpoint string, config *providergateway.Config) (*providergateway.Gateway, providerv1connect.PaymentGatewayServiceClient, func()) {
 	t.Helper()
 
 	providerGateway := providergateway.New(config, zlog.Named("provider"))
@@ -329,9 +300,55 @@ func startPaymentGatewayForTest(t *testing.T, endpoint string, config *providerg
 	}
 
 	client := providerv1connect.NewPaymentGatewayServiceClient(h2cClient, "http://localhost"+endpoint, connect.WithGRPC())
-	return client, func() {
+	return providerGateway, client, func() {
 		providerGateway.Shutdown(nil)
 	}
+}
+
+func bindPaymentSession(
+	t *testing.T,
+	ctx context.Context,
+	gatewayClient providerv1connect.PaymentGatewayServiceClient,
+	sessionID string,
+) *connect.BidiStreamForClient[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse] {
+	t.Helper()
+
+	stream := gatewayClient.PaymentSession(ctx)
+	require.NoError(t, stream.Send(&providerv1.PaymentSessionRequest{SessionId: sessionID}))
+	return stream
+}
+
+func reportMeteredUsage(
+	t *testing.T,
+	ctx context.Context,
+	usageService *providerusage.UsageService,
+	payer eth.Address,
+	provider eth.Address,
+	sessionID string,
+	blocks int64,
+	bytes int64,
+	requests int64,
+) {
+	t.Helper()
+
+	_, err := usageService.Report(ctx, connect.NewRequest(&usagev1.ReportRequest{
+		Events: []*usagev1.Event{
+			{
+				OrganizationId: payer.Pretty(),
+				SdsSessionId:   sessionID,
+				Provider:       provider.Pretty(),
+				Endpoint:       "sf.substreams.rpc.v3/Blocks",
+				Network:        "mainnet",
+				Metrics: []*usagev1.Metric{
+					{Name: "blocks_count", Value: blocks},
+					{Name: "bytes_count", Value: bytes},
+					{Name: "requests_count", Value: requests},
+				},
+				Timestamp: timestamppb.Now(),
+			},
+		},
+	}))
+	require.NoError(t, err)
 }
 
 func startGatewaySession(

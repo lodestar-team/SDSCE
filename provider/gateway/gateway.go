@@ -63,6 +63,8 @@ type Gateway struct {
 
 	// Global repository for session/usage state (shared across all components)
 	repo repository.GlobalRepository
+	// runtime owns live PaymentSession stream bindings and provider-originated control dispatch.
+	runtime *runtimeManager
 }
 
 type Config struct {
@@ -130,6 +132,7 @@ func New(config *Config, logger *zap.Logger) *Gateway {
 		transportConfig:     config.TransportConfig,
 		authCache:           haxmap.New[string, authCacheEntry](),
 		repo:                repo,
+		runtime:             newRuntimeManager(),
 	}
 }
 
@@ -154,6 +157,10 @@ func (s *Gateway) GetEscrowBalance(ctx context.Context, payer eth.Address) (*big
 
 func (s *Gateway) SessionCount() int {
 	return s.repo.SessionCount(context.Background())
+}
+
+func (s *Gateway) OnMeteredUsage(ctx context.Context, sessionID string) error {
+	return s.runtime.onMeteredUsage(ctx, s, sessionID)
 }
 
 func (s *Gateway) shouldRequestRAV(session *repository.Session) bool {

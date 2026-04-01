@@ -18,6 +18,7 @@ import (
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	providergateway "github.com/graphprotocol/substreams-data-service/provider/gateway"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
+	providerusage "github.com/graphprotocol/substreams-data-service/provider/usage"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +35,8 @@ func TestPaymentSession_BelowThresholdContinuesWithoutRAVRequest(t *testing.T) {
 	setup, err := env.SetupTestWithSigner(nil)
 	require.NoError(t, err)
 
-	gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19020", &providergateway.Config{
+	repo := repository.NewInMemoryRepository()
+	providerGateway, gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19020", &providergateway.Config{
 		ListenAddr:          ":19020",
 		ServiceProvider:     env.ServiceProvider.Address,
 		Domain:              env.Domain(),
@@ -45,34 +47,29 @@ func TestPaymentSession_BelowThresholdContinuesWithoutRAVRequest(t *testing.T) {
 		RAVRequestThreshold: sds.NewGRTFromUint64(2),
 		DataPlaneEndpoint:   "substreams.provider.example:443",
 		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
-		Repository:          repository.NewInMemoryRepository(),
+		Repository:          repo,
 	})
 	defer shutdown()
+	usageService := providerusage.NewUsageService(repo, deterministicRepositoryPricingConfig(), providerGateway)
 
 	startResp := startGatewaySession(t, ctx, gatewayClient, env.Payer.Address, env.ServiceProvider.Address, env.DataService.Address, setup.SignerKey, env.Domain())
-	stream := gatewayClient.PaymentSession(ctx)
-
-	require.NoError(t, stream.Send(&providerv1.PaymentSessionRequest{
-		SessionId: startResp.Msg.SessionId,
-		Message: &providerv1.PaymentSessionRequest_UsageReport{
-			UsageReport: &providerv1.UsageReport{
-				Usage: &commonv1.Usage{
-					BlocksProcessed:  1,
-					BytesTransferred: 0,
-					Requests:         1,
-				},
-			},
-		},
-	}))
+	streamCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	defer cancel()
+	stream := bindPaymentSession(t, streamCtx, gatewayClient, startResp.Msg.SessionId)
+	reportMeteredUsage(t, ctx, usageService, env.Payer.Address, env.ServiceProvider.Address, startResp.Msg.SessionId, 1, 0, 1)
 
 	resp, err := stream.Receive()
-	require.NoError(t, err)
-	require.Nil(t, resp.GetRavRequest())
-	require.NotNil(t, resp.GetSessionControl())
-	require.Equal(t, providerv1.SessionControl_ACTION_CONTINUE, resp.GetSessionControl().GetAction())
+	require.Error(t, err)
+	require.Nil(t, resp)
 
-	require.NoError(t, stream.CloseRequest())
-	_ = stream.CloseResponse()
+	statusResp, err := gatewayClient.GetSessionStatus(ctx, connect.NewRequest(&providerv1.GetSessionStatusRequest{
+		SessionId: startResp.Msg.SessionId,
+	}))
+	require.NoError(t, err)
+	require.True(t, statusResp.Msg.GetActive())
+	require.NotNil(t, statusResp.Msg.GetPaymentStatus())
+	require.Equal(t, 0, statusResp.Msg.GetPaymentStatus().GetCurrentRavValue().ToBigInt().Cmp(big.NewInt(0)))
+	require.Equal(t, 0, statusResp.Msg.GetPaymentStatus().GetAccumulatedUsageValue().ToBigInt().Cmp(big.NewInt(1)))
 }
 
 func TestPaymentSession_AboveThresholdRequestsRAV(t *testing.T) {
@@ -87,7 +84,8 @@ func TestPaymentSession_AboveThresholdRequestsRAV(t *testing.T) {
 	setup, err := env.SetupTestWithSigner(nil)
 	require.NoError(t, err)
 
-	gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19021", &providergateway.Config{
+	repo := repository.NewInMemoryRepository()
+	providerGateway, gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19021", &providergateway.Config{
 		ListenAddr:          ":19021",
 		ServiceProvider:     env.ServiceProvider.Address,
 		Domain:              env.Domain(),
@@ -98,25 +96,14 @@ func TestPaymentSession_AboveThresholdRequestsRAV(t *testing.T) {
 		RAVRequestThreshold: sds.NewGRTFromUint64(2),
 		DataPlaneEndpoint:   "substreams.provider.example:443",
 		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
-		Repository:          repository.NewInMemoryRepository(),
+		Repository:          repo,
 	})
 	defer shutdown()
+	usageService := providerusage.NewUsageService(repo, deterministicRepositoryPricingConfig(), providerGateway)
 
 	startResp := startGatewaySession(t, ctx, gatewayClient, env.Payer.Address, env.ServiceProvider.Address, env.DataService.Address, setup.SignerKey, env.Domain())
-	stream := gatewayClient.PaymentSession(ctx)
-
-	require.NoError(t, stream.Send(&providerv1.PaymentSessionRequest{
-		SessionId: startResp.Msg.SessionId,
-		Message: &providerv1.PaymentSessionRequest_UsageReport{
-			UsageReport: &providerv1.UsageReport{
-				Usage: &commonv1.Usage{
-					BlocksProcessed:  3,
-					BytesTransferred: 0,
-					Requests:         1,
-				},
-			},
-		},
-	}))
+	stream := bindPaymentSession(t, ctx, gatewayClient, startResp.Msg.SessionId)
+	reportMeteredUsage(t, ctx, usageService, env.Payer.Address, env.ServiceProvider.Address, startResp.Msg.SessionId, 3, 0, 1)
 
 	resp, err := stream.Receive()
 	require.NoError(t, err)
@@ -139,7 +126,8 @@ func TestPaymentSession_AcceptedRAVResetsThresholdWindow(t *testing.T) {
 	setup, err := env.SetupTestWithSigner(nil)
 	require.NoError(t, err)
 
-	gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19022", &providergateway.Config{
+	repo := repository.NewInMemoryRepository()
+	providerGateway, gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19022", &providergateway.Config{
 		ListenAddr:          ":19022",
 		ServiceProvider:     env.ServiceProvider.Address,
 		Domain:              env.Domain(),
@@ -150,25 +138,14 @@ func TestPaymentSession_AcceptedRAVResetsThresholdWindow(t *testing.T) {
 		RAVRequestThreshold: sds.NewGRTFromUint64(2),
 		DataPlaneEndpoint:   "substreams.provider.example:443",
 		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
-		Repository:          repository.NewInMemoryRepository(),
+		Repository:          repo,
 	})
 	defer shutdown()
+	usageService := providerusage.NewUsageService(repo, deterministicRepositoryPricingConfig(), providerGateway)
 
 	startResp := startGatewaySession(t, ctx, gatewayClient, env.Payer.Address, env.ServiceProvider.Address, env.DataService.Address, setup.SignerKey, env.Domain())
-	stream := gatewayClient.PaymentSession(ctx)
-
-	require.NoError(t, stream.Send(&providerv1.PaymentSessionRequest{
-		SessionId: startResp.Msg.SessionId,
-		Message: &providerv1.PaymentSessionRequest_UsageReport{
-			UsageReport: &providerv1.UsageReport{
-				Usage: &commonv1.Usage{
-					BlocksProcessed:  2,
-					BytesTransferred: 0,
-					Requests:         1,
-				},
-			},
-		},
-	}))
+	stream := bindPaymentSession(t, ctx, gatewayClient, startResp.Msg.SessionId)
+	reportMeteredUsage(t, ctx, usageService, env.Payer.Address, env.ServiceProvider.Address, startResp.Msg.SessionId, 2, 0, 1)
 
 	resp1, err := stream.Receive()
 	require.NoError(t, err)
@@ -199,48 +176,19 @@ func TestPaymentSession_AcceptedRAVResetsThresholdWindow(t *testing.T) {
 	require.NotNil(t, resp2.GetSessionControl())
 	require.Equal(t, providerv1.SessionControl_ACTION_CONTINUE, resp2.GetSessionControl().GetAction())
 
-	require.NoError(t, stream.Send(&providerv1.PaymentSessionRequest{
-		SessionId: startResp.Msg.SessionId,
-		Message: &providerv1.PaymentSessionRequest_UsageReport{
-			UsageReport: &providerv1.UsageReport{
-				Usage: &commonv1.Usage{
-					BlocksProcessed:  1,
-					BytesTransferred: 0,
-					Requests:         1,
-				},
-			},
-		},
-	}))
+	reportMeteredUsage(t, ctx, usageService, env.Payer.Address, env.ServiceProvider.Address, startResp.Msg.SessionId, 1, 0, 1)
+	reportMeteredUsage(t, ctx, usageService, env.Payer.Address, env.ServiceProvider.Address, startResp.Msg.SessionId, 1, 0, 1)
 
 	resp3, err := stream.Receive()
 	require.NoError(t, err)
-	require.Nil(t, resp3.GetRavRequest())
-	require.NotNil(t, resp3.GetSessionControl())
-	require.Equal(t, providerv1.SessionControl_ACTION_CONTINUE, resp3.GetSessionControl().GetAction())
-
-	require.NoError(t, stream.Send(&providerv1.PaymentSessionRequest{
-		SessionId: startResp.Msg.SessionId,
-		Message: &providerv1.PaymentSessionRequest_UsageReport{
-			UsageReport: &providerv1.UsageReport{
-				Usage: &commonv1.Usage{
-					BlocksProcessed:  1,
-					BytesTransferred: 0,
-					Requests:         1,
-				},
-			},
-		},
-	}))
-
-	resp4, err := stream.Receive()
-	require.NoError(t, err)
-	require.NotNil(t, resp4.GetRavRequest())
-	require.Equal(t, 0, resp4.GetRavRequest().GetUsage().GetCost().ToBigInt().Cmp(big.NewInt(2)))
+	require.NotNil(t, resp3.GetRavRequest())
+	require.Equal(t, 0, resp3.GetRavRequest().GetUsage().GetCost().ToBigInt().Cmp(big.NewInt(2)))
 
 	require.NoError(t, stream.CloseRequest())
 	_ = stream.CloseResponse()
 }
 
-func TestConsumerSidecar_ReportUsage_BelowThresholdContinuesWithoutUpdatedRAV(t *testing.T) {
+func TestConsumerSidecar_ReportUsage_IsDeprecatedForProviderManagedThresholdFlow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -252,7 +200,7 @@ func TestConsumerSidecar_ReportUsage_BelowThresholdContinuesWithoutUpdatedRAV(t 
 	setup, err := env.SetupTestWithSigner(nil)
 	require.NoError(t, err)
 
-	_, shutdownProvider := startPaymentGatewayForTest(t, ":19023", &providergateway.Config{
+	_, _, shutdownProvider := startPaymentGatewayForTest(t, ":19023", &providergateway.Config{
 		ListenAddr:          ":19023",
 		ServiceProvider:     env.ServiceProvider.Address,
 		Domain:              env.Domain(),
@@ -289,7 +237,7 @@ func TestConsumerSidecar_ReportUsage_BelowThresholdContinuesWithoutUpdatedRAV(t 
 	}))
 	require.NoError(t, err)
 
-	usageResp, err := consumerClient.ReportUsage(ctx, connect.NewRequest(&consumerv1.ReportUsageRequest{
+	_, err = consumerClient.ReportUsage(ctx, connect.NewRequest(&consumerv1.ReportUsageRequest{
 		SessionId: initResp.Msg.GetSession().GetSessionId(),
 		Usage: &commonv1.Usage{
 			BlocksProcessed:  1,
@@ -297,8 +245,7 @@ func TestConsumerSidecar_ReportUsage_BelowThresholdContinuesWithoutUpdatedRAV(t 
 			Requests:         1,
 		},
 	}))
-	require.NoError(t, err)
-	require.True(t, usageResp.Msg.GetShouldContinue())
-	require.Empty(t, usageResp.Msg.GetStopReason())
-	require.Nil(t, usageResp.Msg.GetUpdatedRav())
+	require.Error(t, err)
+	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	require.Contains(t, err.Error(), "deprecated for provider-managed sessions")
 }

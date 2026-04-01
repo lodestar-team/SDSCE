@@ -1,7 +1,7 @@
 # MVP Gap Analysis
 
 Drafted: 2026-03-12  
-Revised: 2026-03-31
+Revised: 2026-04-01
 
 This document maps the current repository state against the MVP defined in `docs/mvp-scope.md`.
 
@@ -45,9 +45,8 @@ Validation infrastructure is also healthier than before:
 
 The biggest remaining MVP gaps are now:
 
-- full provider-originated runtime payment/control behavior behind the now-implemented consumer-side ingress
 - provider collection lifecycle persistence and inspection/collection APIs
-- consumer/runtime compatibility hardening beyond the initial ingress slice
+- runtime compatibility hardening and refreshed published firecore/dummy-blockchain images
 - operator funding and collection tooling
 - authenticated admin/operator surfaces
 - finalized observability floor
@@ -56,9 +55,9 @@ The biggest remaining MVP gaps are now:
 
 | Scenario | Status | Notes |
 | --- | --- | --- |
-| A. Discovery to paid streaming | `partial` | The sidecar now exposes a Substreams-compatible ingress and can own discovery/session init/stream proxying, but the runtime still needs final compatibility hardening and full provider-originated payment-loop convergence |
+| A. Discovery to paid streaming | `partial` | The sidecar ingress and provider-originated payment loop are implemented, but runtime compatibility hardening and refreshed published firecore/dummy-blockchain images still remain |
 | B. Fresh session after interruption | `partial` | Fresh-session semantics are implemented in the init contract, but broader real-path interruption validation still remains |
-| C. Low funds during streaming | `partial` | Session-local low-funds stop behavior now reaches the real sidecar ingress path, but the broader provider-originated runtime-payment model and deterministic full-suite acceptance are still incomplete |
+| C. Low funds during streaming | `partial` | Session-local low-funds stop behavior now reaches both the real sidecar ingress path and the local-first Firecore runtime path, but deterministic full-suite hardening and refreshed published images still remain |
 | D. Provider restart without losing collectible state | `partial` | Provider persistence is no longer purely in-memory because PostgreSQL support exists, but collectible/collection lifecycle tracking is still incomplete |
 | E. Manual funding flow | `partial` | Demo-oriented setup/funding helpers exist, but real operator-grade funding CLI flows do not |
 | F. Manual collection flow | `missing` | RAV tooling exists, but provider-backed settlement inspection and collect workflow are not implemented |
@@ -88,6 +87,8 @@ Status: `partial`
 Evidence:
 
 - `consumer/sidecar/sidecar.go`
+- `consumer/sidecar/ingress.go`
+- `consumer/sidecar/payment_session_manager.go`
 - `consumer/sidecar/handler_init.go`
 - `consumer/sidecar/handler_report_usage.go`
 - `consumer/sidecar/handler_end_session.go`
@@ -95,20 +96,18 @@ Evidence:
 What already exists:
 
 - session init
-- wrapper-era `Init` / `ReportUsage` / `EndSession` RPC surfaces
-- end session
 - oracle-backed provider selection with direct-provider override fallback
 - package-derived network resolution with explicit fallback only when derivation is unavailable
-- payment-session loop wiring to provider gateway
-- provider-originated `NeedMoreFunds` currently reaches the legacy sidecar `ReportUsage` path
 - Substreams gRPC ingress services on the consumer sidecar (`sf.substreams.rpc.v2/v3/v4`)
 - sidecar-owned provider discovery/session bootstrap and upstream stream proxying behind that ingress
+- long-lived payment-session control loop bound to the provider session behind that ingress
+- provider-originated RAV requests and low-funds control propagated through that ingress/runtime path
 - startup-driven ingress config via CLI/YAML, with oracle-first discovery and direct provider override as explicit bypass
 - low-funds termination surfaced through the client-facing ingress as runtime `ResourceExhausted`
+- wrapper-era `Init` / `ReportUsage` / `EndSession` RPC surfaces remain in-tree only as deprecated transitional paths and are no longer required for the supported runtime flow
 
 What is still missing for MVP:
 
-- the ingress still uses an internalized wrapper-era usage-report loop rather than the fully provider-originated runtime-payment loop expected by the target architecture
 - broader Substreams compatibility hardening remains, including final runtime/acceptance convergence around the sidecar ingress as the default entrypoint
 - some real-path acceptance still depends on the Firecore/runtime compatibility caveats tracked separately under `MVP-036` and `MVP-037`
 
@@ -129,18 +128,19 @@ What already exists:
 - public payment gateway
 - session start
 - bidirectional payment session
+- gateway-owned runtime manager for provider-originated session control
 - RAV validation and authorization checks
-- session-local low-funds detection during `PaymentSession` usage handling
-- deterministic cost-based RAV request thresholds in the `PaymentSession` path
+- session-local low-funds detection during metered runtime evaluation
+- deterministic cost-based RAV request thresholds in the provider runtime path
 - terminal `NeedMoreFunds` response plus payment-issue session termination when live escrow is insufficient
 - persisted machine-readable funding metadata for `ok`, `insufficient`, and `unknown` session state
 - basic runtime/session status inspection
 - repository-backed session state foundation
+- provider-originated `rav_request`, `need_more_funds`, and session-control flow over the long-lived `PaymentSession` stream
 
 What is still missing for MVP:
 
 - collection lifecycle state
-- full provider-originated runtime-control flow behind the intended consumer ingress/proxy
 - authenticated admin/operator surfaces
 
 ### Provider Plugin Services
@@ -164,7 +164,6 @@ What already exists:
 What is still missing for MVP:
 
 - finalized byte-billing/runtime contract documentation
-- the fully provider-originated payment/control loop used by the sidecar ingress rather than a sidecar-managed internal usage reporter
 - broader production-like validation around the current real-path runtime tuple
 
 ### Oracle
@@ -192,7 +191,7 @@ What already exists:
 Notes:
 
 - Oracle governance remains deployment-managed internal config for MVP; no writable admin API is required yet.
-- Standalone oracle service plus consumer-side oracle discovery are now both implemented, and the first sidecar ingress slice has landed, but scenario A still remains partial until the remaining `MVP-017` / `MVP-031` runtime-convergence work is complete.
+- Standalone oracle service plus consumer-side oracle discovery are now both implemented, and scenario A remains partial only because of the remaining runtime compatibility/published-image work tracked under `MVP-030`, `MVP-036`, and `MVP-037`.
 
 ### Provider Persistence
 
@@ -356,8 +355,8 @@ The most important recent status changes versus the original draft are:
   - The current blocker is now identified more precisely: the prebuilt `dummy-blockchain`/`firecore` runtime used by that scaffold embeds an older SDS snapshot and therefore drifts from the current auth/session/usage plugin contracts implemented in this repo.
   - This is protocol drift caused by SDS contract evolution, not just a generic “firecore test is flaky” issue.
 - Consumer-side MVP UX is materially closer to the revised scope.
-  - The sidecar now exposes a Substreams-compatible ingress and propagates low-funds termination through that path.
-  - The remaining gap is no longer “missing ingress”, but rather the final convergence from the transitional sidecar-managed usage loop to the fully provider-originated runtime-payment model.
+  - The sidecar now exposes a Substreams-compatible ingress and runs the provider-originated payment/control loop through that path.
+  - Legacy wrapper-era usage-report surfaces remain only as deprecated cleanup follow-up under `MVP-038`, not as part of the supported runtime architecture.
 
 ## Remaining Backlog Alignment
 
@@ -366,14 +365,13 @@ The remaining MVP gaps now align with the rewritten MVP backlog as follows.
 Oracle, consumer ingress, and runtime compatibility:
 
 - `MVP-006`
-- `MVP-017`
 - `MVP-030`
 - `MVP-036`
 
-Provider runtime and payment control:
+Provider runtime hardening and cleanup:
 
-- `MVP-031`
 - `MVP-037`
+- `MVP-038`
 
 Persistence and settlement:
 

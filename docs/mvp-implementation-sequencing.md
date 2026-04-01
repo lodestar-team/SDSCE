@@ -96,10 +96,6 @@ Completed foundation:
 - `MVP-005` Implement a standalone oracle service with manual whitelist and recommended-provider response
 - `MVP-007` Integrate consumer sidecar with oracle discovery while preserving direct-provider fallback
 
-Recommended next sequence:
-
-1. `MVP-030` Add runtime compatibility and preflight checks for real provider/plugin deployments
-
 Notes:
 
 - `MVP-033` is resolved for MVP with the following contract:
@@ -121,7 +117,8 @@ Notes:
   - oracle pricing is enforced as a ceiling, while lower provider pricing is accepted as the effective session pricing
 - `MVP-017` is now complete enough to treat as closed for sequencing purposes.
   - Current status: the sidecar now exposes the real Substreams ingress, owns provider discovery/session bootstrap, and keeps the runtime payment/control loop active behind that ingress without requiring wrapper-era orchestration.
-- `MVP-030` is late in the lane because it depends on real-path integration existing.
+- `MVP-030` is now complete enough to treat as closed for sequencing purposes.
+  - Current status: the repo now documents the supported runtime compatibility contract and contributor workflow, while intentionally avoiding side-effectful automatic startup probes until a true read-only handshake exists.
 
 ### Lane B: Runtime Payment And Stream Control
 
@@ -166,10 +163,10 @@ Notes:
     - `firehose-core` `b574a98babcb0338198e0ff4db7ebd0e404f6529`
     - `dummy-blockchain` `1cea671e78cbb069d64333fdbf4a6c9dd5502d58`
     - `substreams` `8897dccff3e2f989867b7711be91d613d256a36a`
-  - The prebuilt published `dummy-blockchain` image remains stale and still embeds an older SDS-compatible runtime snapshot, so publishing refreshed upstream images is tracked separately under `MVP-036`, while `MVP-030` remains the compatibility/preflight hardening follow-up.
+  - The prebuilt published `dummy-blockchain` image remains stale and still embeds an older SDS-compatible runtime snapshot, so publishing refreshed upstream images is tracked separately under `MVP-036`.
 - `MVP-011` is now complete enough to treat as closed for sequencing purposes.
   - Current status: the sidecar now exposes a real Substreams ingress, owns provider discovery/session bootstrap, and surfaces low-funds termination through the real client-facing path as runtime `ResourceExhausted`.
-  - The remaining runtime-focused follow-up is no longer payment-loop convergence, but rather runtime-compatibility hardening and deterministic full-suite isolation.
+  - The remaining runtime-focused follow-up is no longer payment-loop convergence, but rather deterministic full-suite isolation plus refreshed published runtime images.
 - `MVP-031` is now complete enough to treat as closed for sequencing purposes.
   - Current status: provider-side metering now drives the long-lived `PaymentSession` control loop behind the sidecar ingress, including provider-originated RAV requests and low-funds stop behavior.
 - `MVP-037` remains important because the affected low-funds and Firecore tests can still be order-dependent in full-suite runs even when they pass in isolation.
@@ -293,7 +290,6 @@ Already resolved:
 
 - `MVP-009`
 - `MVP-022`
-- `MVP-030`
 
 ### Phase 3: Complete Runtime Control And Operator Flows
 

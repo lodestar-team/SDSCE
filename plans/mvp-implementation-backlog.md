@@ -117,7 +117,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-027 | `done` | protocol | `A3` | none | `B`, `D`, `F` | Freeze MVP payment/session identity semantics for fresh sessions and non-reused collection/payment lineage |
 | MVP-028 | `done` | security | `A5` | none | `G` | Define the MVP authentication and authorization contract for provider operator APIs and future oracle admin surfaces |
 | MVP-029 | `not_started` | provider-state | `A3`, `A5` | `MVP-003`, `MVP-022` | `D`, `F` | Implement provider collection lifecycle transitions and update surfaces for `collectible`, `collect_pending`, `collected`, and retryable collection state |
-| MVP-030 | `in_progress` | provider-integration | `A5` | `MVP-014`, `MVP-017` | `A`, `G` | Add runtime compatibility and preflight checks for real provider/plugin deployments |
+| MVP-030 | `done` | provider-integration | `A5` | `MVP-014`, `MVP-017` | `A`, `G` | Define and document the MVP runtime-compatibility contract for real provider/plugin deployments without side-effectful automatic probes |
 | MVP-031 | `done` | runtime-payment | `A2`, `A3` | `MVP-004`, `MVP-012`, `MVP-014`, `MVP-017` | `A`, `C` | Wire the long-lived provider-originated payment-control loop behind the consumer-sidecar ingress path used by real runtime traffic |
 | MVP-032 | `not_started` | operations | `A4`, `A5`, `A6` | `MVP-008`, `MVP-010`, `MVP-022` | `C`, `D`, `F`, `G` | Expose operator runtime/session/payment inspection APIs and CLI/status flows |
 | MVP-033 | `done` | protocol | `A1` | none | `A` | Freeze the chain/network discovery input contract across client, sidecar, and oracle |
@@ -555,20 +555,22 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 
 ## Runtime Compatibility Tasks
 
-- [ ] MVP-030 Add runtime compatibility and preflight checks for real provider/plugin deployments.
+- [x] MVP-030 Define and document the MVP runtime-compatibility contract for real provider/plugin deployments without side-effectful automatic probes.
   - Context:
     - Recent README, config, and firecore test scaffolding identify the target runtime more clearly.
     - MVP-014 uncovered a concrete compatibility failure in the prebuilt `dummy-blockchain:v1.7.7` image: its embedded `firecore` binary links an older SDS snapshot and therefore speaks older auth/session/usage plugin contracts than the current provider/plugin gateway.
-    - The repo still lacks proper enforced preflight validation for that deployment shape.
+    - A strong runtime compatibility probe is not currently available without exercising auth/session/usage behavior that can create runtime side effects against the underlying provider stack.
   - Assumptions:
     - `A5`
   - Done when:
     - The repo identifies at least one named real-provider target environment for MVP acceptance and documents the required runtime compatibility constraints clearly enough for operators to validate before rollout.
     - The required runtime versions, plugin compatibility assumptions, and non-demo configuration prerequisites for that environment are documented.
     - The documented compatibility contract explicitly covers SDS protocol drift between provider/plugin gateway code and embedded firecore plugin binaries.
-    - Startup or preflight checks fail fast when the provider/plugin environment is incompatible with the required SDS runtime contract.
+    - Contributor workflow explicitly requires compatibility docs and breaking-change notes to be updated when shared runtime/plugin contracts change.
+    - The MVP guidance explicitly avoids side-effectful automatic startup probes until a true read-only compatibility handshake exists.
   - Verify:
-    - Add a startup/preflight validation test or a documented manual verification flow that demonstrates clear failure modes for unsupported runtime combinations.
+    - Add a runtime-compatibility document that records the supported MVP runtime shape, validated tuple, known incompatible runtimes, and operator workflow.
+    - Update contributor workflow guidance so shared runtime/plugin contract changes must also update compatibility documentation.
 
 - [ ] MVP-036 Publish refreshed upstream `firehose-core` and `dummy-blockchain` images built against the current SDS plugin/runtime contract so default integration paths no longer rely on local override tags.
   - Context:

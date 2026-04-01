@@ -46,7 +46,7 @@ Validation infrastructure is also healthier than before:
 The biggest remaining MVP gaps are now:
 
 - provider collection lifecycle persistence and inspection/collection APIs
-- runtime compatibility hardening and refreshed published firecore/dummy-blockchain images
+- refreshed published firecore/dummy-blockchain images plus deterministic full-suite runtime validation
 - operator funding and collection tooling
 - authenticated admin/operator surfaces
 - finalized observability floor
@@ -55,7 +55,7 @@ The biggest remaining MVP gaps are now:
 
 | Scenario | Status | Notes |
 | --- | --- | --- |
-| A. Discovery to paid streaming | `partial` | The sidecar ingress and provider-originated payment loop are implemented, but runtime compatibility hardening and refreshed published firecore/dummy-blockchain images still remain |
+| A. Discovery to paid streaming | `partial` | The sidecar ingress, provider-originated payment loop, and compatibility contract are documented, but refreshed published firecore/dummy-blockchain images still remain |
 | B. Fresh session after interruption | `partial` | Fresh-session semantics are implemented in the init contract, but broader real-path interruption validation still remains |
 | C. Low funds during streaming | `partial` | Session-local low-funds stop behavior now reaches both the real sidecar ingress path and the local-first Firecore runtime path, but deterministic full-suite hardening and refreshed published images still remain |
 | D. Provider restart without losing collectible state | `partial` | Provider persistence is no longer purely in-memory because PostgreSQL support exists, but collectible/collection lifecycle tracking is still incomplete |
@@ -108,7 +108,7 @@ What already exists:
 
 What is still missing for MVP:
 
-- broader Substreams compatibility hardening remains, including final runtime/acceptance convergence around the sidecar ingress as the default entrypoint
+- broader Substreams compatibility validation remains, including final runtime/acceptance convergence around the sidecar ingress as the default entrypoint
 - some real-path acceptance still depends on the Firecore/runtime compatibility caveats tracked separately under `MVP-036` and `MVP-037`
 
 ### Provider Gateway

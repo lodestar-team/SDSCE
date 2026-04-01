@@ -122,6 +122,13 @@ For MVP-scoped work:
 - Use `plans/mvp-implementation-backlog.md` as the active execution backlog.
 - Treat `plans/implementation-backlog.md` as historical context unless explicitly requested.
 
+## Runtime Compatibility Workflow
+
+- If a change affects shared SDS runtime/plugin contracts, protobufs, or deployment compatibility for external runtimes such as `firecore`, update the compatibility docs in the same change.
+- Treat `docs/provider-runtime-compatibility.md` as the operator-facing source of truth for supported runtime tuples, known incompatible runtimes, and compatibility assumptions.
+- Call out whether the change is runtime-breaking or backward-compatible for external `firecore` / Substreams deployments.
+- Do not add automatic compatibility probes that create runtime side effects unless the user explicitly asks for that tradeoff; prefer explicit documentation and validated tuples for MVP.
+
 ## Commit Messages
 
 - When asked to create a commit, first inspect recent commits with `git log --format='%s%n%b' -n <N>` and follow the prevailing repo style instead of inventing a new format.

@@ -127,6 +127,8 @@ go test ./test/integration/... -v  # Integration tests (requires Docker)
 
 `MVP-014` is currently validated through a local-first runtime workflow. The published `ghcr.io/streamingfast/dummy-blockchain:v1.7.7` image is still stale for the current SDS provider/plugin contract, so the supported path is to rebuild `firehose-core` and `dummy-blockchain` locally and point `TestFirecore` at that local image.
 
+For the explicit MVP runtime-compatibility contract, validated tuple, and contributor/operator workflow, see [docs/provider-runtime-compatibility.md](docs/provider-runtime-compatibility.md).
+
 Build the local runtime images from sibling checkouts:
 
 ```bash

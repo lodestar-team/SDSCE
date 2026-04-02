@@ -24,6 +24,7 @@ type GlobalRepository interface {
 	SessionCreate(ctx context.Context, session *Session) error
 	SessionGet(ctx context.Context, sessionID string) (*Session, error)
 	SessionUpdate(ctx context.Context, session *Session) error
+	SessionUpdateRAVAndBaseline(ctx context.Context, sessionID string, currentRAV *horizon.SignedRAV, baselineBlocks, baselineBytes, baselineReqs uint64, baselineCost *big.Int) error
 	SessionApplyUsage(ctx context.Context, sessionID string, usage *UsageEvent, cost *big.Int) error
 	SessionList(ctx context.Context, filter SessionFilter) ([]*Session, error)
 	SessionCount(ctx context.Context) int

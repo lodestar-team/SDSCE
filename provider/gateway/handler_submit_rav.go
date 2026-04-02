@@ -132,12 +132,16 @@ func (s *Gateway) SubmitRAV(
 		}), nil
 	}
 
-	// Store the new RAV
-	session.CurrentRAV = signedRAV
-	session.MarkBaseline()
+	baselineBlocks := session.BlocksProcessed
+	baselineBytes := session.BytesTransferred
+	baselineReqs := session.Requests
+	baselineCost := big.NewInt(0)
+	if session.TotalCost != nil {
+		baselineCost = new(big.Int).Set(session.TotalCost)
+	}
 
-	// Update the session in the repository
-	if err := s.repo.SessionUpdate(ctx, session); err != nil {
+	// Update only the accepted RAV and the matching baseline in the repository.
+	if err := s.repo.SessionUpdateRAVAndBaseline(ctx, sessionID, signedRAV, baselineBlocks, baselineBytes, baselineReqs, baselineCost); err != nil {
 		s.logger.Warn("failed to update session", zap.String("session_id", sessionID), zap.Error(err))
 	}
 

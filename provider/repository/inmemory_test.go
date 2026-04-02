@@ -3,9 +3,11 @@ package repository_test
 import (
 	"context"
 	"errors"
+	"math/big"
 	"testing"
 	"time"
 
+	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/streamingfast/eth-go"
 	"github.com/stretchr/testify/assert"
@@ -107,6 +109,39 @@ func TestInMemory_SessionUpdate_NotFound(t *testing.T) {
 
 	s := newTestSession("missing", "0x1111111111111111111111111111111111111111")
 	require.Error(t, repo.SessionUpdate(ctx, s))
+}
+
+func TestInMemory_SessionUpdateRAVAndBaseline_PreservesUsageTotals(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+
+	s := newTestSession("s1", "0x1111111111111111111111111111111111111111")
+	s.BlocksProcessed = 10
+	s.BytesTransferred = 20
+	s.Requests = 3
+	s.TotalCost = big.NewInt(30)
+	require.NoError(t, repo.SessionCreate(ctx, s))
+
+	rav := &horizon.SignedRAV{
+		Message: &horizon.RAV{
+			Payer:          s.Payer,
+			ValueAggregate: big.NewInt(12),
+		},
+	}
+	require.NoError(t, repo.SessionUpdateRAVAndBaseline(ctx, s.ID, rav, 10, 20, 3, big.NewInt(30)))
+
+	got, err := repo.SessionGet(ctx, s.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.CurrentRAV)
+	assert.Equal(t, 0, big.NewInt(12).Cmp(got.CurrentRAV.Message.ValueAggregate))
+	assert.Equal(t, uint64(10), got.BlocksProcessed)
+	assert.Equal(t, uint64(20), got.BytesTransferred)
+	assert.Equal(t, uint64(3), got.Requests)
+	assert.Equal(t, 0, big.NewInt(30).Cmp(got.TotalCost))
+	assert.Equal(t, uint64(10), got.BaselineBlocks)
+	assert.Equal(t, uint64(20), got.BaselineBytes)
+	assert.Equal(t, uint64(3), got.BaselineReqs)
+	assert.Equal(t, 0, big.NewInt(30).Cmp(got.BaselineCost))
 }
 
 // TestInMemory_SessionDelete and SessionDelete_NotFound removed - SessionDelete method no longer exists

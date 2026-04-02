@@ -286,7 +286,9 @@ That is a materially larger distributed-state problem than the session-local MVP
   - `admin.write` for mutating operator/admin actions
 - `admin.write` also satisfies `operator.read`
 - Public vs private provider services may be separated for security and operational reasons
+- For MVP, that public/private split is primarily an API/security boundary and may still be co-deployed as one provider runtime
 - That public/private split is not the main consumer-facing architecture contract
+- Fully independent deployment of the private plugin-facing services and the public provider gateway is not required for MVP
 - If a public oracle admin API is added later, it should reuse the same bearer-token role contract
 
 ### Observability
@@ -382,6 +384,7 @@ The scenarios below are the primary definition of done for the MVP.
 - Richer oracle metadata and provider ranking
 - Dynamic or provider-specific pricing and the corresponding oracle selection logic
 - True payment-session continuation and recovery semantics if later required
+- Decouple the private Plugin Gateway and public Provider Gateway through an explicit internal RPC/event boundary plus clarified runtime-state ownership if separate deployment becomes necessary
 - Automated/background collection using a separate settlement agent
 - Better funding UX, including possible wallet-connected UI
 - Stronger observability and operational tooling

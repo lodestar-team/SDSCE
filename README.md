@@ -27,13 +27,66 @@ EOF
 direnv allow
 ```
 
-Now `sds` invokes `devel/sds` directly. Use [reflex](https://github.com/cespare/reflex) to start everything (`devenv`, Consumer Sidecar, Provider Gateway & Firehose Stack) and auto-restart services (Consuemr Sidecar and Provider Gateway) on code changes:
+Now `sds` invokes `devel/sds` directly. Use [reflex](https://github.com/cespare/reflex) to start everything (`devenv`, Consumer Sidecar, Provider Gateway & Firehose Stack) and auto-restart services (Consumer Sidecar and Provider Gateway) on code changes:
 
 ```bash
 reflex -c .reflex
 ```
 
-The default `.reflex` flow uses the deterministic demo signer that `sds devenv` authorizes automatically. It also passes `--plaintext` explicitly for the local/demo sidecar↔gateway path. Outside local/demo usage, configure TLS certificate/key files instead of relying on plaintext defaults.
+Local stack variants:
+
+- `.reflex`: default direct-provider ingress stack
+- `.reflex.direct`: same as `.reflex`, but with the mode named explicitly
+- `.reflex.oracle`: oracle-backed provider discovery stack
+
+```bash
+reflex -c .reflex.direct
+reflex -c .reflex.oracle
+```
+
+The default `.reflex` flow uses the deterministic demo signer that `sds devenv` authorizes automatically. It also passes `--plaintext` explicitly for the local/demo sidecar<->gateway path. Outside local/demo usage, configure TLS certificate/key files instead of relying on plaintext defaults.
+
+Local endpoints exposed by the direct-provider stack:
+
+- Consumer sidecar ingress: `localhost:9002`
+- Provider gateway: `localhost:9001`
+- Provider plugin gateway: `localhost:9003`
+- Substreams tier1: `localhost:10016`
+
+The oracle-backed stack exposes the same sidecar/provider endpoints and also starts the local oracle on `localhost:9004`.
+
+Manual validation against the consumer sidecar works with the direct-provider stack:
+
+```bash
+substreams run common@v0.1.0 map_clocks \
+  -e localhost:9002 \
+  --plaintext \
+  -s 0 \
+  -t +20
+```
+
+```bash
+substreams gui common@v0.1.0 map_clocks \
+  -e localhost:9002 \
+  --plaintext
+```
+
+Oracle-backed ingress also works through the same consumer endpoint, but packages that do not declare `package.network` must provide an explicit requested network:
+
+```bash
+substreams run common@v0.1.0 map_clocks \
+  -e localhost:9002 \
+  --plaintext \
+  --network mainnet \
+  -s 0 \
+  -t +20
+```
+
+`common@v0.1.0` does not embed a network, so the oracle-backed flow needs `--network mainnet`. If your package already declares `package.network`, you do not need the extra flag.
+
+Oracle-backed ingress requires a client/request path that sends Substreams v3/v4 package and network context. Older v2-only clients will fail with `oracle-backed ingress requires a v3/v4 Substreams request containing package/network context`. Packages without embedded network metadata will fail with `either <substreams_package.network> or <requested_network> is required when <provider_control_plane_endpoint> is not set` unless you pass `--network`. The same limitations apply if you call the gRPC stream directly instead of using the `substreams` CLI.
+
+For Substreams CLI installation and upgrade instructions, use the official docs: <https://docs.substreams.dev/how-to-guides/installing-the-cli>
 
 We have `devel/sds_sink` helper that can be used to sink in data service mode (invokes `sds sink ...` configured for development environment):
 

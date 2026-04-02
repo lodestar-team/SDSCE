@@ -244,9 +244,14 @@ func (s *Gateway) handleRAVSubmission(
 		)
 	}
 
-	session.CurrentRAV = signedRAV
-	session.MarkBaseline()
-	if err := s.repo.SessionUpdate(ctx, session); err != nil {
+	baselineBlocks := session.BlocksProcessed
+	baselineBytes := session.BytesTransferred
+	baselineReqs := session.Requests
+	baselineCost := big.NewInt(0)
+	if session.TotalCost != nil {
+		baselineCost = new(big.Int).Set(session.TotalCost)
+	}
+	if err := s.repo.SessionUpdateRAVAndBaseline(ctx, sessionID, signedRAV, baselineBlocks, baselineBytes, baselineReqs, baselineCost); err != nil {
 		s.logger.Warn("failed to update session", zap.String("session_id", sessionID), zap.Error(err))
 		return stopPaymentSessionResponse("failed to update session state")
 	}

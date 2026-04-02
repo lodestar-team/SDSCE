@@ -370,6 +370,8 @@ Oracle, consumer ingress, and runtime compatibility:
 
 Provider runtime hardening and cleanup:
 
+- `MVP-040`
+- `MVP-041`
 - `MVP-037`
 - `MVP-038`
 
@@ -402,6 +404,7 @@ The gap analysis and the backlog now agree that:
 
 - pricing authority is resolved for MVP
 - reconnect/payment-session reuse is not an MVP target
+- the remaining runtime follow-ups before shared-state hardening are deterministic ingress termination ordering and explicit `RavRequest` response semantics
 - the remaining open question is observability
 
 ## Open Questions Carrying Risk

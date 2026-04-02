@@ -151,6 +151,62 @@ func TestSessionUpdate(t *testing.T) {
 	})
 }
 
+func TestSessionUpdateRAVAndBaseline_PreservesUsageTotals(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+
+		pricingConfig := sds.PricingConfig{
+			PricePerBlock: sds.MustNewGRT(100),
+			PricePerByte:  sds.MustNewGRT(10),
+		}
+
+		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
+		receiver := eth.MustNewAddress("0x2234567890123456789012345678901234567890")
+		dataService := eth.MustNewAddress("0x3234567890123456789012345678901234567890")
+
+		session := repository.NewSession("test-session-rav-baseline", payer, receiver, dataService, pricingConfig)
+		require.NoError(t, db.SessionCreate(ctx, session))
+
+		event := &repository.UsageEvent{
+			Timestamp: time.Now(),
+			Blocks:    100,
+			Bytes:     2000,
+			Requests:  10,
+		}
+		cost := pricingConfig.CalculateUsageCost(100, 2000).BigInt()
+		require.NoError(t, db.SessionApplyUsage(ctx, session.ID, event, cost))
+
+		var sig eth.Signature
+		sig[0] = 1
+
+		signedRAV := &horizon.SignedRAV{
+			Message: &horizon.RAV{
+				CollectionID:    horizon.CollectionID{1},
+				Payer:           payer,
+				ServiceProvider: receiver,
+				DataService:     dataService,
+				TimestampNs:     uint64(time.Now().UnixNano()),
+				ValueAggregate:  big.NewInt(1234),
+			},
+			Signature: sig,
+		}
+		require.NoError(t, db.SessionUpdateRAVAndBaseline(ctx, session.ID, signedRAV, 100, 2000, 10, cost))
+
+		retrieved, err := db.SessionGet(ctx, session.ID)
+		require.NoError(t, err)
+		require.NotNil(t, retrieved.CurrentRAV)
+		assert.Equal(t, 0, big.NewInt(1234).Cmp(retrieved.CurrentRAV.Message.ValueAggregate))
+		assert.Equal(t, uint64(100), retrieved.BlocksProcessed)
+		assert.Equal(t, uint64(2000), retrieved.BytesTransferred)
+		assert.Equal(t, uint64(10), retrieved.Requests)
+		assert.Equal(t, 0, cost.Cmp(retrieved.TotalCost))
+		assert.Equal(t, uint64(100), retrieved.BaselineBlocks)
+		assert.Equal(t, uint64(2000), retrieved.BaselineBytes)
+		assert.Equal(t, uint64(10), retrieved.BaselineReqs)
+		assert.Equal(t, 0, cost.Cmp(retrieved.BaselineCost))
+	})
+}
+
 func TestSessionList(t *testing.T) {
 	withTestDB(t, func(db *Database) {
 		ctx := context.Background()

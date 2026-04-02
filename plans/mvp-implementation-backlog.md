@@ -1,6 +1,6 @@
 # Substreams Data Service — MVP Implementation Backlog
 
-_Last updated: 2026-03-31_
+_Last updated: 2026-04-02_
 
 This document translates [docs/mvp-scope.md](../docs/mvp-scope.md) into concrete implementation tasks for the MVP.
 
@@ -126,6 +126,9 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-036 | `not_started` | operations | `A5` | `MVP-014` | `A`, `G` | Publish refreshed upstream `firehose-core` and `dummy-blockchain` images built against the current SDS plugin/runtime contract so default integration paths no longer rely on local override tags |
 | MVP-037 | `not_started` | validation | none | `MVP-014`, `MVP-016` | `A`, `C` | Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs |
 | MVP-038 | `not_started` | protocol | `A2`, `A3` | `MVP-017`, `MVP-031` | `A`, `C` | Remove the deprecated wrapper-era usage-report runtime path and protobuf surfaces once the sidecar-ingress flow is the only supported MVP runtime path |
+| MVP-040 | `not_started` | runtime-payment | `A2`, `A3` | `MVP-017`, `MVP-031` | `A`, `C` | Make sidecar ingress termination ordering deterministic so provider payment-control stops win over upstream EOF without changing Substreams data-plane semantics |
+| MVP-041 | `not_started` | runtime-payment | `A2`, `A3` | `MVP-031` | `A`, `C` | Define and enforce exact response semantics for provider-originated `RavRequest` handling in the long-lived `PaymentSession` loop |
+| MVP-039 | `deferred` | provider-integration | `A3`, `A6` | `MVP-008`, `MVP-014`, `MVP-031` | none | Post-MVP only: decouple the private Plugin Gateway and public Provider Gateway via an explicit internal RPC/event boundary and clarified runtime-state ownership |
 
 ## Protocol and Contract Tasks
 
@@ -463,6 +466,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - Context:
     - MVP runtime traffic now flows through the sidecar ingress, and payment progression is driven from provider-side metering through the long-lived provider-originated `PaymentSession` control loop.
     - Legacy wrapper-era usage-report surfaces remain only as explicit deprecated/rejected paths until later cleanup under `MVP-038`.
+    - Two correctness follow-ups were discovered after the initial integration closure and are tracked separately under `MVP-040` and `MVP-041` rather than reopening the main runtime-loop task wholesale.
   - Assumptions:
     - `A2`
     - `A3`
@@ -474,6 +478,43 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - `go test ./test/integration -run 'TestPaymentSession_ProviderRequestsRAVOnUsage|TestPaymentSession_AcceptedRAVResetsThresholdWindow|TestPaymentSession_StopsOnLowFunds' -count=1 -v` passes.
     - `go test ./test/integration -run 'TestConsumerIngress_UsesOracleSelectedProviderReceiver|TestConsumerIngress_StopsStreamOnLowFunds' -count=1 -v` passes.
     - `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-local go test ./test/integration -run 'TestFirecore|TestFirecoreStopsStreamOnLowFunds' -count=1 -v` passes against the rebuilt local runtime image path, demonstrating provider-originated runtime control during live streaming without an external usage-report loop.
+
+- [ ] MVP-040 Make sidecar ingress termination ordering deterministic so provider payment-control stops win over upstream EOF without changing Substreams data-plane semantics.
+  - Context:
+    - The consumer ingress must preserve Substreams-compatible data-plane behavior, so the fix cannot rely on injecting SDS-specific terminal metadata into the proxied Substreams stream.
+    - The current runtime path still has a lifecycle race between the upstream data-plane stream ending and the provider `PaymentSession` loop delivering a terminal payment-control decision.
+    - That race can make a real provider-enforced payment stop surface to the client as generic upstream EOF/transport closure instead of the intended runtime `ResourceExhausted` style outcome.
+  - Assumptions:
+    - `A2`
+    - `A3`
+  - Done when:
+    - The sidecar ingress resolves data-plane completion versus provider payment-control termination through explicit control-plane/lifecycle coordination rather than a fixed timing heuristic.
+    - Provider low-funds or terminal payment-control decisions deterministically win over competing upstream EOF timing when both refer to the same live session.
+    - The solution does not require changing the Substreams data-plane response shape or adding SDS-specific payloads to proxied stream messages.
+  - Verify:
+    - Add focused coverage for the ordering case where the upstream stream ends first and the terminal provider payment-control decision arrives shortly after.
+    - Confirm normal successful EOF does not pay an unnecessary fixed teardown delay.
+    - Re-run `go test ./test/integration -run 'TestConsumerIngress_StopsStreamOnLowFunds|TestFirecoreStopsStreamOnLowFunds' -count=1 -v` and confirm the terminal client-visible error is sourced from provider payment-control semantics rather than a transport race.
+
+- [ ] MVP-041 Define and enforce exact response semantics for provider-originated `RavRequest` handling in the long-lived `PaymentSession` loop.
+  - Context:
+    - Provider-side metering and the client response to a provider-originated `RavRequest` are asynchronous, so the acceptance rule cannot rely on a moving live usage delta after the provider has already emitted a concrete request.
+    - The current runtime loop needs an explicit contract for what a `PaymentSession` RAV submission is answering, especially if usage continues to accrue before the response arrives.
+    - This task is about the `PaymentSession` runtime contract itself; any later repository hardening or broader concurrency/versioning changes remain separate follow-up work unless this task proves they are strictly required.
+  - Assumptions:
+    - `A2`
+    - `A3`
+  - Done when:
+    - The repo documents and implements the authoritative rule for what provider-issued `RavRequest` a client response is satisfying.
+    - The runtime path no longer rejects a valid response to the provider’s own in-flight request merely because live metering advanced afterward.
+    - The supported response path for provider-managed runtime requests is explicit:
+      - either `PaymentSession` is the only valid path
+      - or any remaining alternative path is defined so it cannot race or silently diverge from the `PaymentSession` contract
+    - Tests no longer depend on implicit assumptions about exact-vs-greater-than-request RAV submissions.
+  - Verify:
+    - Add coverage for a provider-issued `RavRequest` that is answered after additional metering arrives.
+    - Add coverage for the chosen exact-vs-greater-than-request policy.
+    - Re-run `go test ./test/integration -run 'TestPaymentSession_ProviderRequestsRAVOnUsage|TestPaymentSession_AcceptedRAVResetsThresholdWindow|TestFirecore' -count=1 -v` and confirm the accepted-RAV path remains stable without relying on moving-delta validation.
 
 ## Operator Tooling Tasks
 
@@ -696,6 +737,24 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - Verify:
     - Regenerate protobuf outputs and confirm the repo builds cleanly without `usage_report` support.
     - Run the relevant provider, consumer-sidecar, and integration suites and confirm all supported ingress/runtime scenarios still pass without wrapper-era usage-report coverage.
+
+- [ ] MVP-039 Post-MVP only: decouple the private Plugin Gateway and public Provider Gateway via an explicit internal RPC/event boundary and clarified runtime-state ownership.
+  - Context:
+    - The current MVP provider topology intentionally keeps a public Payment Gateway and a private Plugin Gateway as separate API/security surfaces while still co-deploying them as one provider runtime.
+    - Today, metered-usage progression from the private plugin-facing path into provider-originated payment control relies on shared repository-backed runtime state plus an in-process notification seam.
+    - That is acceptable for MVP because fully independent deployment of the public and private provider surfaces is not required.
+    - If SDS later needs those surfaces to run more independently, the current in-memory notification seam and implicit co-location assumptions are not sufficient.
+  - Assumptions:
+    - `A3`
+    - `A6`
+  - Done when:
+    - The private plugin-facing usage path and the public provider payment/control path communicate through an explicit internal gRPC or equivalent event boundary rather than an in-process callback.
+    - The architecture clearly assigns authoritative ownership of runtime payment state needed for `RAVRequest` and low-funds decisions.
+    - The provider runtime no longer depends on implicit single-process coordination between private and public gateway surfaces.
+    - Docs describe the supported deployment topologies and the source of truth used for runtime payment decisions.
+  - Verify:
+    - Review the provider runtime docs and confirm they no longer assume implicit in-process notification between the two provider surfaces.
+    - Add integration coverage for the chosen decoupled topology or equivalent internal-boundary contract tests before treating the split as supported.
 
 - [ ] MVP-026 Refresh protocol/runtime docs so they match the revised MVP architecture and remaining open questions.
   - Context:

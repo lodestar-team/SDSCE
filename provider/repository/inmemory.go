@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/alphadose/haxmap"
+	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/streamingfast/eth-go"
 )
 
@@ -75,6 +76,27 @@ func (r *InMemoryRepository) SessionUpdate(_ context.Context, session *Session) 
 		return fmt.Errorf("session %q not found", session.ID)
 	}
 	r.sessions.Set(session.ID, session)
+	return nil
+}
+
+// SessionUpdateRAVAndBaseline updates only the accepted RAV and the corresponding baseline snapshot.
+func (r *InMemoryRepository) SessionUpdateRAVAndBaseline(_ context.Context, sessionID string, currentRAV *horizon.SignedRAV, baselineBlocks, baselineBytes, baselineReqs uint64, baselineCost *big.Int) error {
+	session, ok := r.sessions.Get(sessionID)
+	if !ok {
+		return fmt.Errorf("session %q: %w", sessionID, ErrNotFound)
+	}
+
+	session.CurrentRAV = currentRAV
+	session.BaselineBlocks = baselineBlocks
+	session.BaselineBytes = baselineBytes
+	session.BaselineReqs = baselineReqs
+	if baselineCost != nil {
+		session.BaselineCost = new(big.Int).Set(baselineCost)
+	} else {
+		session.BaselineCost = big.NewInt(0)
+	}
+	session.UpdatedAt = time.Now()
+	r.sessions.Set(sessionID, session)
 	return nil
 }
 

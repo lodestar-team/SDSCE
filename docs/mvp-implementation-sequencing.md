@@ -139,7 +139,9 @@ Completed foundation:
 
 Recommended next sequence:
 
-1. `MVP-037` Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs
+1. `MVP-040` Make sidecar ingress termination ordering deterministic so provider payment-control stops win over upstream EOF without changing Substreams data-plane semantics
+2. `MVP-041` Define and enforce exact response semantics for provider-originated `RavRequest` handling in the long-lived `PaymentSession` loop
+3. `MVP-037` Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs
 
 Notes:
 
@@ -166,10 +168,13 @@ Notes:
   - The prebuilt published `dummy-blockchain` image remains stale and still embeds an older SDS-compatible runtime snapshot, so publishing refreshed upstream images is tracked separately under `MVP-036`.
 - `MVP-011` is now complete enough to treat as closed for sequencing purposes.
   - Current status: the sidecar now exposes a real Substreams ingress, owns provider discovery/session bootstrap, and surfaces low-funds termination through the real client-facing path as runtime `ResourceExhausted`.
-  - The remaining runtime-focused follow-up is no longer payment-loop convergence, but rather deterministic full-suite isolation plus refreshed published runtime images.
+  - The remaining runtime-focused follow-up is no longer broad payment-loop convergence, but rather the explicit ingress termination-ordering fix tracked under `MVP-040`, followed by deterministic full-suite isolation and refreshed published runtime images.
 - `MVP-031` is now complete enough to treat as closed for sequencing purposes.
   - Current status: provider-side metering now drives the long-lived `PaymentSession` control loop behind the sidecar ingress, including provider-originated RAV requests and low-funds stop behavior.
-- `MVP-037` remains important because the affected low-funds and Firecore tests can still be order-dependent in full-suite runs even when they pass in isolation.
+  - Two correctness follow-ups remain explicitly tracked:
+    - `MVP-040` for deterministic sidecar/provider termination ordering without changing the Substreams data plane
+    - `MVP-041` for the exact runtime contract of what a client is answering when it responds to a provider-issued `RavRequest`
+- `MVP-037` remains important after `MVP-040` and `MVP-041` because the affected low-funds and Firecore tests still need shared-state/full-suite hardening once the isolated runtime semantics are clean.
 
 ### Lane C: Provider State, Settlement, And Operator Retrieval
 

@@ -37,7 +37,7 @@ func TestSessionClose_ConsumerEndSession_IsDeprecatedForProviderManagedSessions(
 	domain := env.Domain()
 
 	providerGateway := providergateway.New(&providergateway.Config{
-		ListenAddr:        ":19016",
+		ListenAddr:        ":19028",
 		ServiceProvider:   env.ServiceProvider.Address,
 		Domain:            domain,
 		CollectorAddr:     env.Collector.Address,
@@ -56,7 +56,7 @@ func TestSessionClose_ConsumerEndSession_IsDeprecatedForProviderManagedSessions(
 	time.Sleep(100 * time.Millisecond)
 
 	consumerSidecar := consumersidecar.New(&consumersidecar.Config{
-		ListenAddr:      ":19015",
+		ListenAddr:      ":19029",
 		SignerKey:       setup.SignerKey,
 		Domain:          domain,
 		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
@@ -65,8 +65,8 @@ func TestSessionClose_ConsumerEndSession_IsDeprecatedForProviderManagedSessions(
 	defer consumerSidecar.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)
 
-	consumerClient := consumerv1connect.NewConsumerSidecarServiceClient(http.DefaultClient, "http://localhost:19015")
-	providerClient := providerv1connect.NewPaymentGatewayServiceClient(http.DefaultClient, "http://localhost:19016")
+	consumerClient := consumerv1connect.NewConsumerSidecarServiceClient(http.DefaultClient, "http://localhost:19029")
+	providerClient := providerv1connect.NewPaymentGatewayServiceClient(http.DefaultClient, "http://localhost:19028")
 
 	initResp, err := consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{
 		EscrowAccount: &commonv1.EscrowAccount{
@@ -74,7 +74,7 @@ func TestSessionClose_ConsumerEndSession_IsDeprecatedForProviderManagedSessions(
 			Receiver:    commonv1.AddressFromEth(env.ServiceProvider.Address),
 			DataService: commonv1.AddressFromEth(env.DataService.Address),
 		},
-		ProviderControlPlaneEndpoint: "http://localhost:19016",
+		ProviderControlPlaneEndpoint: "http://localhost:19028",
 	}))
 	require.NoError(t, err)
 

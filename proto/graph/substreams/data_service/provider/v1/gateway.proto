@@ -19,7 +19,9 @@ service PaymentGatewayService {
   rpc GetSessionStatus(GetSessionStatusRequest) returns (GetSessionStatusResponse);
 
   // SubmitRAV submits a signed RAV to the provider gateway.
-  // Called when the provider requests a new RAV for continued service.
+  // Deprecated for provider-managed runtime sessions: live provider-issued
+  // rav_request messages must be answered on the bound PaymentSession stream.
+  // This unary RPC remains only for legacy/manual non-runtime flows.
   rpc SubmitRAV(SubmitRAVRequest) returns (SubmitRAVResponse);
 
   // PaymentSession is a bidirectional stream for ongoing payment negotiation.
@@ -66,9 +68,11 @@ message StartSessionResponse {
 message SubmitRAVRequest {
   // The session ID
   string session_id = 1;
-  // The signed RAV being submitted
+  // The signed RAV being submitted.
+  // Deprecated for provider-managed runtime sessions when a live provider-issued
+  // rav_request is already outstanding on PaymentSession.
   common.v1.SignedRAV signed_rav = 2;
-  // The usage this RAV covers
+  // The usage this RAV covers.
   common.v1.Usage usage = 3;
 }
 
@@ -87,7 +91,8 @@ message PaymentSessionRequest {
   // Required: the provider binds a PaymentSession stream to exactly one session.
   string session_id = 10;
   oneof message {
-    // Signed RAV in response to a RAV request
+    // Signed RAV in response to a live provider-issued rav_request.
+    // This is the authoritative runtime response path for managed sessions.
     SignedRAVSubmission rav_submission = 1;
     // Acknowledgment of a funds request
     FundsAcknowledgment funds_ack = 2;
@@ -109,9 +114,11 @@ message PaymentSessionResponse {
 }
 
 message SignedRAVSubmission {
-  // The signed RAV
+  // The signed RAV. For provider-managed runtime sessions this must satisfy the
+  // exact in-flight rav_request snapshot, not a later live usage total.
   common.v1.SignedRAV signed_rav = 1;
-  // The usage this RAV covers
+  // The usage snapshot this response is satisfying. For provider-managed runtime
+  // sessions this must exactly match the in-flight rav_request usage.
   common.v1.Usage usage = 2;
 }
 
@@ -128,9 +135,10 @@ message UsageReport {
 }
 
 message RAVRequest {
-  // The current RAV to extend
+  // The current RAV to extend.
   common.v1.SignedRAV current_rav = 1;
-  // The usage since the last RAV
+  // The authoritative usage snapshot being requested. For provider-managed
+  // runtime sessions the client must answer this exact snapshot on PaymentSession.
   common.v1.Usage usage = 2;
   // Deadline for the RAV response (Unix timestamp)
   uint64 deadline = 3;

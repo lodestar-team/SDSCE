@@ -102,13 +102,13 @@ func TestPaymentSession_BindsToSessionID(t *testing.T) {
 	require.Equal(t, providerv1.SessionControl_ACTION_STOP, respBad.GetSessionControl().GetAction())
 	require.Contains(t, respBad.GetSessionControl().GetReason(), "<session_id> is required")
 
-	// Correct session_id should be accepted and return CONTINUE.
+	// Correct session_id should bind the stream and allow non-terminal control messages.
 	stream := gatewayClient.PaymentSession(ctx)
 	require.NoError(t, stream.Send(&providerv1.PaymentSessionRequest{
 		SessionId: startResp.Msg.SessionId,
-		Message: &providerv1.PaymentSessionRequest_RavSubmission{
-			RavSubmission: &providerv1.SignedRAVSubmission{
-				SignedRav: sidecar.HorizonSignedRAVToProto(signedRAV),
+		Message: &providerv1.PaymentSessionRequest_FundsAck{
+			FundsAck: &providerv1.FundsAcknowledgment{
+				WillDeposit: true,
 			},
 		},
 	}))

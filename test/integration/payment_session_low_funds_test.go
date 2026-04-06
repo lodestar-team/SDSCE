@@ -42,13 +42,15 @@ func TestPaymentSession_StopsOnLowFunds(t *testing.T) {
 
 	config := DefaultTestSetupConfig()
 	config.EscrowAmount = big.NewInt(1)
-	setup, err := env.SetupCustomPaymentParticipantsWithSigner(env.User1, env.User2, config)
+	payer := newFundedTestAccount(t, env)
+	serviceProvider := newFundedTestAccount(t, env)
+	setup, err := env.SetupCustomPaymentParticipantsWithSigner(payer, serviceProvider, config)
 	require.NoError(t, err)
 
 	repo := repository.NewInMemoryRepository()
 	providerGateway, gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19015", &providergateway.Config{
 		ListenAddr:          ":19015",
-		ServiceProvider:     env.User2.Address,
+		ServiceProvider:     serviceProvider.Address,
 		Domain:              env.Domain(),
 		CollectorAddr:       env.Collector.Address,
 		EscrowAddr:          env.Escrow.Address,
@@ -62,9 +64,9 @@ func TestPaymentSession_StopsOnLowFunds(t *testing.T) {
 	defer shutdown()
 	usageService := providerusage.NewUsageService(repo, deterministicRepositoryPricingConfig(), providerGateway)
 
-	startResp := startGatewaySession(t, ctx, gatewayClient, env.User1.Address, env.User2.Address, env.DataService.Address, setup.SignerKey, env.Domain())
+	startResp := startGatewaySession(t, ctx, gatewayClient, payer.Address, serviceProvider.Address, env.DataService.Address, setup.SignerKey, env.Domain())
 	stream := bindPaymentSession(t, ctx, gatewayClient, startResp.Msg.SessionId)
-	reportMeteredUsage(t, ctx, usageService, env.User1.Address, env.User2.Address, startResp.Msg.SessionId, 2, 0, 1)
+	reportMeteredUsage(t, ctx, usageService, payer.Address, serviceProvider.Address, startResp.Msg.SessionId, 2, 0, 1)
 
 	resp, err := stream.Receive()
 	require.NoError(t, err)
@@ -110,13 +112,15 @@ func TestPaymentSession_ExactBalanceContinues(t *testing.T) {
 
 	config := DefaultTestSetupConfig()
 	config.EscrowAmount = big.NewInt(1)
-	setup, err := env.SetupCustomPaymentParticipantsWithSigner(env.User3, env.ServiceProvider, config)
+	payer := newFundedTestAccount(t, env)
+	serviceProvider := newFundedTestAccount(t, env)
+	setup, err := env.SetupCustomPaymentParticipantsWithSigner(payer, serviceProvider, config)
 	require.NoError(t, err)
 
 	repo := repository.NewInMemoryRepository()
 	providerGateway, gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19016", &providergateway.Config{
 		ListenAddr:          ":19016",
-		ServiceProvider:     env.ServiceProvider.Address,
+		ServiceProvider:     serviceProvider.Address,
 		Domain:              env.Domain(),
 		CollectorAddr:       env.Collector.Address,
 		EscrowAddr:          env.Escrow.Address,
@@ -130,9 +134,9 @@ func TestPaymentSession_ExactBalanceContinues(t *testing.T) {
 	defer shutdown()
 	usageService := providerusage.NewUsageService(repo, deterministicRepositoryPricingConfig(), providerGateway)
 
-	startResp := startGatewaySession(t, ctx, gatewayClient, env.User3.Address, env.ServiceProvider.Address, env.DataService.Address, setup.SignerKey, env.Domain())
+	startResp := startGatewaySession(t, ctx, gatewayClient, payer.Address, serviceProvider.Address, env.DataService.Address, setup.SignerKey, env.Domain())
 	stream := bindPaymentSession(t, ctx, gatewayClient, startResp.Msg.SessionId)
-	reportMeteredUsage(t, ctx, usageService, env.User3.Address, env.ServiceProvider.Address, startResp.Msg.SessionId, 1, 0, 1)
+	reportMeteredUsage(t, ctx, usageService, payer.Address, serviceProvider.Address, startResp.Msg.SessionId, 1, 0, 1)
 
 	resp, err := stream.Receive()
 	require.NoError(t, err)
@@ -214,12 +218,14 @@ func TestConsumerSidecar_ReportUsage_IsDeprecatedForProviderManagedLowFundsFlow(
 
 	config := DefaultTestSetupConfig()
 	config.EscrowAmount = big.NewInt(1)
-	setup, err := env.SetupCustomPaymentParticipantsWithSigner(env.User1, env.User3, config)
+	payer := newFundedTestAccount(t, env)
+	serviceProvider := newFundedTestAccount(t, env)
+	setup, err := env.SetupCustomPaymentParticipantsWithSigner(payer, serviceProvider, config)
 	require.NoError(t, err)
 
 	_, _, shutdownProvider := startPaymentGatewayForTest(t, ":19018", &providergateway.Config{
 		ListenAddr:          ":19018",
-		ServiceProvider:     env.User3.Address,
+		ServiceProvider:     serviceProvider.Address,
 		Domain:              env.Domain(),
 		CollectorAddr:       env.Collector.Address,
 		EscrowAddr:          env.Escrow.Address,
@@ -246,8 +252,8 @@ func TestConsumerSidecar_ReportUsage_IsDeprecatedForProviderManagedLowFundsFlow(
 
 	initResp, err := consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{
 		EscrowAccount: &commonv1.EscrowAccount{
-			Payer:       commonv1.AddressFromEth(env.User1.Address),
-			Receiver:    commonv1.AddressFromEth(env.User3.Address),
+			Payer:       commonv1.AddressFromEth(payer.Address),
+			Receiver:    commonv1.AddressFromEth(serviceProvider.Address),
 			DataService: commonv1.AddressFromEth(env.DataService.Address),
 		},
 		ProviderControlPlaneEndpoint: "http://localhost:19018",
@@ -383,4 +389,22 @@ func startGatewaySession(
 	require.True(t, startResp.Msg.Accepted)
 	require.NotEmpty(t, startResp.Msg.SessionId)
 	return startResp
+}
+
+func newFundedTestAccount(t *testing.T, env *TestEnv) Account {
+	t.Helper()
+
+	privateKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
+
+	account := Account{
+		Address:    privateKey.PublicKey().Address(),
+		PrivateKey: privateKey,
+	}
+
+	amount := big.NewInt(10_000_000_000_000_000)
+	err = sendTransaction(context.Background(), getRPCClient(env), env.Deployer.PrivateKey, env.ChainID, &account.Address, amount, nil)
+	require.NoError(t, err)
+
+	return account
 }

@@ -127,7 +127,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-037 | `not_started` | validation | none | `MVP-014`, `MVP-016` | `A`, `C` | Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs |
 | MVP-038 | `not_started` | protocol | `A2`, `A3` | `MVP-017`, `MVP-031` | `A`, `C` | Remove the deprecated wrapper-era usage-report runtime path and protobuf surfaces once the sidecar-ingress flow is the only supported MVP runtime path |
 | MVP-040 | `done` | runtime-payment | `A2`, `A3` | `MVP-017`, `MVP-031` | `A`, `C` | Make sidecar ingress termination ordering deterministic so provider payment-control stops win over upstream EOF without changing Substreams data-plane semantics |
-| MVP-041 | `not_started` | runtime-payment | `A2`, `A3` | `MVP-031` | `A`, `C` | Define and enforce exact response semantics for provider-originated `RavRequest` handling in the long-lived `PaymentSession` loop |
+| MVP-041 | `done` | runtime-payment | `A2`, `A3` | `MVP-031` | `A`, `C` | Define and enforce exact response semantics for provider-originated `RavRequest` handling in the long-lived `PaymentSession` loop |
 | MVP-039 | `deferred` | provider-integration | `A3`, `A6` | `MVP-008`, `MVP-014`, `MVP-031` | none | Post-MVP only: decouple the private Plugin Gateway and public Provider Gateway via an explicit internal RPC/event boundary and clarified runtime-state ownership |
 
 ## Protocol and Contract Tasks
@@ -498,7 +498,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Implemented in `consumer/sidecar/ingress.go` by coordinating upstream termination with the `PaymentSession` control loop, classifying finite expected EOF separately, and resolving ambiguous upstream EOF/internal-cancel termination against provider control within `payment-session-roundtrip-timeout`.
     - Added focused coverage in `test/integration/consumer_ingress_test.go` for delayed provider stop after upstream end and for prompt finite EOF without teardown-delay regression.
 
-- [ ] MVP-041 Define and enforce exact response semantics for provider-originated `RavRequest` handling in the long-lived `PaymentSession` loop.
+- [x] MVP-041 Define and enforce exact response semantics for provider-originated `RavRequest` handling in the long-lived `PaymentSession` loop.
   - Context:
     - Provider-side metering and the client response to a provider-originated `RavRequest` are asynchronous, so the acceptance rule cannot rely on a moving live usage delta after the provider has already emitted a concrete request.
     - The current runtime loop needs an explicit contract for what a `PaymentSession` RAV submission is answering, especially if usage continues to accrue before the response arrives.
@@ -517,6 +517,11 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Add coverage for a provider-issued `RavRequest` that is answered after additional metering arrives.
     - Add coverage for the chosen exact-vs-greater-than-request policy.
     - Re-run `go test ./test/integration -run 'TestPaymentSession_ProviderRequestsRAVOnUsage|TestPaymentSession_AcceptedRAVResetsThresholdWindow|TestFirecore' -count=1 -v` and confirm the accepted-RAV path remains stable without relying on moving-delta validation.
+  - Implemented:
+    - Provider runtime state now stores the authoritative in-flight `RavRequest` snapshot and validates `PaymentSession` `rav_submission` messages against that exact request rather than a moving live usage delta.
+    - Accepted runtime responses advance the session baseline only to the requested snapshot, then immediately re-evaluate later accrued usage for the next provider-originated request.
+    - Provider-managed runtime requests are now explicit `PaymentSession`-only behavior; unary `SubmitRAV` is documented and enforced as a deprecated legacy/manual surface for non-runtime flows when a live runtime request is outstanding.
+    - Added integration coverage for delayed exact-snapshot acceptance, exact-only rejection of overpaying stream responses, and unary `SubmitRAV` rejection while a live provider-issued request is in flight.
 
 ## Operator Tooling Tasks
 

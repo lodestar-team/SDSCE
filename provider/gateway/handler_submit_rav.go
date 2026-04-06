@@ -12,7 +12,9 @@ import (
 )
 
 // SubmitRAV submits a signed RAV to the provider gateway.
-// Called when the provider requests a new RAV for continued service.
+// Deprecated for provider-managed runtime sessions: live provider-issued
+// rav_request messages must be answered on the bound PaymentSession stream.
+// This unary surface remains only for legacy/manual non-runtime flows.
 func (s *Gateway) SubmitRAV(
 	ctx context.Context,
 	req *connect.Request[providerv1.SubmitRAVRequest],
@@ -40,6 +42,13 @@ func (s *Gateway) SubmitRAV(
 			Accepted:        false,
 			RejectionReason: "session is not active",
 			ShouldContinue:  false,
+		}), nil
+	}
+	if s.runtime.hasPendingRAV(sessionID) {
+		return connect.NewResponse(&providerv1.SubmitRAVResponse{
+			Accepted:        false,
+			RejectionReason: "SubmitRAV is deprecated for provider-managed runtime requests; respond on the bound PaymentSession stream",
+			ShouldContinue:  true,
 		}), nil
 	}
 

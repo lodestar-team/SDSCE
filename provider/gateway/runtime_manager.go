@@ -20,9 +20,9 @@ type runtimeManager struct {
 }
 
 type runtimeSessionState struct {
-	evalMu      sync.Mutex
-	events      chan *providerv1.PaymentSessionResponse
-	awaitingRAV bool
+	evalMu     sync.Mutex
+	events     chan *providerv1.PaymentSessionResponse
+	pendingRAV *pendingRAVRequest
 }
 
 func newRuntimeManager() *runtimeManager {
@@ -72,21 +72,10 @@ func (m *runtimeManager) unbindSession(sessionID string, events chan *providerv1
 	current.events = nil
 }
 
-func (m *runtimeManager) clearAwaitingRAV(sessionID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if current := m.sessions[sessionID]; current != nil {
-		current.awaitingRAV = false
-	}
-}
-
 func (m *runtimeManager) onMeteredUsage(ctx context.Context, gateway *Gateway, sessionID string) error {
-	state := m.ensureSessionState(sessionID)
-	state.evalMu.Lock()
-	defer state.evalMu.Unlock()
-
-	return m.evaluateMeteredUsage(ctx, gateway, sessionID)
+	return m.withSessionEval(sessionID, func(_ *runtimeSessionState) error {
+		return m.evaluateMeteredUsage(ctx, gateway, sessionID)
+	})
 }
 
 func (m *runtimeManager) evaluateMeteredUsage(ctx context.Context, gateway *Gateway, sessionID string) error {
@@ -130,7 +119,7 @@ func (m *runtimeManager) evaluateMeteredUsage(ctx context.Context, gateway *Gate
 		gateway.logger.Info("stopping session due to insufficient funds from metered runtime evaluation",
 			zap.String("session_id", sessionID),
 		)
-		m.dispatch(sessionID, needMoreFundsResponse(session, assessment), false)
+		m.dispatch(sessionID, needMoreFundsResponse(session, assessment), nil)
 		return nil
 	}
 
@@ -138,8 +127,8 @@ func (m *runtimeManager) evaluateMeteredUsage(ctx context.Context, gateway *Gate
 		return nil
 	}
 
-	events, awaiting := m.runtimeState(sessionID)
-	if events == nil || awaiting {
+	events, pending := m.runtimeState(sessionID)
+	if events == nil || pending != nil {
 		return nil
 	}
 
@@ -165,23 +154,23 @@ func (m *runtimeManager) evaluateMeteredUsage(ctx context.Context, gateway *Gate
 		},
 	}
 
-	m.dispatch(sessionID, resp, true)
+	m.dispatch(sessionID, resp, newPendingRAVRequest(session, usage))
 	return nil
 }
 
-func (m *runtimeManager) runtimeState(sessionID string) (chan *providerv1.PaymentSessionResponse, bool) {
+func (m *runtimeManager) runtimeState(sessionID string) (chan *providerv1.PaymentSessionResponse, *pendingRAVRequest) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	current := m.sessions[sessionID]
 	if current == nil {
-		return nil, false
+		return nil, nil
 	}
 
-	return current.events, current.awaitingRAV
+	return current.events, current.pendingRAV.clone()
 }
 
-func (m *runtimeManager) dispatch(sessionID string, resp *providerv1.PaymentSessionResponse, awaitingRAV bool) {
+func (m *runtimeManager) dispatch(sessionID string, resp *providerv1.PaymentSessionResponse, pending *pendingRAVRequest) {
 	if resp == nil {
 		return
 	}
@@ -192,7 +181,7 @@ func (m *runtimeManager) dispatch(sessionID string, resp *providerv1.PaymentSess
 	current := m.sessions[sessionID]
 	if current != nil {
 		events = current.events
-		current.awaitingRAV = awaitingRAV
+		current.pendingRAV = pending.clone()
 	}
 	m.mu.Unlock()
 
@@ -201,6 +190,22 @@ func (m *runtimeManager) dispatch(sessionID string, resp *providerv1.PaymentSess
 	}
 
 	events <- resp
+}
+
+func (m *runtimeManager) hasPendingRAV(sessionID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	current := m.sessions[sessionID]
+	return current != nil && current.pendingRAV != nil
+}
+
+func (m *runtimeManager) withSessionEval(sessionID string, fn func(state *runtimeSessionState) error) error {
+	state := m.ensureSessionState(sessionID)
+	state.evalMu.Lock()
+	defer state.evalMu.Unlock()
+
+	return fn(state)
 }
 
 func (m *runtimeManager) ensureSessionState(sessionID string) *runtimeSessionState {

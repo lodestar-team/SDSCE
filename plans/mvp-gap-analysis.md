@@ -137,6 +137,7 @@ What already exists:
 - basic runtime/session status inspection
 - repository-backed session state foundation
 - provider-originated `rav_request`, `need_more_funds`, and session-control flow over the long-lived `PaymentSession` stream
+- runtime `rav_request` responses are now validated against the exact in-flight request snapshot on `PaymentSession`, while unary `SubmitRAV` remains only as a deprecated legacy/manual surface for non-runtime flows
 
 What is still missing for MVP:
 
@@ -403,7 +404,7 @@ The gap analysis and the backlog now agree that:
 
 - pricing authority is resolved for MVP
 - reconnect/payment-session reuse is not an MVP target
-- the remaining runtime follow-ups before shared-state hardening are deterministic ingress termination ordering and explicit `RavRequest` response semantics
+- the remaining runtime follow-up before shared-state hardening is deterministic full-suite isolation; explicit `RavRequest` response semantics are now implemented
 - the remaining open question is observability
 
 ## Open Questions Carrying Risk

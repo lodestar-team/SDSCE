@@ -5,13 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"strings"
 
 	"connectrpc.com/connect"
+	"github.com/graphprotocol/substreams-data-service/horizon"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
+	"github.com/streamingfast/eth-go"
 	"go.uber.org/zap"
 )
 
@@ -193,70 +194,120 @@ func (s *Gateway) handleRAVSubmission(
 		return stopPaymentSessionResponse("missing signed_rav")
 	}
 
-	signedRAV, err := sidecar.ProtoSignedRAVToHorizon(submission.SignedRav)
-	if err != nil {
-		s.logger.Warn("invalid RAV submission", zap.Error(err))
-		return stopPaymentSessionResponse("invalid RAV")
-	}
+	var (
+		resp       *providerv1.PaymentSessionResponse
+		signedRAV  *horizon.SignedRAV
+		signerAddr eth.Address
+	)
 
-	signerAddr, err := signedRAV.RecoverSigner(s.domain)
-	if err != nil {
-		s.logger.Warn("RAV signature verification failed", zap.Error(err))
-		return stopPaymentSessionResponse("signature verification failed")
-	}
-
-	if !sidecar.AddressesEqual(signedRAV.Message.Payer, session.Payer) {
-		return stopPaymentSessionResponse("RAV payer does not match session")
-	}
-	if !sidecar.AddressesEqual(signedRAV.Message.ServiceProvider, s.serviceProvider) {
-		return stopPaymentSessionResponse("RAV service provider does not match")
-	}
-	if !sidecar.AddressesEqual(signedRAV.Message.DataService, session.DataService) {
-		return stopPaymentSessionResponse("RAV data service does not match session")
-	}
-
-	isAuthorized, err := s.isSignerAuthorized(ctx, session.Payer, signerAddr)
-	if err != nil {
-		s.logger.Warn("authorization check failed", zap.Error(err))
-		return stopPaymentSessionResponse("authorization check failed")
-	}
-	if !isAuthorized {
-		s.logger.Warn("RAV signer not authorized", zap.Stringer("signer", signerAddr))
-		return stopPaymentSessionResponse("signer not authorized")
-	}
-
-	currentRAV := session.CurrentRAV
-	if currentRAV != nil && currentRAV.Message != nil {
-		if signedRAV.Message.ValueAggregate.Cmp(currentRAV.Message.ValueAggregate) < 0 {
-			return stopPaymentSessionResponse("RAV value is less than current RAV")
+	err := s.runtime.withSessionEval(sessionID, func(state *runtimeSessionState) error {
+		pending := state.pendingRAV
+		if pending == nil {
+			resp = stopPaymentSessionResponse("unexpected rav_submission without an in-flight provider rav_request; respond on PaymentSession only")
+			return nil
 		}
+		if submission.Usage == nil {
+			resp = stopPaymentSessionResponse("missing usage for rav_submission")
+			return nil
+		}
+		if !pending.matchesUsage(submission.Usage) {
+			resp = stopPaymentSessionResponse("rav_submission usage does not match the in-flight provider rav_request")
+			return nil
+		}
+
+		var err error
+		signedRAV, err = sidecar.ProtoSignedRAVToHorizon(submission.SignedRav)
+		if err != nil {
+			s.logger.Warn("invalid RAV submission", zap.Error(err))
+			resp = stopPaymentSessionResponse("invalid RAV")
+			return nil
+		}
+
+		signerAddr, err = signedRAV.RecoverSigner(s.domain)
+		if err != nil {
+			s.logger.Warn("RAV signature verification failed", zap.Error(err))
+			resp = stopPaymentSessionResponse("signature verification failed")
+			return nil
+		}
+
+		if !sidecar.AddressesEqual(signedRAV.Message.Payer, session.Payer) {
+			resp = stopPaymentSessionResponse("RAV payer does not match session")
+			return nil
+		}
+		if !sidecar.AddressesEqual(signedRAV.Message.ServiceProvider, s.serviceProvider) {
+			resp = stopPaymentSessionResponse("RAV service provider does not match")
+			return nil
+		}
+		if !sidecar.AddressesEqual(signedRAV.Message.DataService, session.DataService) {
+			resp = stopPaymentSessionResponse("RAV data service does not match session")
+			return nil
+		}
+
+		isAuthorized, err := s.isSignerAuthorized(ctx, session.Payer, signerAddr)
+		if err != nil {
+			s.logger.Warn("authorization check failed", zap.Error(err))
+			resp = stopPaymentSessionResponse("authorization check failed")
+			return nil
+		}
+		if !isAuthorized {
+			s.logger.Warn("RAV signer not authorized", zap.Stringer("signer", signerAddr))
+			resp = stopPaymentSessionResponse("signer not authorized")
+			return nil
+		}
+
+		currentValue := pending.currentRAVValue
+		if signedRAV.Message.ValueAggregate.Cmp(currentValue) < 0 {
+			resp = stopPaymentSessionResponse("RAV value is less than current RAV")
+			return nil
+		}
+		if signedRAV.Message.ValueAggregate.Cmp(pending.targetValue) < 0 {
+			resp = stopPaymentSessionResponse(
+				fmt.Sprintf("RAV underpays usage: want exactly %s (current %s + requested delta %s)", pending.targetValue.String(), currentValue.String(), submission.Usage.Cost.ToBigInt().String()),
+			)
+			return nil
+		}
+		if signedRAV.Message.ValueAggregate.Cmp(pending.targetValue) > 0 {
+			resp = stopPaymentSessionResponse(
+				fmt.Sprintf("RAV overpays in-flight request: want exactly %s, got %s", pending.targetValue.String(), signedRAV.Message.ValueAggregate.String()),
+			)
+			return nil
+		}
+
+		if err := s.repo.SessionUpdateRAVAndBaseline(
+			ctx,
+			sessionID,
+			signedRAV,
+			pending.baselineBlocks,
+			pending.baselineBytes,
+			pending.baselineReqs,
+			pending.baselineCost,
+		); err != nil {
+			s.logger.Warn("failed to update session", zap.String("session_id", sessionID), zap.Error(err))
+			resp = stopPaymentSessionResponse("failed to update session state")
+			return nil
+		}
+
+		state.pendingRAV = nil
+		if err := s.runtime.evaluateMeteredUsage(ctx, s, sessionID); err != nil {
+			s.logger.Warn("failed to re-evaluate metered usage after RAV acceptance", zap.String("session_id", sessionID), zap.Error(err))
+			resp = stopPaymentSessionResponse("failed to refresh runtime payment state")
+			return nil
+		}
+
+		resp = continuePaymentSessionResponse()
+		return nil
+	})
+	if err != nil {
+		s.logger.Warn("failed to serialize payment session RAV handling", zap.String("session_id", sessionID), zap.Error(err))
+		return stopPaymentSessionResponse("failed to coordinate runtime payment state")
 	}
 
-	currentValue := big.NewInt(0)
-	if currentRAV != nil && currentRAV.Message != nil && currentRAV.Message.ValueAggregate != nil {
-		currentValue = currentRAV.Message.ValueAggregate
+	if resp == nil {
+		return continuePaymentSessionResponse()
 	}
-	_, _, _, deltaCost := session.UsageDeltaSinceBaseline()
-	minValue := new(big.Int).Add(currentValue, deltaCost)
-	if signedRAV.Message.ValueAggregate.Cmp(minValue) < 0 {
-		return stopPaymentSessionResponse(
-			fmt.Sprintf("RAV underpays usage: want >= %s (current %s + delta %s)", minValue.String(), currentValue.String(), deltaCost.String()),
-		)
+	if resp.GetSessionControl() == nil || resp.GetSessionControl().GetAction() != providerv1.SessionControl_ACTION_CONTINUE {
+		return resp
 	}
-
-	baselineBlocks := session.BlocksProcessed
-	baselineBytes := session.BytesTransferred
-	baselineReqs := session.Requests
-	baselineCost := big.NewInt(0)
-	if session.TotalCost != nil {
-		baselineCost = new(big.Int).Set(session.TotalCost)
-	}
-	if err := s.repo.SessionUpdateRAVAndBaseline(ctx, sessionID, signedRAV, baselineBlocks, baselineBytes, baselineReqs, baselineCost); err != nil {
-		s.logger.Warn("failed to update session", zap.String("session_id", sessionID), zap.Error(err))
-		return stopPaymentSessionResponse("failed to update session state")
-	}
-
-	s.runtime.clearAwaitingRAV(sessionID)
 
 	s.logger.Info("RAV accepted via stream",
 		zap.String("session_id", sessionID),
@@ -264,7 +315,7 @@ func (s *Gateway) handleRAVSubmission(
 		zap.Stringer("value", signedRAV.Message.ValueAggregate),
 	)
 
-	return continuePaymentSessionResponse()
+	return resp
 }
 
 func (s *Gateway) handleFundsAcknowledgment(

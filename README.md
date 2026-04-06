@@ -270,7 +270,7 @@ Runs alongside the data provider (substreams-tier1) and handles:
 - Escrow balance queries
 - Payment status monitoring
 
-**Usage metering note:** the provider gateway does **not** meter bytes/blocks directly from the Substreams/Firehose stream. In the supported runtime path, authoritative usage comes from the Firehose provider plugin services (`sds://` URI scheme), which feed provider-originated payment/control decisions back through the long-lived `PaymentSession` stream. Legacy `PaymentSession usage_report` handling remains only as deprecated transitional scaffolding and is not part of the intended ingress/runtime flow.
+**Usage metering note:** the provider gateway does **not** meter bytes/blocks directly from the Substreams/Firehose stream. In the supported runtime path, authoritative usage comes from the Firehose provider plugin services (`sds://` URI scheme), which feed provider-originated payment/control decisions back through the long-lived `PaymentSession` stream. Provider-issued runtime `rav_request` messages are answered only on that bound `PaymentSession` stream against the exact requested snapshot. Unary `SubmitRAV` and legacy `PaymentSession usage_report` handling remain only as deprecated transitional/manual surfaces and are not part of the intended ingress/runtime flow.
 
 **Repository Options:**
 

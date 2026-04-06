@@ -707,11 +707,11 @@ func TestSubstreamsFlowWithInsufficientEscrow(t *testing.T) {
 		EscrowAmount:    smallEscrow,
 		ProvisionAmount: DefaultTestSetupConfig().ProvisionAmount,
 	}
-	payer := env.User1
-	serviceProvider := env.User2
-	setup := SetupCustomTestWithSigner(t, env, payer, serviceProvider, config)
-	signerKey := setup.SignerKey
-	signerAddr := setup.SignerAddr
+	participants := SetupIsolatedRuntimeParticipants(t, env, config)
+	payer := participants.Payer
+	serviceProvider := participants.ServiceProvider
+	signerKey := participants.Setup.SignerKey
+	signerAddr := participants.Setup.SignerAddr
 
 	domain := horizon.NewDomain(env.ChainID, env.Collector.Address)
 	collectionID := mustNewCollectionID("0x5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b02")

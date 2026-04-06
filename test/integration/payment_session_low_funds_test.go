@@ -390,21 +390,3 @@ func startGatewaySession(
 	require.NotEmpty(t, startResp.Msg.SessionId)
 	return startResp
 }
-
-func newFundedTestAccount(t *testing.T, env *TestEnv) Account {
-	t.Helper()
-
-	privateKey, err := eth.NewRandomPrivateKey()
-	require.NoError(t, err)
-
-	account := Account{
-		Address:    privateKey.PublicKey().Address(),
-		PrivateKey: privateKey,
-	}
-
-	amount := big.NewInt(10_000_000_000_000_000)
-	err = sendTransaction(context.Background(), getRPCClient(env), env.Deployer.PrivateKey, env.ChainID, &account.Address, amount, nil)
-	require.NoError(t, err)
-
-	return account
-}

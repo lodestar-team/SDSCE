@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	psqlrepo "github.com/graphprotocol/substreams-data-service/provider/repository/psql"
 	"github.com/streamingfast/eth-go"
 	"github.com/streamingfast/eth-go/rpc"
 	"github.com/streamingfast/logging"
@@ -67,6 +68,45 @@ func SetupCustomTestWithSigner(t *testing.T, env *TestEnv, payer, serviceProvide
 	result, err := env.SetupCustomPaymentParticipantsWithSigner(payer, serviceProvider, config)
 	require.NoError(t, err, "Failed to setup custom test with signer")
 	return result
+}
+
+type IsolatedRuntimeParticipants struct {
+	Payer           Account
+	ServiceProvider Account
+	Setup           *TestSetupResult
+}
+
+// Shared demo identities are reserved for tests that intentionally rely on the
+// default demo state. Stateful runtime tests should use fresh isolated
+// participants so escrow/provision mutations cannot leak across suite runs.
+func SetupIsolatedRuntimeParticipants(t *testing.T, env *TestEnv, config *TestSetupConfig) IsolatedRuntimeParticipants {
+	t.Helper()
+
+	config = cloneIntegrationTestSetupConfig(config)
+	payer := newFundedTestAccount(t, env)
+	serviceProvider := newFundedTestAccount(t, env)
+	setup := SetupCustomTestWithSigner(t, env, payer, serviceProvider, config)
+
+	assertEscrowBalanceExact(t, env, payer.Address, serviceProvider.Address, config.EscrowAmount)
+	assertProviderProvisionExact(t, env, serviceProvider.Address, env.DataService.Address, config.ProvisionAmount)
+	assertServiceProviderRegistered(t, env, serviceProvider.Address)
+
+	return IsolatedRuntimeParticipants{
+		Payer:           payer,
+		ServiceProvider: serviceProvider,
+		Setup:           setup,
+	}
+}
+
+func cloneIntegrationTestSetupConfig(config *TestSetupConfig) *TestSetupConfig {
+	if config == nil {
+		config = DefaultTestSetupConfig()
+	}
+
+	return &TestSetupConfig{
+		EscrowAmount:    new(big.Int).Set(config.EscrowAmount),
+		ProvisionAmount: new(big.Int).Set(config.ProvisionAmount),
+	}
 }
 
 // mustNewCollectionID creates a CollectionID from a hex string or panics
@@ -426,9 +466,100 @@ func callDataServiceCollect(env *TestEnv, signedRAV *horizon.SignedRAV, dataServ
 	return delta, nil
 }
 
+func assertEscrowBalanceExact(t *testing.T, env *TestEnv, payer, serviceProvider eth.Address, want *big.Int) {
+	t.Helper()
+
+	balance, err := env.GetEscrowBalance(payer, serviceProvider)
+	require.NoError(t, err, "query escrow balance")
+	require.Equal(t, 0, balance.Cmp(want), "expected exact escrow balance for payer/provider pair")
+}
+
+func assertProviderProvisionExact(t *testing.T, env *TestEnv, serviceProvider, dataService eth.Address, want *big.Int) {
+	t.Helper()
+
+	provision, err := env.GetProviderTokensAvailable(serviceProvider, dataService)
+	require.NoError(t, err, "query provider provision")
+	require.Equal(t, 0, provision.Cmp(want), "expected exact provider provision for service provider/data service pair")
+}
+
+func assertServiceProviderRegistered(t *testing.T, env *TestEnv, serviceProvider eth.Address) {
+	t.Helper()
+
+	registered, err := env.IsServiceProviderRegistered(serviceProvider)
+	require.NoError(t, err, "query provider registration")
+	require.True(t, registered, "expected service provider to be registered")
+}
+
+func assertNoProviderRuntimeEvidenceForParticipants(t *testing.T, ctx context.Context, payer, receiver, dataService eth.Address) {
+	t.Helper()
+
+	require.NotEmpty(t, PostgresTestDSN, "PostgresTestDSN not initialized")
+
+	dbConn, err := psqlrepo.GetConnectionFromDSN(ctx, toPostgresDriverDSN(PostgresTestDSN))
+	require.NoError(t, err, "connect to provider postgres repo")
+	defer dbConn.Close()
+
+	var sessionCount int64
+	err = dbConn.GetContext(ctx, &sessionCount, `
+		SELECT COUNT(*)
+		FROM sessions
+		WHERE payer = $1
+		  AND receiver = $2
+		  AND data_service = $3
+	`, payer.Bytes(), receiver.Bytes(), dataService.Bytes())
+	require.NoError(t, err, "count pre-existing session rows")
+	require.Zero(t, sessionCount, "expected no pre-existing sessions for payer/provider/data service tuple")
+
+	var workerCount int64
+	err = dbConn.GetContext(ctx, &workerCount, `
+		SELECT COUNT(*)
+		FROM workers w
+		JOIN sessions s ON s.id = w.session_id
+		WHERE s.payer = $1
+		  AND s.receiver = $2
+		  AND s.data_service = $3
+	`, payer.Bytes(), receiver.Bytes(), dataService.Bytes())
+	require.NoError(t, err, "count pre-existing worker rows")
+	require.Zero(t, workerCount, "expected no pre-existing workers for payer/provider/data service tuple")
+
+	var usageEventCount int64
+	err = dbConn.GetContext(ctx, &usageEventCount, `
+		SELECT COUNT(*)
+		FROM usage_events u
+		JOIN sessions s ON s.id = u.session_id
+		WHERE s.payer = $1
+		  AND s.receiver = $2
+		  AND s.data_service = $3
+	`, payer.Bytes(), receiver.Bytes(), dataService.Bytes())
+	require.NoError(t, err, "count pre-existing usage event rows")
+	require.Zero(t, usageEventCount, "expected no pre-existing usage events for payer/provider/data service tuple")
+}
+
 // getRPCClient returns the RPC client from the environment (used internally)
 func getRPCClient(env *TestEnv) *rpc.Client {
 	return rpc.NewClient(env.RPCURL)
+}
+
+func newFundedTestAccount(t *testing.T, env *TestEnv) Account {
+	t.Helper()
+
+	privateKey, err := eth.NewRandomPrivateKey()
+	require.NoError(t, err)
+
+	account := Account{
+		Address:    privateKey.PublicKey().Address(),
+		PrivateKey: privateKey,
+	}
+
+	amount := big.NewInt(10_000_000_000_000_000)
+	err = sendTransaction(context.Background(), getRPCClient(env), env.Deployer.PrivateKey, env.ChainID, &account.Address, amount, nil)
+	require.NoError(t, err)
+
+	return account
+}
+
+func toPostgresDriverDSN(dsn string) string {
+	return strings.Replace(dsn, "psql://", "postgres://", 1)
 }
 
 // Helper for CallContract that returns hex string

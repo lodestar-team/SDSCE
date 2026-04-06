@@ -284,13 +284,16 @@ func TestFirecoreStopsStreamOnLowFunds(t *testing.T) {
 
 	ctx := context.Background()
 	env := SetupEnv(t)
-	testStartedAt := time.Now().UTC()
 	dummyBlockchainImage := getDummyBlockchainImage()
 
 	config := DefaultTestSetupConfig()
 	config.EscrowAmount = big.NewInt(1)
-	setup, err := env.SetupCustomPaymentParticipantsWithSigner(env.User2, env.User3, config)
-	require.NoError(t, err, "failed to prepare low-funds payment participants")
+	participants := SetupIsolatedRuntimeParticipants(t, env, config)
+	payer := participants.Payer
+	serviceProvider := participants.ServiceProvider
+	setup := participants.Setup
+	assertNoProviderRuntimeEvidenceForParticipants(t, ctx, payer.Address, serviceProvider.Address, env.DataService.Address)
+	testStartedAt := time.Now().UTC()
 
 	dummyBlockchainContainer, substreamsEndpoint, err := startDummyBlockchainContainerWithOptions(ctx, dummyBlockchainImage, dummyBlockchainOptions{
 		GenesisBlockBurst:   100,
@@ -310,7 +313,7 @@ func TestFirecoreStopsStreamOnLowFunds(t *testing.T) {
 		ctx,
 		"0.0.0.0:19001",
 		"0.0.0.0:19003",
-		env.User3.Address,
+		serviceProvider.Address,
 		env.ChainID,
 		env.Collector.Address,
 		env.Escrow.Address,
@@ -331,13 +334,13 @@ func TestFirecoreStopsStreamOnLowFunds(t *testing.T) {
 	require.NoError(t, waitForGatewayHealth(ctx, "http://localhost:19001/healthz", 30*time.Second), "payment gateway failed to become healthy")
 	require.NoError(t, waitForGatewayHealth(ctx, "http://localhost:19003/healthz", 30*time.Second), "plugin gateway failed to become healthy")
 
-	receiver := env.User3.Address
+	receiver := serviceProvider.Address
 	consumerSidecar := sidecar.New(&sidecar.Config{
 		ListenAddr: ":9002",
 		SignerKey:  setup.SignerKey,
 		Domain:     horizon.NewDomain(env.ChainID, env.Collector.Address),
 		IngressConfig: &sidecar.IngressConfig{
-			Payer:                        env.User2.Address,
+			Payer:                        payer.Address,
 			Receiver:                     &receiver,
 			DataService:                  env.DataService.Address,
 			ProviderControlPlaneEndpoint: "http://localhost:19001",
@@ -368,7 +371,7 @@ func TestFirecoreStopsStreamOnLowFunds(t *testing.T) {
 	require.Error(t, err, "low-funds Firecore run must stop the live stream")
 	require.True(t, isQuotaExceededRuntimeFailure(err), "expected quota/resource exhausted runtime failure, got: %v", err)
 
-	evidence := loadFirecoreEvidenceForParticipants(t, ctx, testStartedAt, env.User2.Address, env.User3.Address, env.DataService.Address)
+	evidence := loadFirecoreEvidenceForParticipants(t, ctx, testStartedAt, payer.Address, serviceProvider.Address, env.DataService.Address)
 	require.NotEmpty(t, evidence.SessionID, "expected a provider session to be created")
 	require.Equal(t, 1, evidence.SessionCount, "expected exactly one low-funds provider session")
 
@@ -941,10 +944,6 @@ func isQuotaExceededRuntimeFailure(err error) bool {
 	return strings.Contains(msg, "Quota exceeded") ||
 		strings.Contains(msg, "ResourceExhausted") ||
 		strings.Contains(msg, "resource exhausted")
-}
-
-func toPostgresDriverDSN(dsn string) string {
-	return strings.Replace(dsn, "psql://", "postgres://", 1)
 }
 
 func dumpContainerLogs(t *testing.T, ctx context.Context, container testcontainers.Container) {

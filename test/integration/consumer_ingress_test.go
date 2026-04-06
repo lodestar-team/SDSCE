@@ -144,8 +144,10 @@ func TestConsumerIngress_StopsStreamOnLowFunds(t *testing.T) {
 
 	config := DefaultTestSetupConfig()
 	config.EscrowAmount = big.NewInt(1)
-	setup, err := env.SetupCustomPaymentParticipantsWithSigner(env.User1, env.User2, config)
-	require.NoError(t, err)
+	participants := SetupIsolatedRuntimeParticipants(t, env, config)
+	payer := participants.Payer
+	serviceProvider := participants.ServiceProvider
+	setup := participants.Setup
 
 	providerAddr := reserveLocalAddress(t)
 	sidecarAddr := reserveLocalAddress(t)
@@ -157,10 +159,10 @@ func TestConsumerIngress_StopsStreamOnLowFunds(t *testing.T) {
 		require.Len(t, sessionIDs, 1, "expected the ingress to propagate a single session id header")
 
 		require.NoError(t, stream.Send(testBlockResponse([]byte("block-1"))))
-		reportMeteredUsage(t, stream.Context(), usageService, env.User1.Address, env.User2.Address, sessionIDs[0], 1, 0, 1)
+		reportMeteredUsage(t, stream.Context(), usageService, payer.Address, serviceProvider.Address, sessionIDs[0], 1, 0, 1)
 
 		require.NoError(t, stream.Send(testBlockResponse([]byte("block-2"))))
-		reportMeteredUsage(t, stream.Context(), usageService, env.User1.Address, env.User2.Address, sessionIDs[0], 1, 0, 1)
+		reportMeteredUsage(t, stream.Context(), usageService, payer.Address, serviceProvider.Address, sessionIDs[0], 1, 0, 1)
 
 		<-stream.Context().Done()
 		return stream.Context().Err()
@@ -170,7 +172,7 @@ func TestConsumerIngress_StopsStreamOnLowFunds(t *testing.T) {
 	repo := repository.NewInMemoryRepository()
 	providerGateway := providergateway.New(&providergateway.Config{
 		ListenAddr:          providerAddr,
-		ServiceProvider:     env.User2.Address,
+		ServiceProvider:     serviceProvider.Address,
 		Domain:              env.Domain(),
 		CollectorAddr:       env.Collector.Address,
 		EscrowAddr:          env.Escrow.Address,
@@ -186,13 +188,13 @@ func TestConsumerIngress_StopsStreamOnLowFunds(t *testing.T) {
 	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)
 
-	receiver := env.User2.Address
+	receiver := serviceProvider.Address
 	consumerSidecar := consumersidecar.New(&consumersidecar.Config{
 		ListenAddr: sidecarAddr,
 		SignerKey:  setup.SignerKey,
 		Domain:     env.Domain(),
 		IngressConfig: &consumersidecar.IngressConfig{
-			Payer:                        env.User1.Address,
+			Payer:                        payer.Address,
 			Receiver:                     &receiver,
 			DataService:                  env.DataService.Address,
 			ProviderControlPlaneEndpoint: httpEndpoint(providerAddr),
@@ -327,8 +329,10 @@ func TestConsumerIngress_ResolvesAmbiguousEOFWithDelayedProviderStop(t *testing.
 
 	config := DefaultTestSetupConfig()
 	config.EscrowAmount = big.NewInt(1)
-	setup, err := env.SetupCustomPaymentParticipantsWithSigner(env.User3, env.ServiceProvider, config)
-	require.NoError(t, err)
+	participants := SetupIsolatedRuntimeParticipants(t, env, config)
+	payer := participants.Payer
+	serviceProvider := participants.ServiceProvider
+	setup := participants.Setup
 
 	providerAddr := reserveLocalAddress(t)
 	sidecarAddr := reserveLocalAddress(t)
@@ -354,7 +358,7 @@ func TestConsumerIngress_ResolvesAmbiguousEOFWithDelayedProviderStop(t *testing.
 	repo := repository.NewInMemoryRepository()
 	providerGateway := providergateway.New(&providergateway.Config{
 		ListenAddr:          providerAddr,
-		ServiceProvider:     env.ServiceProvider.Address,
+		ServiceProvider:     serviceProvider.Address,
 		Domain:              env.Domain(),
 		CollectorAddr:       env.Collector.Address,
 		EscrowAddr:          env.Escrow.Address,
@@ -370,14 +374,14 @@ func TestConsumerIngress_ResolvesAmbiguousEOFWithDelayedProviderStop(t *testing.
 	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)
 
-	receiver := env.ServiceProvider.Address
+	receiver := serviceProvider.Address
 	consumerSidecar := consumersidecar.New(&consumersidecar.Config{
 		ListenAddr:                     sidecarAddr,
 		SignerKey:                      setup.SignerKey,
 		Domain:                         env.Domain(),
 		PaymentSessionRoundtripTimeout: 750 * time.Millisecond,
 		IngressConfig: &consumersidecar.IngressConfig{
-			Payer:                        env.User3.Address,
+			Payer:                        payer.Address,
 			Receiver:                     &receiver,
 			DataService:                  env.DataService.Address,
 			ProviderControlPlaneEndpoint: httpEndpoint(providerAddr),
@@ -406,7 +410,7 @@ func TestConsumerIngress_ResolvesAmbiguousEOFWithDelayedProviderStop(t *testing.
 	require.NoError(t, err)
 
 	sessionID := <-sessionIDCh
-	usageErrCh := reportMeteredUsageAsync(ctx, usageService, env.User3.Address, env.ServiceProvider.Address, sessionID, 2, 0, 2, 75*time.Millisecond)
+	usageErrCh := reportMeteredUsageAsync(ctx, usageService, payer.Address, serviceProvider.Address, sessionID, 2, 0, 2, 75*time.Millisecond)
 
 	_, err = stream.Recv()
 	require.Error(t, err)

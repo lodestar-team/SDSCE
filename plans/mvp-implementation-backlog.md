@@ -124,7 +124,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-034 | `done` | validation | none | none | none | Fix repository PostgreSQL tests so migrations resolve from repo-relative state rather than a machine-specific absolute path |
 | MVP-035 | `done` | validation | none | none | none | Make integration devenv startup resilient to local fixed-port collisions so the shared test environment is reproducible |
 | MVP-036 | `not_started` | operations | `A5` | `MVP-014` | `A`, `G` | Publish refreshed upstream `firehose-core` and `dummy-blockchain` images built against the current SDS plugin/runtime contract so default integration paths no longer rely on local override tags |
-| MVP-037 | `not_started` | validation | none | `MVP-014`, `MVP-016` | `A`, `C` | Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs |
+| MVP-037 | `done` | validation | none | `MVP-014`, `MVP-016` | `A`, `C` | Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs |
 | MVP-038 | `not_started` | protocol | `A2`, `A3` | `MVP-017`, `MVP-031` | `A`, `C` | Remove the deprecated wrapper-era usage-report runtime path and protobuf surfaces once the sidecar-ingress flow is the only supported MVP runtime path |
 | MVP-040 | `done` | runtime-payment | `A2`, `A3` | `MVP-017`, `MVP-031` | `A`, `C` | Make sidecar ingress termination ordering deterministic so provider payment-control stops win over upstream EOF without changing Substreams data-plane semantics |
 | MVP-041 | `done` | runtime-payment | `A2`, `A3` | `MVP-031` | `A`, `C` | Define and enforce exact response semantics for provider-originated `RavRequest` handling in the long-lived `PaymentSession` loop |
@@ -714,17 +714,17 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - Verify:
     - Run `go test ./test/integration/...` with the default local port already occupied and confirm startup either succeeds using the supported fallback/override path or fails fast with a clear, actionable configuration message.
 
-- [ ] MVP-037 Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs.
+- [x] MVP-037 Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs.
   - Context:
     - `MVP-014` introduced the heavier real-path Firecore acceptance harness, and `MVP-016` extends that harness with a real low-funds stream-stop scenario.
     - These tests are intentionally closer to a natural provider/runtime environment than typical unit-style integration tests: they boot the local chain/contracts, provider payment gateway, plugin gateway, consumer sidecar, Postgres, and dummy-blockchain/firecore together.
-    - The current integration suite still shares one devenv/chain state across multiple tests, so helpers like `SetupCustomPaymentParticipantsWithSigner` can accumulate escrow/provision state for reused payer/provider pairs and make low-funds assertions order-dependent.
+    - The integration suite still shares one devenv/chain state across tests, so MVP-037 standardizes on strictly unique on-chain payer/provider identities per stateful runtime scenario rather than snapshot/restore or per-test environment resets.
   - Assumptions:
     - none
   - Done when:
     - The real-path Firecore and consumer low-funds tests no longer rely on mutable shared payer/provider state across suite runs.
     - Full `go test ./test/integration/...` runs are deterministic with respect to escrow/provision setup for the low-funds scenarios used by `MVP-014` and `MVP-016`.
-    - The repo documents whether those tests use per-test fresh chain state, snapshot/restore isolation, or strictly unique on-chain identities per scenario.
+    - The repo documents that the chosen isolation model is strictly unique on-chain identities per stateful runtime scenario, with explicit pre-state guards rather than snapshot/restore.
   - Verify:
     - Run the affected low-funds and Firecore tests both in isolation and as part of a broader `./test/integration/...` run and confirm they produce the same result.
     - Add an assertion or helper-level guard that proves the expected pre-test escrow state before the behavioral assertion is evaluated.

@@ -46,7 +46,7 @@ Validation infrastructure is also healthier than before:
 The biggest remaining MVP gaps are now:
 
 - provider collection lifecycle persistence and inspection/collection APIs
-- refreshed published firecore/dummy-blockchain images plus deterministic full-suite runtime validation
+- refreshed published firecore/dummy-blockchain images
 - operator funding and collection tooling
 - authenticated admin/operator surfaces
 - finalized observability floor
@@ -57,7 +57,7 @@ The biggest remaining MVP gaps are now:
 | --- | --- | --- |
 | A. Discovery to paid streaming | `partial` | The sidecar ingress, provider-originated payment loop, and compatibility contract are documented, but refreshed published firecore/dummy-blockchain images still remain |
 | B. Fresh session after interruption | `partial` | Fresh-session semantics are implemented in the init contract, but broader real-path interruption validation still remains |
-| C. Low funds during streaming | `partial` | Session-local low-funds stop behavior now reaches both the real sidecar ingress path and the local-first Firecore runtime path, but deterministic full-suite hardening and refreshed published images still remain |
+| C. Low funds during streaming | `partial` | Session-local low-funds stop behavior now reaches both the real sidecar ingress path and the local-first Firecore runtime path, but refreshed published images still remain |
 | D. Provider restart without losing collectible state | `partial` | Provider persistence is no longer purely in-memory because PostgreSQL support exists, but collectible/collection lifecycle tracking is still incomplete |
 | E. Manual funding flow | `partial` | Demo-oriented setup/funding helpers exist, but real operator-grade funding CLI flows do not |
 | F. Manual collection flow | `missing` | RAV tooling exists, but provider-backed settlement inspection and collect workflow are not implemented |
@@ -109,7 +109,7 @@ What already exists:
 What is still missing for MVP:
 
 - broader Substreams compatibility validation remains, including final runtime/acceptance convergence around the sidecar ingress as the default entrypoint
-- some real-path acceptance still depends on the Firecore/runtime compatibility caveats tracked separately under `MVP-036` and `MVP-037`
+- some real-path acceptance still depends on the Firecore/runtime compatibility caveat tracked separately under `MVP-036`
 
 ### Provider Gateway
 
@@ -192,7 +192,7 @@ What already exists:
 Notes:
 
 - Oracle governance remains deployment-managed internal config for MVP; no writable admin API is required yet.
-- Standalone oracle service plus consumer-side oracle discovery are now both implemented, and scenario A remains partial only because of the remaining runtime compatibility/published-image work tracked under `MVP-030`, `MVP-036`, and `MVP-037`.
+- Standalone oracle service plus consumer-side oracle discovery are now both implemented, and scenario A remains partial only because of the remaining runtime compatibility/published-image work tracked under `MVP-030` and `MVP-036`.
 
 ### Provider Persistence
 
@@ -265,7 +265,7 @@ What already exists:
 
 Notes:
 
-- Shared-state integration flakiness still remains in the full-suite lane and is tracked separately under `MVP-037`.
+- Shared-state interference in the low-funds/runtime lane is now addressed by using fresh on-chain identities plus explicit pre-state guards for stateful runtime scenarios rather than snapshot/restore.
 
 ### Funding CLI
 
@@ -372,7 +372,6 @@ Oracle, consumer ingress, and runtime compatibility:
 Provider runtime hardening and cleanup:
 
 - `MVP-041`
-- `MVP-037`
 - `MVP-038`
 
 Persistence and settlement:
@@ -404,7 +403,7 @@ The gap analysis and the backlog now agree that:
 
 - pricing authority is resolved for MVP
 - reconnect/payment-session reuse is not an MVP target
-- the remaining runtime follow-up before shared-state hardening is deterministic full-suite isolation; explicit `RavRequest` response semantics are now implemented
+- shared-state runtime hardening now relies on isolated per-test payer/provider identities with explicit pre-state guards; explicit `RavRequest` response semantics are now implemented
 - the remaining open question is observability
 
 ## Open Questions Carrying Risk

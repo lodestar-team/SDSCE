@@ -42,7 +42,7 @@ var consumerSidecarCmd = Command(
 		flags.Bool("plaintext", false, "Serve plaintext h2c instead of TLS (local/demo only)")
 		flags.String("tls-cert-file", "", "Path to the TLS certificate PEM file")
 		flags.String("tls-key-file", "", "Path to the TLS private key PEM file")
-		flags.Duration("payment-session-roundtrip-timeout", 30*time.Second, "Timeout for a PaymentSession request/response roundtrip with the provider gateway")
+		flags.Duration("payment-session-roundtrip-timeout", 30*time.Second, "Timeout for a PaymentSession request/response roundtrip with the provider gateway and for resolving ambiguous ingress EOF against provider control")
 	}),
 )
 

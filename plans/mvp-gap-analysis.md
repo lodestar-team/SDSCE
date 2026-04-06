@@ -370,7 +370,6 @@ Oracle, consumer ingress, and runtime compatibility:
 
 Provider runtime hardening and cleanup:
 
-- `MVP-040`
 - `MVP-041`
 - `MVP-037`
 - `MVP-038`

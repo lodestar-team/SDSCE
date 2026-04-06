@@ -3,10 +3,12 @@ package sidecar
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
 	"sync"
+	"time"
 
 	sds "github.com/graphprotocol/substreams-data-service"
 	"github.com/graphprotocol/substreams-data-service/horizon"
@@ -46,39 +48,124 @@ type ingressV4Server struct {
 	sidecar *Sidecar
 }
 
-type ingressStopState struct {
+type ingressControlResultKind uint8
+
+const (
+	ingressControlResultNone ingressControlResultKind = iota
+	ingressControlResultSemanticStop
+	ingressControlResultControlFailure
+	ingressControlResultCanceled
+)
+
+type ingressControlResult struct {
+	kind ingressControlResultKind
+	err  error
+}
+
+type ingressTerminationCoordinator struct {
 	cancel context.CancelFunc
 
-	mu   sync.Mutex
-	err  error
-	done bool
+	mu     sync.Mutex
+	result ingressControlResult
 }
 
-func newIngressStopState(cancel context.CancelFunc) *ingressStopState {
-	return &ingressStopState{cancel: cancel}
+type ingressStreamProgress struct {
+	sawBlock     bool
+	highestBlock uint64
 }
 
-func (s *ingressStopState) set(err error) {
+func newIngressTerminationCoordinator(cancel context.CancelFunc) *ingressTerminationCoordinator {
+	return &ingressTerminationCoordinator{cancel: cancel}
+}
+
+func (c *ingressTerminationCoordinator) setResult(kind ingressControlResultKind, err error, cancelRuntime bool) {
 	if err == nil {
 		return
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	if s.done {
+	if c.result.kind != ingressControlResultNone {
 		return
 	}
 
-	s.err = err
-	s.done = true
-	s.cancel()
+	c.result = ingressControlResult{
+		kind: kind,
+		err:  err,
+	}
+	if cancelRuntime {
+		c.cancel()
+	}
 }
 
-func (s *ingressStopState) errValue() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.err
+func (c *ingressTerminationCoordinator) setSemanticStop(err error) {
+	c.setResult(ingressControlResultSemanticStop, err, true)
+}
+
+func (c *ingressTerminationCoordinator) setControlFailure(err error) {
+	c.setResult(ingressControlResultControlFailure, err, true)
+}
+
+func (c *ingressTerminationCoordinator) setCanceled() {
+	c.setResult(ingressControlResultCanceled, context.Canceled, false)
+}
+
+func (c *ingressTerminationCoordinator) currentResult() ingressControlResult {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.result
+}
+
+func (c *ingressTerminationCoordinator) currentError() error {
+	return c.currentResult().err
+}
+
+func (p *ingressStreamProgress) noteBlock(blockNum uint64) {
+	if !p.sawBlock || blockNum > p.highestBlock {
+		p.highestBlock = blockNum
+	}
+	p.sawBlock = true
+}
+
+func (p *ingressStreamProgress) observeV2(resp *pbsubstreamsrpcv2.Response) {
+	if resp == nil {
+		return
+	}
+
+	if data := resp.GetBlockScopedData(); data != nil && data.GetClock() != nil {
+		p.noteBlock(data.GetClock().GetNumber())
+	}
+
+	if undo := resp.GetBlockUndoSignal(); undo != nil && undo.GetLastValidBlock() != nil {
+		p.noteBlock(undo.GetLastValidBlock().GetNumber())
+	}
+}
+
+func (p *ingressStreamProgress) observeV4(resp *pbsubstreamsrpcv4.Response) {
+	if resp == nil {
+		return
+	}
+
+	if batch := resp.GetBlockScopedDatas(); batch != nil {
+		for _, item := range batch.GetItems() {
+			if item != nil && item.GetClock() != nil {
+				p.noteBlock(item.GetClock().GetNumber())
+			}
+		}
+	}
+
+	if undo := resp.GetBlockUndoSignal(); undo != nil && undo.GetLastValidBlock() != nil {
+		p.noteBlock(undo.GetLastValidBlock().GetNumber())
+	}
+}
+
+func (p *ingressStreamProgress) expectedEOF(stopBlockNum uint64) bool {
+	if stopBlockNum == 0 || !p.sawBlock {
+		return false
+	}
+
+	return p.highestBlock+1 >= stopBlockNum
 }
 
 func (s *ingressEndpointInfoServer) Info(context.Context, *pbfirehose.InfoRequest) (*pbfirehose.InfoResponse, error) {
@@ -164,12 +251,12 @@ func (s *Sidecar) proxyV2Stream(
 	req *pbsubstreamsrpcv2.Request,
 	input sessionBootstrapInput,
 ) error {
-	runtimeCtx, bootstrap, stopState, controlDone, cancel, cleanup, err := s.prepareIngressRuntime(stream.Context(), input)
+	runtimeCtx, bootstrap, coordinator, controlDone, cancel, cleanup, err := s.prepareIngressRuntime(stream.Context(), input)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	defer s.finishIngressRuntime(bootstrap.LocalSession.ID, stopState, cancel, controlDone)
+	defer s.finishIngressRuntime(bootstrap.LocalSession.ID, cancel, controlDone)
 
 	upstreamConn, closeConn, callOpts, headers, err := newUpstreamStreamConn(bootstrap.DataPlaneEndpoint)
 	if err != nil {
@@ -187,24 +274,18 @@ func (s *Sidecar) proxyV2Stream(
 		return status.Errorf(codes.Unavailable, "open upstream Blocks stream: %v", err)
 	}
 
+	progress := &ingressStreamProgress{}
+
 	for {
 		resp, err := upstream.Recv()
-		if err == io.EOF {
-			if stopErr := stopState.errValue(); stopErr != nil {
-				return stopErr
-			}
-			return nil
-		}
 		if err != nil {
-			if stopErr := stopState.errValue(); stopErr != nil {
-				return stopErr
-			}
-			return err
+			return s.resolveIngressStreamTermination(stream.Context(), runtimeCtx, err, progress.expectedEOF(req.GetStopBlockNum()), coordinator, controlDone)
 		}
 
 		if err := stream.Send(resp); err != nil {
 			return err
 		}
+		progress.observeV2(resp)
 	}
 }
 
@@ -213,12 +294,12 @@ func (s *Sidecar) proxyV3Stream(
 	req *pbsubstreamsrpcv3.Request,
 	input sessionBootstrapInput,
 ) error {
-	runtimeCtx, bootstrap, stopState, controlDone, cancel, cleanup, err := s.prepareIngressRuntime(stream.Context(), input)
+	runtimeCtx, bootstrap, coordinator, controlDone, cancel, cleanup, err := s.prepareIngressRuntime(stream.Context(), input)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	defer s.finishIngressRuntime(bootstrap.LocalSession.ID, stopState, cancel, controlDone)
+	defer s.finishIngressRuntime(bootstrap.LocalSession.ID, cancel, controlDone)
 
 	upstreamConn, closeConn, callOpts, headers, err := newUpstreamStreamConn(bootstrap.DataPlaneEndpoint)
 	if err != nil {
@@ -236,24 +317,18 @@ func (s *Sidecar) proxyV3Stream(
 		return status.Errorf(codes.Unavailable, "open upstream Blocks stream: %v", err)
 	}
 
+	progress := &ingressStreamProgress{}
+
 	for {
 		resp, err := upstream.Recv()
-		if err == io.EOF {
-			if stopErr := stopState.errValue(); stopErr != nil {
-				return stopErr
-			}
-			return nil
-		}
 		if err != nil {
-			if stopErr := stopState.errValue(); stopErr != nil {
-				return stopErr
-			}
-			return err
+			return s.resolveIngressStreamTermination(stream.Context(), runtimeCtx, err, progress.expectedEOF(req.GetStopBlockNum()), coordinator, controlDone)
 		}
 
 		if err := stream.Send(resp); err != nil {
 			return err
 		}
+		progress.observeV2(resp)
 	}
 }
 
@@ -262,12 +337,12 @@ func (s *Sidecar) proxyV4Stream(
 	req *pbsubstreamsrpcv3.Request,
 	input sessionBootstrapInput,
 ) error {
-	runtimeCtx, bootstrap, stopState, controlDone, cancel, cleanup, err := s.prepareIngressRuntime(stream.Context(), input)
+	runtimeCtx, bootstrap, coordinator, controlDone, cancel, cleanup, err := s.prepareIngressRuntime(stream.Context(), input)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	defer s.finishIngressRuntime(bootstrap.LocalSession.ID, stopState, cancel, controlDone)
+	defer s.finishIngressRuntime(bootstrap.LocalSession.ID, cancel, controlDone)
 
 	upstreamConn, closeConn, callOpts, headers, err := newUpstreamStreamConn(bootstrap.DataPlaneEndpoint)
 	if err != nil {
@@ -285,70 +360,64 @@ func (s *Sidecar) proxyV4Stream(
 		return status.Errorf(codes.Unavailable, "open upstream Blocks stream: %v", err)
 	}
 
+	progress := &ingressStreamProgress{}
+
 	for {
 		resp, err := upstream.Recv()
-		if err == io.EOF {
-			if stopErr := stopState.errValue(); stopErr != nil {
-				return stopErr
-			}
-			return nil
-		}
 		if err != nil {
-			if stopErr := stopState.errValue(); stopErr != nil {
-				return stopErr
-			}
-			return err
+			return s.resolveIngressStreamTermination(stream.Context(), runtimeCtx, err, progress.expectedEOF(req.GetStopBlockNum()), coordinator, controlDone)
 		}
 
 		if err := stream.Send(resp); err != nil {
 			return err
 		}
+		progress.observeV4(resp)
 	}
 }
 
 func (s *Sidecar) prepareIngressRuntime(
 	ctx context.Context,
 	input sessionBootstrapInput,
-) (context.Context, *sessionBootstrapResult, *ingressStopState, chan struct{}, context.CancelFunc, func(), error) {
+) (context.Context, *sessionBootstrapResult, *ingressTerminationCoordinator, chan struct{}, context.CancelFunc, func(), error) {
 	bootstrap, err := s.bootstrapManagedSession(ctx, input)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, err
 	}
 
 	runtimeCtx, cancel := context.WithCancel(ctx)
-	stopState := newIngressStopState(cancel)
+	coordinator := newIngressTerminationCoordinator(cancel)
 	controlDone := make(chan struct{})
 
-	go s.runIngressPaymentControl(runtimeCtx, bootstrap.LocalSession, stopState, controlDone)
+	go s.runIngressPaymentControl(runtimeCtx, bootstrap.LocalSession, coordinator, controlDone)
 
 	cleanup := func() {
 		s.paymentSessions.Close(bootstrap.LocalSession.ID)
 	}
 
-	return runtimeCtx, bootstrap, stopState, controlDone, cancel, cleanup, nil
+	return runtimeCtx, bootstrap, coordinator, controlDone, cancel, cleanup, nil
 }
 
 func (s *Sidecar) runIngressPaymentControl(
 	ctx context.Context,
 	session *sidecarlib.Session,
-	stopState *ingressStopState,
+	coordinator *ingressTerminationCoordinator,
 	done chan struct{},
 ) {
 	defer close(done)
 
 	if session == nil {
-		stopState.set(status.Error(codes.Internal, "consumer ingress session is required"))
+		coordinator.setControlFailure(status.Error(codes.Internal, "consumer ingress session is required"))
 		return
 	}
 
 	client := s.paymentSessions.Get(session.ID)
 	if client == nil {
-		stopState.set(status.Error(codes.Unavailable, "provider payment session client is not configured"))
+		coordinator.setControlFailure(status.Error(codes.Unavailable, "provider payment session client is not configured"))
 		return
 	}
 
 	if err := client.BindSession(session.ID); err != nil {
-		stopState.set(status.Errorf(codes.Unavailable, "bind provider payment session: %v", err))
+		coordinator.setControlFailure(status.Errorf(codes.Unavailable, "bind provider payment session: %v", err))
 		return
 	}
 
@@ -358,9 +427,10 @@ func (s *Sidecar) runIngressPaymentControl(
 		msg, err := client.Receive(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
+				coordinator.setCanceled()
 				return
 			}
-			stopState.set(status.Errorf(codes.Unavailable, "receive provider payment control: %v", err))
+			coordinator.setControlFailure(status.Errorf(codes.Unavailable, "receive provider payment control: %v", err))
 			return
 		}
 		if msg == nil {
@@ -370,7 +440,7 @@ func (s *Sidecar) runIngressPaymentControl(
 		if ravReq := msg.GetRavRequest(); ravReq != nil {
 			signed, err := s.signRAVForRequest(session, ravReq)
 			if err != nil {
-				stopState.set(status.Errorf(codes.Internal, "sign RAV for provider request: %v", err))
+				coordinator.setControlFailure(status.Errorf(codes.Internal, "sign RAV for provider request: %v", err))
 				return
 			}
 
@@ -383,7 +453,7 @@ func (s *Sidecar) runIngressPaymentControl(
 			}
 
 			if err := client.SendRAVSubmission(session.ID, signed, ravReq.GetUsage()); err != nil {
-				stopState.set(status.Errorf(codes.Unavailable, "submit RAV on provider payment session: %v", err))
+				coordinator.setControlFailure(status.Errorf(codes.Unavailable, "submit RAV on provider payment session: %v", err))
 				return
 			}
 
@@ -397,7 +467,7 @@ func (s *Sidecar) runIngressPaymentControl(
 				minimumValue := minimum.ToNative()
 				reason = fmt.Sprintf("need more funds (minimum needed %s)", minimumValue.String())
 			}
-			stopState.set(status.Error(codes.ResourceExhausted, reason))
+			coordinator.setSemanticStop(status.Error(codes.ResourceExhausted, reason))
 			return
 		}
 
@@ -414,7 +484,7 @@ func (s *Sidecar) runIngressPaymentControl(
 			if reason == "" {
 				reason = "provider ended stream"
 			}
-			stopState.set(status.Error(codes.ResourceExhausted, reason))
+			coordinator.setSemanticStop(status.Error(codes.ResourceExhausted, reason))
 			return
 		}
 	}
@@ -422,13 +492,78 @@ func (s *Sidecar) runIngressPaymentControl(
 
 func (s *Sidecar) finishIngressRuntime(
 	sessionID string,
-	stopState *ingressStopState,
 	cancel context.CancelFunc,
 	controlDone chan struct{},
 ) {
 	cancel()
 	<-controlDone
 	s.sessions.Delete(sessionID)
+}
+
+func (s *Sidecar) resolveIngressStreamTermination(
+	clientCtx context.Context,
+	runtimeCtx context.Context,
+	upstreamErr error,
+	expectedEOF bool,
+	coordinator *ingressTerminationCoordinator,
+	controlDone <-chan struct{},
+) error {
+	if resultErr := coordinator.currentError(); resultErr != nil {
+		return resultErr
+	}
+
+	if errors.Is(upstreamErr, io.EOF) {
+		if expectedEOF {
+			return nil
+		}
+
+		return s.awaitAmbiguousIngressTerminationResolution(clientCtx, coordinator, controlDone)
+	}
+
+	if clientCtx.Err() == nil && runtimeCtx.Err() != nil {
+		return s.awaitAmbiguousIngressTerminationResolution(clientCtx, coordinator, controlDone)
+	}
+
+	if resultErr := coordinator.currentError(); resultErr != nil {
+		return resultErr
+	}
+
+	if !errors.Is(upstreamErr, io.EOF) {
+		return upstreamErr
+	}
+
+	return nil
+}
+
+func (s *Sidecar) awaitAmbiguousIngressTerminationResolution(
+	clientCtx context.Context,
+	coordinator *ingressTerminationCoordinator,
+	controlDone <-chan struct{},
+) error {
+	if resultErr := coordinator.currentError(); resultErr != nil {
+		return resultErr
+	}
+
+	timer := time.NewTimer(s.paymentSessionRoundtripTimeout)
+	defer timer.Stop()
+
+	select {
+	case <-clientCtx.Done():
+		if resultErr := coordinator.currentError(); resultErr != nil {
+			return resultErr
+		}
+		return clientCtx.Err()
+	case <-controlDone:
+		if resultErr := coordinator.currentError(); resultErr != nil {
+			return resultErr
+		}
+		return status.Error(codes.Unavailable, "upstream Substreams stream terminated before provider payment control resolved the session")
+	case <-timer.C:
+		if resultErr := coordinator.currentError(); resultErr != nil {
+			return resultErr
+		}
+		return status.Errorf(codes.Unavailable, "upstream Substreams stream terminated before provider payment control resolved the session within %s", s.paymentSessionRoundtripTimeout)
+	}
 }
 
 func newUpstreamStreamConn(endpoint string) (*grpc.ClientConn, func() error, []grpc.CallOption, ssclient.Headers, error) {

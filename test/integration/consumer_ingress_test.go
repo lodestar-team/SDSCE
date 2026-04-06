@@ -9,15 +9,18 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	sds "github.com/graphprotocol/substreams-data-service"
 	consumersidecar "github.com/graphprotocol/substreams-data-service/consumer/sidecar"
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/graphprotocol/substreams-data-service/horizon/devenv"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
+	usagev1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/usage/v1"
 	providergateway "github.com/graphprotocol/substreams-data-service/provider/gateway"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	providerusage "github.com/graphprotocol/substreams-data-service/provider/usage"
 	sidecarlib "github.com/graphprotocol/substreams-data-service/sidecar"
+	"github.com/streamingfast/eth-go"
 	ssclient "github.com/streamingfast/substreams/client"
 	pbsubstreamsrpcv2 "github.com/streamingfast/substreams/pb/sf/substreams/rpc/v2"
 	pbsubstreamsrpcv3 "github.com/streamingfast/substreams/pb/sf/substreams/rpc/v3"
@@ -29,6 +32,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestConsumerIngress_UsesOracleSelectedProviderReceiver(t *testing.T) {
@@ -233,6 +237,184 @@ func TestConsumerIngress_StopsStreamOnLowFunds(t *testing.T) {
 	}, 5*time.Second, 100*time.Millisecond, "expected provider session to terminate on low funds")
 }
 
+func TestConsumerIngress_FiniteEOFReturnsPromptlyWithoutControlStop(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	env := devenv.Get()
+	require.NotNil(t, env, "devenv not started")
+
+	setup, err := env.SetupTestWithSigner(nil)
+	require.NoError(t, err)
+
+	providerAddr := reserveLocalAddress(t)
+	sidecarAddr := reserveLocalAddress(t)
+
+	upstreamEndpoint, _, shutdownUpstream := startFakeSubstreamsV3Server(t, func(_ *pbsubstreamsrpcv3.Request, stream grpc.ServerStreamingServer[pbsubstreamsrpcv2.Response]) error {
+		require.NoError(t, stream.Send(testBlockResponseAt(0, []byte("finite-block"))))
+		return nil
+	})
+	defer shutdownUpstream()
+
+	repo := repository.NewInMemoryRepository()
+	providerGateway := providergateway.New(&providergateway.Config{
+		ListenAddr:          providerAddr,
+		ServiceProvider:     env.ServiceProvider.Address,
+		Domain:              env.Domain(),
+		CollectorAddr:       env.Collector.Address,
+		EscrowAddr:          env.Escrow.Address,
+		RPCEndpoint:         env.RPCURL,
+		DataPlaneEndpoint:   upstreamEndpoint,
+		PricingConfig:       deterministicPricingConfig(),
+		RAVRequestThreshold: deterministicPricingConfig().PricePerBlock,
+		TransportConfig:     sidecarlib.ServerTransportConfig{Plaintext: true},
+		Repository:          repo,
+	}, zlog.Named("provider"))
+	go providerGateway.Run()
+	defer providerGateway.Shutdown(nil)
+	time.Sleep(100 * time.Millisecond)
+
+	receiver := env.ServiceProvider.Address
+	consumerSidecar := consumersidecar.New(&consumersidecar.Config{
+		ListenAddr:                     sidecarAddr,
+		SignerKey:                      setup.SignerKey,
+		Domain:                         env.Domain(),
+		PaymentSessionRoundtripTimeout: 2 * time.Second,
+		IngressConfig: &consumersidecar.IngressConfig{
+			Payer:                        env.Payer.Address,
+			Receiver:                     &receiver,
+			DataService:                  env.DataService.Address,
+			ProviderControlPlaneEndpoint: httpEndpoint(providerAddr),
+		},
+		TransportConfig: sidecarlib.ServerTransportConfig{Plaintext: true},
+	}, zlog.Named("consumer"))
+	go consumerSidecar.Run()
+	defer consumerSidecar.Shutdown(nil)
+
+	require.NoError(t, waitForSidecarHealth(ctx, httpEndpoint(sidecarAddr)+"/healthz", 10*time.Second))
+
+	conn, closeConn := dialSubstreamsGRPC(t, httpEndpoint(sidecarAddr))
+	defer closeConn()
+
+	stream, err := pbsubstreamsrpcv3.NewStreamClient(conn).Blocks(ctx, &pbsubstreamsrpcv3.Request{
+		StartBlockNum: 0,
+		StopBlockNum:  1,
+		OutputModule:  "map_clocks",
+		Package:       &pbsubstreams.Package{Network: "mainnet"},
+	})
+	require.NoError(t, err)
+
+	resp, err := stream.Recv()
+	require.NoError(t, err)
+	require.Equal(t, []byte("finite-block"), resp.GetBlockScopedData().GetOutput().GetMapOutput().GetValue())
+
+	start := time.Now()
+	_, err = stream.Recv()
+	require.ErrorIs(t, err, io.EOF)
+	require.Less(t, time.Since(start), time.Second, "finite EOF should not wait for the ingress control-resolution timeout")
+}
+
+func TestConsumerIngress_ResolvesAmbiguousEOFWithDelayedProviderStop(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	env := devenv.Get()
+	require.NotNil(t, env, "devenv not started")
+
+	config := DefaultTestSetupConfig()
+	config.EscrowAmount = big.NewInt(1)
+	setup, err := env.SetupCustomPaymentParticipantsWithSigner(env.User3, env.ServiceProvider, config)
+	require.NoError(t, err)
+
+	providerAddr := reserveLocalAddress(t)
+	sidecarAddr := reserveLocalAddress(t)
+	var usageService *providerusage.UsageService
+
+	sessionIDCh := make(chan string, 1)
+	upstreamEndpoint, _, shutdownUpstream := startFakeSubstreamsV3Server(t, func(_ *pbsubstreamsrpcv3.Request, stream grpc.ServerStreamingServer[pbsubstreamsrpcv2.Response]) error {
+		md, _ := metadata.FromIncomingContext(stream.Context())
+		sessionIDs := md.Get(sds.HeaderSessionID)
+		require.Len(t, sessionIDs, 1, "expected the ingress to propagate a single session id header")
+
+		select {
+		case sessionIDCh <- sessionIDs[0]:
+		default:
+		}
+
+		require.NoError(t, stream.Send(testBlockResponseAt(0, []byte("block-1"))))
+		require.NoError(t, stream.Send(testBlockResponseAt(1, []byte("block-2"))))
+		return nil
+	})
+	defer shutdownUpstream()
+
+	repo := repository.NewInMemoryRepository()
+	providerGateway := providergateway.New(&providergateway.Config{
+		ListenAddr:          providerAddr,
+		ServiceProvider:     env.ServiceProvider.Address,
+		Domain:              env.Domain(),
+		CollectorAddr:       env.Collector.Address,
+		EscrowAddr:          env.Escrow.Address,
+		RPCEndpoint:         env.RPCURL,
+		DataPlaneEndpoint:   upstreamEndpoint,
+		PricingConfig:       deterministicPricingConfig(),
+		RAVRequestThreshold: deterministicPricingConfig().PricePerBlock,
+		TransportConfig:     sidecarlib.ServerTransportConfig{Plaintext: true},
+		Repository:          repo,
+	}, zlog.Named("provider"))
+	usageService = providerusage.NewUsageService(repo, deterministicRepositoryPricingConfig(), providerGateway)
+	go providerGateway.Run()
+	defer providerGateway.Shutdown(nil)
+	time.Sleep(100 * time.Millisecond)
+
+	receiver := env.ServiceProvider.Address
+	consumerSidecar := consumersidecar.New(&consumersidecar.Config{
+		ListenAddr:                     sidecarAddr,
+		SignerKey:                      setup.SignerKey,
+		Domain:                         env.Domain(),
+		PaymentSessionRoundtripTimeout: 750 * time.Millisecond,
+		IngressConfig: &consumersidecar.IngressConfig{
+			Payer:                        env.User3.Address,
+			Receiver:                     &receiver,
+			DataService:                  env.DataService.Address,
+			ProviderControlPlaneEndpoint: httpEndpoint(providerAddr),
+		},
+		TransportConfig: sidecarlib.ServerTransportConfig{Plaintext: true},
+	}, zlog.Named("consumer"))
+	go consumerSidecar.Run()
+	defer consumerSidecar.Shutdown(nil)
+
+	require.NoError(t, waitForSidecarHealth(ctx, httpEndpoint(sidecarAddr)+"/healthz", 10*time.Second))
+
+	conn, closeConn := dialSubstreamsGRPC(t, httpEndpoint(sidecarAddr))
+	defer closeConn()
+
+	stream, err := pbsubstreamsrpcv3.NewStreamClient(conn).Blocks(ctx, &pbsubstreamsrpcv3.Request{
+		StartBlockNum: 0,
+		StopBlockNum:  100,
+		OutputModule:  "map_clocks",
+		Package:       &pbsubstreams.Package{Network: "mainnet"},
+	})
+	require.NoError(t, err)
+
+	_, err = stream.Recv()
+	require.NoError(t, err)
+	_, err = stream.Recv()
+	require.NoError(t, err)
+
+	sessionID := <-sessionIDCh
+	usageErrCh := reportMeteredUsageAsync(ctx, usageService, env.User3.Address, env.ServiceProvider.Address, sessionID, 2, 0, 2, 75*time.Millisecond)
+
+	_, err = stream.Recv()
+	require.Error(t, err)
+	require.Equal(t, codes.ResourceExhausted, status.Code(err))
+	require.Contains(t, err.Error(), "need more funds")
+	require.NoError(t, <-usageErrCh)
+}
+
 type fakeSubstreamsV3Server struct {
 	pbsubstreamsrpcv3.UnimplementedStreamServer
 
@@ -302,6 +484,10 @@ func dialSubstreamsGRPC(t *testing.T, endpoint string) (*grpc.ClientConn, func()
 }
 
 func testBlockResponse(payload []byte) *pbsubstreamsrpcv2.Response {
+	return testBlockResponseAt(0, payload)
+}
+
+func testBlockResponseAt(blockNum uint64, payload []byte) *pbsubstreamsrpcv2.Response {
 	return &pbsubstreamsrpcv2.Response{
 		Message: &pbsubstreamsrpcv2.Response_BlockScopedData{
 			BlockScopedData: &pbsubstreamsrpcv2.BlockScopedData{
@@ -309,10 +495,52 @@ func testBlockResponse(payload []byte) *pbsubstreamsrpcv2.Response {
 					Name:      "map_clocks",
 					MapOutput: &anypb.Any{Value: payload},
 				},
+				Clock:  &pbsubstreams.Clock{Number: blockNum},
 				Cursor: "cursor:1",
 			},
 		},
 	}
+}
+
+func reportMeteredUsageAsync(
+	ctx context.Context,
+	usageService *providerusage.UsageService,
+	payer eth.Address,
+	provider eth.Address,
+	sessionID string,
+	blocks int64,
+	bytes int64,
+	requests int64,
+	delay time.Duration,
+) <-chan error {
+	errCh := make(chan error, 1)
+
+	go func() {
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+
+		_, err := usageService.Report(ctx, connect.NewRequest(&usagev1.ReportRequest{
+			Events: []*usagev1.Event{
+				{
+					OrganizationId: payer.Pretty(),
+					SdsSessionId:   sessionID,
+					Provider:       provider.Pretty(),
+					Endpoint:       "sf.substreams.rpc.v3/Blocks",
+					Network:        "mainnet",
+					Metrics: []*usagev1.Metric{
+						{Name: "blocks_count", Value: blocks},
+						{Name: "bytes_count", Value: bytes},
+						{Name: "requests_count", Value: requests},
+					},
+					Timestamp: timestamppb.Now(),
+				},
+			},
+		}))
+		errCh <- err
+	}()
+
+	return errCh
 }
 
 func reserveLocalAddress(t *testing.T) string {

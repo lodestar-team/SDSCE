@@ -126,7 +126,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-036 | `not_started` | operations | `A5` | `MVP-014` | `A`, `G` | Publish refreshed upstream `firehose-core` and `dummy-blockchain` images built against the current SDS plugin/runtime contract so default integration paths no longer rely on local override tags |
 | MVP-037 | `not_started` | validation | none | `MVP-014`, `MVP-016` | `A`, `C` | Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs |
 | MVP-038 | `not_started` | protocol | `A2`, `A3` | `MVP-017`, `MVP-031` | `A`, `C` | Remove the deprecated wrapper-era usage-report runtime path and protobuf surfaces once the sidecar-ingress flow is the only supported MVP runtime path |
-| MVP-040 | `not_started` | runtime-payment | `A2`, `A3` | `MVP-017`, `MVP-031` | `A`, `C` | Make sidecar ingress termination ordering deterministic so provider payment-control stops win over upstream EOF without changing Substreams data-plane semantics |
+| MVP-040 | `done` | runtime-payment | `A2`, `A3` | `MVP-017`, `MVP-031` | `A`, `C` | Make sidecar ingress termination ordering deterministic so provider payment-control stops win over upstream EOF without changing Substreams data-plane semantics |
 | MVP-041 | `not_started` | runtime-payment | `A2`, `A3` | `MVP-031` | `A`, `C` | Define and enforce exact response semantics for provider-originated `RavRequest` handling in the long-lived `PaymentSession` loop |
 | MVP-039 | `deferred` | provider-integration | `A3`, `A6` | `MVP-008`, `MVP-014`, `MVP-031` | none | Post-MVP only: decouple the private Plugin Gateway and public Provider Gateway via an explicit internal RPC/event boundary and clarified runtime-state ownership |
 
@@ -479,7 +479,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - `go test ./test/integration -run 'TestConsumerIngress_UsesOracleSelectedProviderReceiver|TestConsumerIngress_StopsStreamOnLowFunds' -count=1 -v` passes.
     - `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-local go test ./test/integration -run 'TestFirecore|TestFirecoreStopsStreamOnLowFunds' -count=1 -v` passes against the rebuilt local runtime image path, demonstrating provider-originated runtime control during live streaming without an external usage-report loop.
 
-- [ ] MVP-040 Make sidecar ingress termination ordering deterministic so provider payment-control stops win over upstream EOF without changing Substreams data-plane semantics.
+- [x] MVP-040 Make sidecar ingress termination ordering deterministic so provider payment-control stops win over upstream EOF without changing Substreams data-plane semantics.
   - Context:
     - The consumer ingress must preserve Substreams-compatible data-plane behavior, so the fix cannot rely on injecting SDS-specific terminal metadata into the proxied Substreams stream.
     - The current runtime path still has a lifecycle race between the upstream data-plane stream ending and the provider `PaymentSession` loop delivering a terminal payment-control decision.
@@ -495,6 +495,8 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Add focused coverage for the ordering case where the upstream stream ends first and the terminal provider payment-control decision arrives shortly after.
     - Confirm normal successful EOF does not pay an unnecessary fixed teardown delay.
     - Re-run `go test ./test/integration -run 'TestConsumerIngress_StopsStreamOnLowFunds|TestFirecoreStopsStreamOnLowFunds' -count=1 -v` and confirm the terminal client-visible error is sourced from provider payment-control semantics rather than a transport race.
+    - Implemented in `consumer/sidecar/ingress.go` by coordinating upstream termination with the `PaymentSession` control loop, classifying finite expected EOF separately, and resolving ambiguous upstream EOF/internal-cancel termination against provider control within `payment-session-roundtrip-timeout`.
+    - Added focused coverage in `test/integration/consumer_ingress_test.go` for delayed provider stop after upstream end and for prompt finite EOF without teardown-delay regression.
 
 - [ ] MVP-041 Define and enforce exact response semantics for provider-originated `RavRequest` handling in the long-lived `PaymentSession` loop.
   - Context:

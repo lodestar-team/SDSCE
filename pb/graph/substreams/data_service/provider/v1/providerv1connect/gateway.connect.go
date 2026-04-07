@@ -58,7 +58,9 @@ type PaymentGatewayServiceClient interface {
 	// tooling and demo/integration flows.
 	GetSessionStatus(context.Context, *connect.Request[v1.GetSessionStatusRequest]) (*connect.Response[v1.GetSessionStatusResponse], error)
 	// SubmitRAV submits a signed RAV to the provider gateway.
-	// Called when the provider requests a new RAV for continued service.
+	// Deprecated for provider-managed runtime sessions: live provider-issued
+	// rav_request messages must be answered on the bound PaymentSession stream.
+	// This unary RPC remains only for legacy/manual non-runtime flows.
 	SubmitRAV(context.Context, *connect.Request[v1.SubmitRAVRequest]) (*connect.Response[v1.SubmitRAVResponse], error)
 	// PaymentSession is a bidirectional stream for ongoing payment negotiation.
 	// This allows the provider gateway to request RAVs and notify about
@@ -146,7 +148,9 @@ type PaymentGatewayServiceHandler interface {
 	// tooling and demo/integration flows.
 	GetSessionStatus(context.Context, *connect.Request[v1.GetSessionStatusRequest]) (*connect.Response[v1.GetSessionStatusResponse], error)
 	// SubmitRAV submits a signed RAV to the provider gateway.
-	// Called when the provider requests a new RAV for continued service.
+	// Deprecated for provider-managed runtime sessions: live provider-issued
+	// rav_request messages must be answered on the bound PaymentSession stream.
+	// This unary RPC remains only for legacy/manual non-runtime flows.
 	SubmitRAV(context.Context, *connect.Request[v1.SubmitRAVRequest]) (*connect.Response[v1.SubmitRAVResponse], error)
 	// PaymentSession is a bidirectional stream for ongoing payment negotiation.
 	// This allows the provider gateway to request RAVs and notify about

@@ -8,8 +8,6 @@ import (
 	"math/big"
 	"net/http"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -49,11 +47,6 @@ const (
 type dummyBlockchainOptions struct {
 	GenesisBlockBurst   int
 	SessionPluginConfig string
-}
-
-type sdsSinkRunOptions struct {
-	ReportInterval time.Duration
-	Timeout        time.Duration
 }
 
 type firecoreProviderStack struct {
@@ -698,112 +691,6 @@ func waitForGatewayHealth(ctx context.Context, healthURL string, timeout time.Du
 			)
 		}
 	}
-}
-
-// runSDSSink executes the sds sink run command with the specified parameters
-func runSDSSink(
-	ctx context.Context,
-	manifest string,
-	module string,
-	endpoint string,
-	payerAddress string,
-	receiverAddress string,
-	dataServiceAddress string,
-	startBlock int64,
-	stopBlock uint64,
-) error {
-	return runSDSSinkWithOptions(ctx, manifest, module, endpoint, payerAddress, receiverAddress, dataServiceAddress, startBlock, stopBlock, sdsSinkRunOptions{})
-}
-
-func runSDSSinkWithOptions(
-	ctx context.Context,
-	manifest string,
-	module string,
-	endpoint string,
-	payerAddress string,
-	receiverAddress string,
-	dataServiceAddress string,
-	startBlock int64,
-	stopBlock uint64,
-	opts sdsSinkRunOptions,
-) error {
-	_, err := runSDSSinkCommand(ctx, manifest, module, endpoint, payerAddress, receiverAddress, dataServiceAddress, startBlock, stopBlock, opts)
-	return err
-}
-
-func runSDSSinkCommand(
-	ctx context.Context,
-	manifest string,
-	module string,
-	endpoint string,
-	payerAddress string,
-	receiverAddress string,
-	dataServiceAddress string,
-	startBlock int64,
-	stopBlock uint64,
-	opts sdsSinkRunOptions,
-) (string, error) {
-	args := []string{
-		"run",
-		"./cmd/sds",
-		"sink", "run",
-		manifest,
-		module,
-		"--endpoint=" + endpoint,
-		"--plaintext",
-		"--provider-control-plane-endpoint=http://localhost:19001",
-		"--consumer-sidecar-addr=http://localhost:9002",
-		"--payer-address=" + payerAddress,
-		"--receiver-address=" + receiverAddress,
-		"--data-service-address=" + dataServiceAddress,
-		fmt.Sprintf("--start-block=%d", startBlock),
-		fmt.Sprintf("--stop-block=%d", stopBlock),
-	}
-	if opts.ReportInterval > 0 {
-		args = append(args, "--report-interval="+opts.ReportInterval.String())
-	}
-
-	firecoreLog.Info("running sds sink command",
-		zap.String("manifest", manifest),
-		zap.String("module", module),
-		zap.String("endpoint", endpoint),
-		zap.Int64("start_block", startBlock),
-		zap.Uint64("stop_block", stopBlock),
-	)
-
-	// Create a context with timeout for the sink execution
-	timeout := opts.Timeout
-	if timeout <= 0 {
-		timeout = 2 * time.Minute
-	}
-	sinkCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	// Get the repository root
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("failed to get working directory: %w", err)
-	}
-	repoRoot := filepath.Join(cwd, "..", "..")
-
-	cmd := exec.CommandContext(sinkCtx, "go", args...)
-	cmd.Dir = repoRoot
-
-	// Capture output
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		firecoreLog.Error("sds sink command failed",
-			zap.Error(err),
-			zap.String("output", string(output)),
-		)
-		return string(output), fmt.Errorf("sds sink failed: %w\nOutput: %s", err, string(output))
-	}
-
-	firecoreLog.Info("sds sink command completed successfully",
-		zap.String("output", string(output)),
-	)
-
-	return string(output), nil
 }
 
 type firecoreSessionEvidence struct {

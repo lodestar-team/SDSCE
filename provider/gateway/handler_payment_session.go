@@ -139,8 +139,6 @@ func (s *Gateway) PaymentSession(
 				resp = s.handleRAVSubmission(ctx, sessionID, session, m.RavSubmission)
 			case *providerv1.PaymentSessionRequest_FundsAck:
 				resp = s.handleFundsAcknowledgment(sessionID, m.FundsAck)
-			case *providerv1.PaymentSessionRequest_UsageReport:
-				resp = stopPaymentSessionResponse("usage_report is deprecated for provider-managed runtime sessions")
 			default:
 				resp = stopPaymentSessionResponse("unknown payment session message")
 			}

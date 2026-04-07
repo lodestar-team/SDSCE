@@ -90,10 +90,10 @@ Oracle-backed ingress requires a client/request path that sends Substreams v3/v4
 
 For Substreams CLI installation and upgrade instructions, use the official docs: <https://docs.substreams.dev/how-to-guides/installing-the-cli>
 
-We have `devel/sds_sink` helper that can be used to sink in data service mode (invokes `sds sink ...` configured for development environment):
+Use the normal Substreams CLI against the consumer sidecar ingress for local SDS flows:
 
 ```bash
-sds_sink run common@v0.1.0 map_clocks -s -1
+substreams gui common@v0.1.0 map_clocks -e localhost:9002 --plaintext --network mainnet -s 0 -t +20
 ```
 
 ### Development Environment
@@ -270,7 +270,7 @@ Runs alongside the data provider (substreams-tier1) and handles:
 - Escrow balance queries
 - Payment status monitoring
 
-**Usage metering note:** the provider gateway does **not** meter bytes/blocks directly from the Substreams/Firehose stream. In the supported runtime path, authoritative usage comes from the Firehose provider plugin services (`sds://` URI scheme), which feed provider-originated payment/control decisions back through the long-lived `PaymentSession` stream. Provider-issued runtime `rav_request` messages are answered only on that bound `PaymentSession` stream against the exact requested snapshot. Unary `SubmitRAV` and legacy `PaymentSession usage_report` handling remain only as deprecated transitional/manual surfaces and are not part of the intended ingress/runtime flow.
+**Usage metering note:** the provider gateway does **not** meter bytes/blocks directly from the Substreams/Firehose stream. In the supported runtime path, authoritative usage comes from the Firehose provider plugin services (`sds://` URI scheme), which feed provider-originated payment/control decisions back through the long-lived `PaymentSession` stream. Provider-issued runtime `rav_request` messages are answered only on that bound `PaymentSession` stream against the exact requested snapshot. Unary `SubmitRAV` remains a deprecated manual surface and is not part of the intended ingress/runtime flow.
 
 **Repository Options:**
 

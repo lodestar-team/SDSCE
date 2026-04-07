@@ -36,9 +36,6 @@ const (
 	// ConsumerSidecarServiceInitProcedure is the fully-qualified name of the ConsumerSidecarService's
 	// Init RPC.
 	ConsumerSidecarServiceInitProcedure = "/graph.substreams.data_service.consumer.v1.ConsumerSidecarService/Init"
-	// ConsumerSidecarServiceReportUsageProcedure is the fully-qualified name of the
-	// ConsumerSidecarService's ReportUsage RPC.
-	ConsumerSidecarServiceReportUsageProcedure = "/graph.substreams.data_service.consumer.v1.ConsumerSidecarService/ReportUsage"
 	// ConsumerSidecarServiceEndSessionProcedure is the fully-qualified name of the
 	// ConsumerSidecarService's EndSession RPC.
 	ConsumerSidecarServiceEndSessionProcedure = "/graph.substreams.data_service.consumer.v1.ConsumerSidecarService/EndSession"
@@ -51,9 +48,6 @@ type ConsumerSidecarServiceClient interface {
 	// Called by substreams before connecting to a provider.
 	// Returns the initial RAV to use for authentication.
 	Init(context.Context, *connect.Request[v1.InitRequest]) (*connect.Response[v1.InitResponse], error)
-	// ReportUsage reports usage received from the provider.
-	// Called by substreams as data is received during streaming.
-	ReportUsage(context.Context, *connect.Request[v1.ReportUsageRequest]) (*connect.Response[v1.ReportUsageResponse], error)
 	// EndSession ends the current session and reports final usage.
 	// Called by substreams when the stream ends.
 	EndSession(context.Context, *connect.Request[v1.EndSessionRequest]) (*connect.Response[v1.EndSessionResponse], error)
@@ -77,12 +71,6 @@ func NewConsumerSidecarServiceClient(httpClient connect.HTTPClient, baseURL stri
 			connect.WithSchema(consumerSidecarServiceMethods.ByName("Init")),
 			connect.WithClientOptions(opts...),
 		),
-		reportUsage: connect.NewClient[v1.ReportUsageRequest, v1.ReportUsageResponse](
-			httpClient,
-			baseURL+ConsumerSidecarServiceReportUsageProcedure,
-			connect.WithSchema(consumerSidecarServiceMethods.ByName("ReportUsage")),
-			connect.WithClientOptions(opts...),
-		),
 		endSession: connect.NewClient[v1.EndSessionRequest, v1.EndSessionResponse](
 			httpClient,
 			baseURL+ConsumerSidecarServiceEndSessionProcedure,
@@ -94,19 +82,13 @@ func NewConsumerSidecarServiceClient(httpClient connect.HTTPClient, baseURL stri
 
 // consumerSidecarServiceClient implements ConsumerSidecarServiceClient.
 type consumerSidecarServiceClient struct {
-	init        *connect.Client[v1.InitRequest, v1.InitResponse]
-	reportUsage *connect.Client[v1.ReportUsageRequest, v1.ReportUsageResponse]
-	endSession  *connect.Client[v1.EndSessionRequest, v1.EndSessionResponse]
+	init       *connect.Client[v1.InitRequest, v1.InitResponse]
+	endSession *connect.Client[v1.EndSessionRequest, v1.EndSessionResponse]
 }
 
 // Init calls graph.substreams.data_service.consumer.v1.ConsumerSidecarService.Init.
 func (c *consumerSidecarServiceClient) Init(ctx context.Context, req *connect.Request[v1.InitRequest]) (*connect.Response[v1.InitResponse], error) {
 	return c.init.CallUnary(ctx, req)
-}
-
-// ReportUsage calls graph.substreams.data_service.consumer.v1.ConsumerSidecarService.ReportUsage.
-func (c *consumerSidecarServiceClient) ReportUsage(ctx context.Context, req *connect.Request[v1.ReportUsageRequest]) (*connect.Response[v1.ReportUsageResponse], error) {
-	return c.reportUsage.CallUnary(ctx, req)
 }
 
 // EndSession calls graph.substreams.data_service.consumer.v1.ConsumerSidecarService.EndSession.
@@ -121,9 +103,6 @@ type ConsumerSidecarServiceHandler interface {
 	// Called by substreams before connecting to a provider.
 	// Returns the initial RAV to use for authentication.
 	Init(context.Context, *connect.Request[v1.InitRequest]) (*connect.Response[v1.InitResponse], error)
-	// ReportUsage reports usage received from the provider.
-	// Called by substreams as data is received during streaming.
-	ReportUsage(context.Context, *connect.Request[v1.ReportUsageRequest]) (*connect.Response[v1.ReportUsageResponse], error)
 	// EndSession ends the current session and reports final usage.
 	// Called by substreams when the stream ends.
 	EndSession(context.Context, *connect.Request[v1.EndSessionRequest]) (*connect.Response[v1.EndSessionResponse], error)
@@ -142,12 +121,6 @@ func NewConsumerSidecarServiceHandler(svc ConsumerSidecarServiceHandler, opts ..
 		connect.WithSchema(consumerSidecarServiceMethods.ByName("Init")),
 		connect.WithHandlerOptions(opts...),
 	)
-	consumerSidecarServiceReportUsageHandler := connect.NewUnaryHandler(
-		ConsumerSidecarServiceReportUsageProcedure,
-		svc.ReportUsage,
-		connect.WithSchema(consumerSidecarServiceMethods.ByName("ReportUsage")),
-		connect.WithHandlerOptions(opts...),
-	)
 	consumerSidecarServiceEndSessionHandler := connect.NewUnaryHandler(
 		ConsumerSidecarServiceEndSessionProcedure,
 		svc.EndSession,
@@ -158,8 +131,6 @@ func NewConsumerSidecarServiceHandler(svc ConsumerSidecarServiceHandler, opts ..
 		switch r.URL.Path {
 		case ConsumerSidecarServiceInitProcedure:
 			consumerSidecarServiceInitHandler.ServeHTTP(w, r)
-		case ConsumerSidecarServiceReportUsageProcedure:
-			consumerSidecarServiceReportUsageHandler.ServeHTTP(w, r)
 		case ConsumerSidecarServiceEndSessionProcedure:
 			consumerSidecarServiceEndSessionHandler.ServeHTTP(w, r)
 		default:
@@ -173,10 +144,6 @@ type UnimplementedConsumerSidecarServiceHandler struct{}
 
 func (UnimplementedConsumerSidecarServiceHandler) Init(context.Context, *connect.Request[v1.InitRequest]) (*connect.Response[v1.InitResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("graph.substreams.data_service.consumer.v1.ConsumerSidecarService.Init is not implemented"))
-}
-
-func (UnimplementedConsumerSidecarServiceHandler) ReportUsage(context.Context, *connect.Request[v1.ReportUsageRequest]) (*connect.Response[v1.ReportUsageResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("graph.substreams.data_service.consumer.v1.ConsumerSidecarService.ReportUsage is not implemented"))
 }
 
 func (UnimplementedConsumerSidecarServiceHandler) EndSession(context.Context, *connect.Request[v1.EndSessionRequest]) (*connect.Response[v1.EndSessionResponse], error) {

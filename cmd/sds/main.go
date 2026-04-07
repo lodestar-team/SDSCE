@@ -22,13 +22,11 @@ func main() {
 		OnCommandErrorLogAndExit(zlog),
 
 		devenvCmd,
-		sinkGroup,
 
 		Group(
 			"demo",
 			"Demo helpers (local/dev only)",
 			demoSetupCmd,
-			demoFlowCmd,
 		),
 
 		Group(

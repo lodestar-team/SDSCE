@@ -61,7 +61,7 @@ However, the current repo does not yet constitute the MVP. Major remaining gaps 
 - TLS-by-default rollout outside local/dev usage
 - finalization of observability scope
 
-Legacy wrapper-era runtime RPCs remain in-tree only as deprecated transitional surfaces and are not part of the intended MVP runtime architecture.
+The legacy wrapper-era runtime usage-report flow is removed. The remaining manual `Init` / `EndSession` RPCs are not part of the intended MVP runtime architecture.
 
 See `plans/mvp-gap-analysis.md` for a detailed status map.
 

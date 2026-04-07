@@ -15,10 +15,6 @@ service ConsumerSidecarService {
   // Returns the initial RAV to use for authentication.
   rpc Init(InitRequest) returns (InitResponse);
 
-  // ReportUsage reports usage received from the provider.
-  // Called by substreams as data is received during streaming.
-  rpc ReportUsage(ReportUsageRequest) returns (ReportUsageResponse);
-
   // EndSession ends the current session and reports final usage.
   // Called by substreams when the stream ends.
   rpc EndSession(EndSessionRequest) returns (EndSessionResponse);
@@ -47,22 +43,6 @@ message InitResponse {
   common.v1.SignedRAV payment_rav = 2;
   // The session-specific data-plane endpoint returned by the provider handshake.
   string data_plane_endpoint = 3;
-}
-
-message ReportUsageRequest {
-  // The session ID
-  string session_id = 1;
-  // The usage to report
-  common.v1.Usage usage = 2;
-}
-
-message ReportUsageResponse {
-  // Updated RAV if a new one was negotiated
-  common.v1.SignedRAV updated_rav = 1;
-  // Whether the session should continue
-  bool should_continue = 2;
-  // If should_continue is false, the reason for stopping
-  string stop_reason = 3;
 }
 
 message EndSessionRequest {

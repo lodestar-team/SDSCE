@@ -3,18 +3,13 @@ package integration
 import (
 	"context"
 	"math/big"
-	"net/http"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
 	sds "github.com/graphprotocol/substreams-data-service"
-	consumersidecar "github.com/graphprotocol/substreams-data-service/consumer/sidecar"
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/graphprotocol/substreams-data-service/horizon/devenv"
-	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
-	consumerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1"
-	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1/consumerv1connect"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	providergateway "github.com/graphprotocol/substreams-data-service/provider/gateway"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
@@ -186,66 +181,4 @@ func TestPaymentSession_AcceptedRAVResetsThresholdWindow(t *testing.T) {
 
 	require.NoError(t, stream.CloseRequest())
 	_ = stream.CloseResponse()
-}
-
-func TestConsumerSidecar_ReportUsage_IsDeprecatedForProviderManagedThresholdFlow(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	ctx := context.Background()
-	env := devenv.Get()
-	require.NotNil(t, env, "devenv not started")
-
-	setup, err := env.SetupTestWithSigner(nil)
-	require.NoError(t, err)
-
-	_, _, shutdownProvider := startPaymentGatewayForTest(t, ":19023", &providergateway.Config{
-		ListenAddr:          ":19023",
-		ServiceProvider:     env.ServiceProvider.Address,
-		Domain:              env.Domain(),
-		CollectorAddr:       env.Collector.Address,
-		EscrowAddr:          env.Escrow.Address,
-		RPCEndpoint:         env.RPCURL,
-		PricingConfig:       deterministicPricingConfig(),
-		RAVRequestThreshold: sds.NewGRTFromUint64(2),
-		DataPlaneEndpoint:   "substreams.provider.example:443",
-		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
-		Repository:          repository.NewInMemoryRepository(),
-	})
-	defer shutdownProvider()
-
-	consumerSidecar := consumersidecar.New(&consumersidecar.Config{
-		ListenAddr:      ":19024",
-		SignerKey:       setup.SignerKey,
-		Domain:          env.Domain(),
-		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
-	}, zlog.Named("consumer"))
-	go consumerSidecar.Run()
-	defer consumerSidecar.Shutdown(nil)
-	time.Sleep(100 * time.Millisecond)
-
-	consumerClient := consumerv1connect.NewConsumerSidecarServiceClient(http.DefaultClient, "http://localhost:19024")
-
-	initResp, err := consumerClient.Init(ctx, connect.NewRequest(&consumerv1.InitRequest{
-		EscrowAccount: &commonv1.EscrowAccount{
-			Payer:       commonv1.AddressFromEth(env.Payer.Address),
-			Receiver:    commonv1.AddressFromEth(env.ServiceProvider.Address),
-			DataService: commonv1.AddressFromEth(env.DataService.Address),
-		},
-		ProviderControlPlaneEndpoint: "http://localhost:19023",
-	}))
-	require.NoError(t, err)
-
-	_, err = consumerClient.ReportUsage(ctx, connect.NewRequest(&consumerv1.ReportUsageRequest{
-		SessionId: initResp.Msg.GetSession().GetSessionId(),
-		Usage: &commonv1.Usage{
-			BlocksProcessed:  1,
-			BytesTransferred: 0,
-			Requests:         1,
-		},
-	}))
-	require.Error(t, err)
-	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
-	require.Contains(t, err.Error(), "deprecated for provider-managed sessions")
 }

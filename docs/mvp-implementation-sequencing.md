@@ -176,6 +176,8 @@ Notes:
   - Current status: the sidecar coordinates upstream termination with the provider `PaymentSession` control loop so semantic low-funds stops win over ambiguous upstream EOF or internal runtime cancellation, while finite successful EOF remains prompt.
 - `MVP-037` is now complete.
   - Current status: stateful runtime tests that depend on exact escrow/provision behavior now use fresh payer/provider identities plus explicit pre-state guards, and the Firecore/Postgres-backed low-funds path asserts zero pre-existing provider-runtime evidence for the test tuple before execution.
+- `MVP-038` is now complete.
+  - Current status: the deprecated consumer `ReportUsage` RPC, provider `PaymentSession usage_report` branch, and wrapper-only `sds sink run` / `sds demo flow` CLI paths are removed, leaving the consumer sidecar ingress as the only supported runtime entrypoint.
 
 ### Lane C: Provider State, Settlement, And Operator Retrieval
 

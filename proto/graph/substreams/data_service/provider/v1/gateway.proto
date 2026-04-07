@@ -96,8 +96,6 @@ message PaymentSessionRequest {
     SignedRAVSubmission rav_submission = 1;
     // Acknowledgment of a funds request
     FundsAcknowledgment funds_ack = 2;
-    // Usage report from the consumer side
-    UsageReport usage_report = 3;
   }
 }
 
@@ -127,11 +125,6 @@ message FundsAcknowledgment {
   bool will_deposit = 1;
   // Expected deposit amount in GRT
   common.v1.GRT deposit_amount = 2;
-}
-
-message UsageReport {
-  // Reported usage
-  common.v1.Usage usage = 1;
 }
 
 message RAVRequest {

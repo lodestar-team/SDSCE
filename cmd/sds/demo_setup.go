@@ -86,12 +86,8 @@ func runDemoSetup(cmd *cobra.Command, args []string) error {
 		env.Collector.Address.Pretty(),
 	)
 	fmt.Printf("\n")
-	fmt.Printf("  Demo flow:\n")
-	fmt.Printf("    sds demo flow --payer-address %s --receiver-address %s --data-service-address %s --provider-control-plane-endpoint http://localhost:9001 --consumer-sidecar-addr http://localhost:9002\n",
-		env.Payer.Address.Pretty(),
-		env.ServiceProvider.Address.Pretty(),
-		env.DataService.Address.Pretty(),
-	)
+	fmt.Printf("  Substreams ingress example:\n")
+	fmt.Printf("    substreams gui common@v0.1.0 map_clocks -e localhost:9002 --plaintext --network mainnet -s 0 -t +20\n")
 
 	return nil
 }

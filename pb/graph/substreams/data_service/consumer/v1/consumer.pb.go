@@ -160,123 +160,6 @@ func (x *InitResponse) GetDataPlaneEndpoint() string {
 	return ""
 }
 
-type ReportUsageRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// The session ID
-	SessionId string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	// The usage to report
-	Usage         *v1.Usage `protobuf:"bytes,2,opt,name=usage,proto3" json:"usage,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ReportUsageRequest) Reset() {
-	*x = ReportUsageRequest{}
-	mi := &file_graph_substreams_data_service_consumer_v1_consumer_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ReportUsageRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ReportUsageRequest) ProtoMessage() {}
-
-func (x *ReportUsageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_consumer_v1_consumer_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ReportUsageRequest.ProtoReflect.Descriptor instead.
-func (*ReportUsageRequest) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_consumer_v1_consumer_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *ReportUsageRequest) GetSessionId() string {
-	if x != nil {
-		return x.SessionId
-	}
-	return ""
-}
-
-func (x *ReportUsageRequest) GetUsage() *v1.Usage {
-	if x != nil {
-		return x.Usage
-	}
-	return nil
-}
-
-type ReportUsageResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Updated RAV if a new one was negotiated
-	UpdatedRav *v1.SignedRAV `protobuf:"bytes,1,opt,name=updated_rav,json=updatedRav,proto3" json:"updated_rav,omitempty"`
-	// Whether the session should continue
-	ShouldContinue bool `protobuf:"varint,2,opt,name=should_continue,json=shouldContinue,proto3" json:"should_continue,omitempty"`
-	// If should_continue is false, the reason for stopping
-	StopReason    string `protobuf:"bytes,3,opt,name=stop_reason,json=stopReason,proto3" json:"stop_reason,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ReportUsageResponse) Reset() {
-	*x = ReportUsageResponse{}
-	mi := &file_graph_substreams_data_service_consumer_v1_consumer_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ReportUsageResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ReportUsageResponse) ProtoMessage() {}
-
-func (x *ReportUsageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_consumer_v1_consumer_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ReportUsageResponse.ProtoReflect.Descriptor instead.
-func (*ReportUsageResponse) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_consumer_v1_consumer_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *ReportUsageResponse) GetUpdatedRav() *v1.SignedRAV {
-	if x != nil {
-		return x.UpdatedRav
-	}
-	return nil
-}
-
-func (x *ReportUsageResponse) GetShouldContinue() bool {
-	if x != nil {
-		return x.ShouldContinue
-	}
-	return false
-}
-
-func (x *ReportUsageResponse) GetStopReason() string {
-	if x != nil {
-		return x.StopReason
-	}
-	return ""
-}
-
 type EndSessionRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The session ID
@@ -289,7 +172,7 @@ type EndSessionRequest struct {
 
 func (x *EndSessionRequest) Reset() {
 	*x = EndSessionRequest{}
-	mi := &file_graph_substreams_data_service_consumer_v1_consumer_proto_msgTypes[4]
+	mi := &file_graph_substreams_data_service_consumer_v1_consumer_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -301,7 +184,7 @@ func (x *EndSessionRequest) String() string {
 func (*EndSessionRequest) ProtoMessage() {}
 
 func (x *EndSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_consumer_v1_consumer_proto_msgTypes[4]
+	mi := &file_graph_substreams_data_service_consumer_v1_consumer_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -314,7 +197,7 @@ func (x *EndSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EndSessionRequest.ProtoReflect.Descriptor instead.
 func (*EndSessionRequest) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_consumer_v1_consumer_proto_rawDescGZIP(), []int{4}
+	return file_graph_substreams_data_service_consumer_v1_consumer_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *EndSessionRequest) GetSessionId() string {
@@ -343,7 +226,7 @@ type EndSessionResponse struct {
 
 func (x *EndSessionResponse) Reset() {
 	*x = EndSessionResponse{}
-	mi := &file_graph_substreams_data_service_consumer_v1_consumer_proto_msgTypes[5]
+	mi := &file_graph_substreams_data_service_consumer_v1_consumer_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -355,7 +238,7 @@ func (x *EndSessionResponse) String() string {
 func (*EndSessionResponse) ProtoMessage() {}
 
 func (x *EndSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_graph_substreams_data_service_consumer_v1_consumer_proto_msgTypes[5]
+	mi := &file_graph_substreams_data_service_consumer_v1_consumer_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -368,7 +251,7 @@ func (x *EndSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EndSessionResponse.ProtoReflect.Descriptor instead.
 func (*EndSessionResponse) Descriptor() ([]byte, []int) {
-	return file_graph_substreams_data_service_consumer_v1_consumer_proto_rawDescGZIP(), []int{5}
+	return file_graph_substreams_data_service_consumer_v1_consumer_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *EndSessionResponse) GetFinalRav() *v1.SignedRAV {
@@ -399,17 +282,7 @@ const file_graph_substreams_data_service_consumer_v1_consumer_proto_rawDesc = ""
 	"\asession\x18\x01 \x01(\v24.graph.substreams.data_service.common.v1.SessionInfoR\asession\x12S\n" +
 	"\vpayment_rav\x18\x02 \x01(\v22.graph.substreams.data_service.common.v1.SignedRAVR\n" +
 	"paymentRav\x12.\n" +
-	"\x13data_plane_endpoint\x18\x03 \x01(\tR\x11dataPlaneEndpoint\"y\n" +
-	"\x12ReportUsageRequest\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\tR\tsessionId\x12D\n" +
-	"\x05usage\x18\x02 \x01(\v2..graph.substreams.data_service.common.v1.UsageR\x05usage\"\xb4\x01\n" +
-	"\x13ReportUsageResponse\x12S\n" +
-	"\vupdated_rav\x18\x01 \x01(\v22.graph.substreams.data_service.common.v1.SignedRAVR\n" +
-	"updatedRav\x12'\n" +
-	"\x0fshould_continue\x18\x02 \x01(\bR\x0eshouldContinue\x12\x1f\n" +
-	"\vstop_reason\x18\x03 \x01(\tR\n" +
-	"stopReason\"\x83\x01\n" +
+	"\x13data_plane_endpoint\x18\x03 \x01(\tR\x11dataPlaneEndpoint\"\x83\x01\n" +
 	"\x11EndSessionRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12O\n" +
@@ -418,10 +291,9 @@ const file_graph_substreams_data_service_consumer_v1_consumer_proto_rawDesc = ""
 	"\x12EndSessionResponse\x12O\n" +
 	"\tfinal_rav\x18\x01 \x01(\v22.graph.substreams.data_service.common.v1.SignedRAVR\bfinalRav\x12O\n" +
 	"\vtotal_usage\x18\x02 \x01(\v2..graph.substreams.data_service.common.v1.UsageR\n" +
-	"totalUsage2\xac\x03\n" +
+	"totalUsage2\x9d\x02\n" +
 	"\x16ConsumerSidecarService\x12w\n" +
-	"\x04Init\x126.graph.substreams.data_service.consumer.v1.InitRequest\x1a7.graph.substreams.data_service.consumer.v1.InitResponse\x12\x8c\x01\n" +
-	"\vReportUsage\x12=.graph.substreams.data_service.consumer.v1.ReportUsageRequest\x1a>.graph.substreams.data_service.consumer.v1.ReportUsageResponse\x12\x89\x01\n" +
+	"\x04Init\x126.graph.substreams.data_service.consumer.v1.InitRequest\x1a7.graph.substreams.data_service.consumer.v1.InitResponse\x12\x89\x01\n" +
 	"\n" +
 	"EndSession\x12<.graph.substreams.data_service.consumer.v1.EndSessionRequest\x1a=.graph.substreams.data_service.consumer.v1.EndSessionResponseB\xed\x02\n" +
 	"-com.graph.substreams.data_service.consumer.v1B\rConsumerProtoP\x01Zhgithub.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1;consumerv1\xa2\x02\x04GSDC\xaa\x02(Graph.Substreams.DataService.Consumer.V1\xca\x02(Graph\\Substreams\\DataService\\Consumer\\V1\xe2\x024Graph\\Substreams\\DataService\\Consumer\\V1\\GPBMetadata\xea\x02,Graph::Substreams::DataService::Consumer::V1b\x06proto3"
@@ -438,41 +310,35 @@ func file_graph_substreams_data_service_consumer_v1_consumer_proto_rawDescGZIP()
 	return file_graph_substreams_data_service_consumer_v1_consumer_proto_rawDescData
 }
 
-var file_graph_substreams_data_service_consumer_v1_consumer_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_graph_substreams_data_service_consumer_v1_consumer_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_graph_substreams_data_service_consumer_v1_consumer_proto_goTypes = []any{
-	(*InitRequest)(nil),         // 0: graph.substreams.data_service.consumer.v1.InitRequest
-	(*InitResponse)(nil),        // 1: graph.substreams.data_service.consumer.v1.InitResponse
-	(*ReportUsageRequest)(nil),  // 2: graph.substreams.data_service.consumer.v1.ReportUsageRequest
-	(*ReportUsageResponse)(nil), // 3: graph.substreams.data_service.consumer.v1.ReportUsageResponse
-	(*EndSessionRequest)(nil),   // 4: graph.substreams.data_service.consumer.v1.EndSessionRequest
-	(*EndSessionResponse)(nil),  // 5: graph.substreams.data_service.consumer.v1.EndSessionResponse
-	(*v1.EscrowAccount)(nil),    // 6: graph.substreams.data_service.common.v1.EscrowAccount
-	(*v11.Package)(nil),         // 7: sf.substreams.v1.Package
-	(*v1.SessionInfo)(nil),      // 8: graph.substreams.data_service.common.v1.SessionInfo
-	(*v1.SignedRAV)(nil),        // 9: graph.substreams.data_service.common.v1.SignedRAV
-	(*v1.Usage)(nil),            // 10: graph.substreams.data_service.common.v1.Usage
+	(*InitRequest)(nil),        // 0: graph.substreams.data_service.consumer.v1.InitRequest
+	(*InitResponse)(nil),       // 1: graph.substreams.data_service.consumer.v1.InitResponse
+	(*EndSessionRequest)(nil),  // 2: graph.substreams.data_service.consumer.v1.EndSessionRequest
+	(*EndSessionResponse)(nil), // 3: graph.substreams.data_service.consumer.v1.EndSessionResponse
+	(*v1.EscrowAccount)(nil),   // 4: graph.substreams.data_service.common.v1.EscrowAccount
+	(*v11.Package)(nil),        // 5: sf.substreams.v1.Package
+	(*v1.SessionInfo)(nil),     // 6: graph.substreams.data_service.common.v1.SessionInfo
+	(*v1.SignedRAV)(nil),       // 7: graph.substreams.data_service.common.v1.SignedRAV
+	(*v1.Usage)(nil),           // 8: graph.substreams.data_service.common.v1.Usage
 }
 var file_graph_substreams_data_service_consumer_v1_consumer_proto_depIdxs = []int32{
-	6,  // 0: graph.substreams.data_service.consumer.v1.InitRequest.escrow_account:type_name -> graph.substreams.data_service.common.v1.EscrowAccount
-	7,  // 1: graph.substreams.data_service.consumer.v1.InitRequest.substreams_package:type_name -> sf.substreams.v1.Package
-	8,  // 2: graph.substreams.data_service.consumer.v1.InitResponse.session:type_name -> graph.substreams.data_service.common.v1.SessionInfo
-	9,  // 3: graph.substreams.data_service.consumer.v1.InitResponse.payment_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
-	10, // 4: graph.substreams.data_service.consumer.v1.ReportUsageRequest.usage:type_name -> graph.substreams.data_service.common.v1.Usage
-	9,  // 5: graph.substreams.data_service.consumer.v1.ReportUsageResponse.updated_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
-	10, // 6: graph.substreams.data_service.consumer.v1.EndSessionRequest.final_usage:type_name -> graph.substreams.data_service.common.v1.Usage
-	9,  // 7: graph.substreams.data_service.consumer.v1.EndSessionResponse.final_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
-	10, // 8: graph.substreams.data_service.consumer.v1.EndSessionResponse.total_usage:type_name -> graph.substreams.data_service.common.v1.Usage
-	0,  // 9: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.Init:input_type -> graph.substreams.data_service.consumer.v1.InitRequest
-	2,  // 10: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.ReportUsage:input_type -> graph.substreams.data_service.consumer.v1.ReportUsageRequest
-	4,  // 11: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.EndSession:input_type -> graph.substreams.data_service.consumer.v1.EndSessionRequest
-	1,  // 12: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.Init:output_type -> graph.substreams.data_service.consumer.v1.InitResponse
-	3,  // 13: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.ReportUsage:output_type -> graph.substreams.data_service.consumer.v1.ReportUsageResponse
-	5,  // 14: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.EndSession:output_type -> graph.substreams.data_service.consumer.v1.EndSessionResponse
-	12, // [12:15] is the sub-list for method output_type
-	9,  // [9:12] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	4, // 0: graph.substreams.data_service.consumer.v1.InitRequest.escrow_account:type_name -> graph.substreams.data_service.common.v1.EscrowAccount
+	5, // 1: graph.substreams.data_service.consumer.v1.InitRequest.substreams_package:type_name -> sf.substreams.v1.Package
+	6, // 2: graph.substreams.data_service.consumer.v1.InitResponse.session:type_name -> graph.substreams.data_service.common.v1.SessionInfo
+	7, // 3: graph.substreams.data_service.consumer.v1.InitResponse.payment_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
+	8, // 4: graph.substreams.data_service.consumer.v1.EndSessionRequest.final_usage:type_name -> graph.substreams.data_service.common.v1.Usage
+	7, // 5: graph.substreams.data_service.consumer.v1.EndSessionResponse.final_rav:type_name -> graph.substreams.data_service.common.v1.SignedRAV
+	8, // 6: graph.substreams.data_service.consumer.v1.EndSessionResponse.total_usage:type_name -> graph.substreams.data_service.common.v1.Usage
+	0, // 7: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.Init:input_type -> graph.substreams.data_service.consumer.v1.InitRequest
+	2, // 8: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.EndSession:input_type -> graph.substreams.data_service.consumer.v1.EndSessionRequest
+	1, // 9: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.Init:output_type -> graph.substreams.data_service.consumer.v1.InitResponse
+	3, // 10: graph.substreams.data_service.consumer.v1.ConsumerSidecarService.EndSession:output_type -> graph.substreams.data_service.consumer.v1.EndSessionResponse
+	9, // [9:11] is the sub-list for method output_type
+	7, // [7:9] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_graph_substreams_data_service_consumer_v1_consumer_proto_init() }
@@ -486,7 +352,7 @@ func file_graph_substreams_data_service_consumer_v1_consumer_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_graph_substreams_data_service_consumer_v1_consumer_proto_rawDesc), len(file_graph_substreams_data_service_consumer_v1_consumer_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

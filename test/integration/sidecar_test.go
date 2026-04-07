@@ -23,10 +23,10 @@ import (
 	pbsubstreams "github.com/streamingfast/substreams/pb/sf/substreams/v1"
 )
 
-// TestPaymentFlowBasic_LegacyWrapperMethodsAreDeprecatedForManagedSessions
+// TestPaymentFlowBasic_EndSessionRemainsDeprecatedForManagedSessions
 // verifies that Init still bootstraps a managed provider session while the
-// legacy wrapper-era ReportUsage/EndSession calls are rejected.
-func TestPaymentFlowBasic_LegacyWrapperMethodsAreDeprecatedForManagedSessions(t *testing.T) {
+// remaining manual EndSession surface stays disabled for managed sessions.
+func TestPaymentFlowBasic_EndSessionRemainsDeprecatedForManagedSessions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -101,20 +101,7 @@ func TestPaymentFlowBasic_LegacyWrapperMethodsAreDeprecatedForManagedSessions(t 
 	// Consumer Init should have started a provider gateway session
 	require.Equal(t, 1, providerGateway.SessionCount(), "expected provider gateway session to be created via StartSession during Init")
 
-	t.Log("Step 2: Report usage on consumer side is deprecated for managed sessions")
-	_, err = consumerClient.ReportUsage(ctx, connect.NewRequest(&consumerv1.ReportUsageRequest{
-		SessionId: consumerSessionID,
-		Usage: &commonv1.Usage{
-			BlocksProcessed:  100,
-			BytesTransferred: 50000,
-			Requests:         1,
-			Cost:             commonv1.GRTFromBigInt(big.NewInt(100000000)),
-		},
-	}))
-	require.Error(t, err, "consumer ReportUsage must reject provider-managed wrapper flow")
-	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
-
-	t.Log("Step 3: End session is deprecated for managed sessions")
+	t.Log("Step 2: End session is deprecated for managed sessions")
 	_, err = consumerClient.EndSession(ctx, connect.NewRequest(&consumerv1.EndSessionRequest{
 		SessionId: consumerSessionID,
 		FinalUsage: &commonv1.Usage{

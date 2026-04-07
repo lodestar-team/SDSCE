@@ -104,7 +104,7 @@ What already exists:
 - provider-originated RAV requests and low-funds control propagated through that ingress/runtime path
 - startup-driven ingress config via CLI/YAML, with oracle-first discovery and direct provider override as explicit bypass
 - low-funds termination surfaced through the client-facing ingress as runtime `ResourceExhausted`
-- wrapper-era `Init` / `ReportUsage` / `EndSession` RPC surfaces remain in-tree only as deprecated transitional paths and are no longer required for the supported runtime flow
+- the wrapper-era `ReportUsage` runtime path has been removed, and the remaining manual `Init` / `EndSession` RPC surfaces are not part of the supported runtime flow
 
 What is still missing for MVP:
 
@@ -240,7 +240,7 @@ Current state:
 - the consumer sidecar now exposes a Substreams-compatible ingress and can proxy real client streams
 - oracle-backed ingress derives provider receiver identity from the oracle-selected provider
 - direct provider override remains available with startup-configured receiver identity
-- `sds sink run` still exists as transitional scaffolding and the ingress still internalizes the legacy usage-report loop
+- the supported runtime entrypoint is now the consumer sidecar ingress directly; the deprecated wrapper CLI flow has been removed
 
 What is still missing for MVP:
 
@@ -357,7 +357,7 @@ The most important recent status changes versus the original draft are:
   - This is protocol drift caused by SDS contract evolution, not just a generic “firecore test is flaky” issue.
 - Consumer-side MVP UX is materially closer to the revised scope.
   - The sidecar now exposes a Substreams-compatible ingress and runs the provider-originated payment/control loop through that path.
-  - Legacy wrapper-era usage-report surfaces remain only as deprecated cleanup follow-up under `MVP-038`, not as part of the supported runtime architecture.
+  - The legacy wrapper-era usage-report surfaces have been removed under `MVP-038`; they are no longer part of the supported runtime architecture.
 
 ## Remaining Backlog Alignment
 
@@ -372,7 +372,6 @@ Oracle, consumer ingress, and runtime compatibility:
 Provider runtime hardening and cleanup:
 
 - `MVP-041`
-- `MVP-038`
 
 Persistence and settlement:
 

@@ -40,6 +40,8 @@ message GetSessionStatusResponse {
   bool active = 1;
   // Payment status snapshot (best-effort).
   common.v1.PaymentStatus payment_status = 2;
+  // Persisted terminal reason once the session is no longer active.
+  common.v1.EndReason end_reason = 3;
 }
 
 message StartSessionRequest {

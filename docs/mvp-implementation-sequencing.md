@@ -166,14 +166,16 @@ Notes:
   - The prebuilt published `dummy-blockchain` image remains stale and still embeds an older SDS-compatible runtime snapshot, so publishing refreshed upstream images is tracked separately under `MVP-036`.
 - `MVP-011` is now complete enough to treat as closed for sequencing purposes.
   - Current status: the sidecar now exposes a real Substreams ingress, owns provider discovery/session bootstrap, and surfaces low-funds termination through the real client-facing path as runtime `ResourceExhausted`.
-  - The ingress termination-ordering follow-up tracked under `MVP-040` is now implemented; the remaining runtime-focused follow-up in this lane is refreshed published runtime images.
+  - The ingress termination-ordering follow-up tracked under `MVP-040` is now closed by resolving ambiguous upstream EOF against provider-persisted session end state via `GetSessionStatus.end_reason` instead of relying on control-loop timing alone.
 - `MVP-031` is now complete enough to treat as closed for sequencing purposes.
   - Current status: provider-side metering now drives the long-lived `PaymentSession` control loop behind the sidecar ingress, including provider-originated RAV requests and low-funds stop behavior.
   - `MVP-041` is now complete:
     - provider-issued runtime `RavRequest` responses are validated against the exact in-flight request snapshot rather than a moving live delta
     - live runtime responses are explicit `PaymentSession`-only behavior, while unary `SubmitRAV` remains deprecated legacy/manual surface area for non-runtime use
 - `MVP-040` is now complete.
-  - Current status: the sidecar coordinates upstream termination with the provider `PaymentSession` control loop so semantic low-funds stops win over ambiguous upstream EOF or internal runtime cancellation, while finite successful EOF remains prompt.
+  - Current status: the sidecar still lets live `PaymentSession` semantics win immediately when available, but ambiguous upstream EOF/internal-cancel termination now falls back to provider-persisted session status instead of a control-loop timeout heuristic.
+  - The additive provider control-plane change is limited to `GetSessionStatus.end_reason`; `PaymentSession` message shapes and the auth/session/usage plugin contracts remain unchanged.
+  - Focused ingress coverage now includes the case where upstream ends first and the sidecar resolves the final client-visible result from provider session status rather than a terminal `PaymentSession` message arriving in time.
 - `MVP-037` is now complete.
   - Current status: stateful runtime tests that depend on exact escrow/provision behavior now use fresh payer/provider identities plus explicit pre-state guards, and the Firecore/Postgres-backed low-funds path asserts zero pre-existing provider-runtime evidence for the test tuple before execution.
 - `MVP-038` is now complete.

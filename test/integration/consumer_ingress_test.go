@@ -419,6 +419,112 @@ func TestConsumerIngress_ResolvesAmbiguousEOFWithDelayedProviderStop(t *testing.
 	require.NoError(t, <-usageErrCh)
 }
 
+func TestConsumerIngress_ResolvesAmbiguousEOFFromProviderSessionStatus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	env := devenv.Get()
+	require.NotNil(t, env, "devenv not started")
+
+	setup, err := env.SetupTestWithSigner(nil)
+	require.NoError(t, err)
+
+	providerAddr := reserveLocalAddress(t)
+	sidecarAddr := reserveLocalAddress(t)
+
+	sessionIDCh := make(chan string, 1)
+	upstreamEndpoint, _, shutdownUpstream := startFakeSubstreamsV3Server(t, func(_ *pbsubstreamsrpcv3.Request, stream grpc.ServerStreamingServer[pbsubstreamsrpcv2.Response]) error {
+		md, _ := metadata.FromIncomingContext(stream.Context())
+		sessionIDs := md.Get(sds.HeaderSessionID)
+		require.Len(t, sessionIDs, 1, "expected the ingress to propagate a single session id header")
+
+		select {
+		case sessionIDCh <- sessionIDs[0]:
+		default:
+		}
+
+		require.NoError(t, stream.Send(testBlockResponseAt(0, []byte("block-1"))))
+		require.NoError(t, stream.Send(testBlockResponseAt(1, []byte("block-2"))))
+		return nil
+	})
+	defer shutdownUpstream()
+
+	repo := repository.NewInMemoryRepository()
+	providerGateway := providergateway.New(&providergateway.Config{
+		ListenAddr:          providerAddr,
+		ServiceProvider:     env.ServiceProvider.Address,
+		Domain:              env.Domain(),
+		CollectorAddr:       env.Collector.Address,
+		EscrowAddr:          env.Escrow.Address,
+		RPCEndpoint:         env.RPCURL,
+		DataPlaneEndpoint:   upstreamEndpoint,
+		PricingConfig:       deterministicPricingConfig(),
+		RAVRequestThreshold: deterministicPricingConfig().PricePerBlock,
+		TransportConfig:     sidecarlib.ServerTransportConfig{Plaintext: true},
+		Repository:          repo,
+	}, zlog.Named("provider"))
+	go providerGateway.Run()
+	defer providerGateway.Shutdown(nil)
+	time.Sleep(100 * time.Millisecond)
+
+	receiver := env.ServiceProvider.Address
+	consumerSidecar := consumersidecar.New(&consumersidecar.Config{
+		ListenAddr:                     sidecarAddr,
+		SignerKey:                      setup.SignerKey,
+		Domain:                         env.Domain(),
+		PaymentSessionRoundtripTimeout: 750 * time.Millisecond,
+		IngressConfig: &consumersidecar.IngressConfig{
+			Payer:                        env.Payer.Address,
+			Receiver:                     &receiver,
+			DataService:                  env.DataService.Address,
+			ProviderControlPlaneEndpoint: httpEndpoint(providerAddr),
+		},
+		TransportConfig: sidecarlib.ServerTransportConfig{Plaintext: true},
+	}, zlog.Named("consumer"))
+	go consumerSidecar.Run()
+	defer consumerSidecar.Shutdown(nil)
+
+	require.NoError(t, waitForSidecarHealth(ctx, httpEndpoint(sidecarAddr)+"/healthz", 10*time.Second))
+
+	conn, closeConn := dialSubstreamsGRPC(t, httpEndpoint(sidecarAddr))
+	defer closeConn()
+
+	stream, err := pbsubstreamsrpcv3.NewStreamClient(conn).Blocks(ctx, &pbsubstreamsrpcv3.Request{
+		StartBlockNum: 0,
+		StopBlockNum:  100,
+		OutputModule:  "map_clocks",
+		Package:       &pbsubstreams.Package{Network: "mainnet"},
+	})
+	require.NoError(t, err)
+
+	_, err = stream.Recv()
+	require.NoError(t, err)
+	_, err = stream.Recv()
+	require.NoError(t, err)
+
+	sessionID := <-sessionIDCh
+	updateErrCh := make(chan error, 1)
+	go func() {
+		time.Sleep(75 * time.Millisecond)
+
+		session, getErr := repo.SessionGet(ctx, sessionID)
+		if getErr != nil {
+			updateErrCh <- getErr
+			return
+		}
+		session.End(commonv1.EndReason_END_REASON_PAYMENT_ISSUE)
+		updateErrCh <- repo.SessionUpdate(ctx, session)
+	}()
+
+	_, err = stream.Recv()
+	require.Error(t, err)
+	require.Equal(t, codes.ResourceExhausted, status.Code(err))
+	require.Contains(t, err.Error(), "need more funds")
+	require.NoError(t, <-updateErrCh)
+}
+
 type fakeSubstreamsV3Server struct {
 	pbsubstreamsrpcv3.UnimplementedStreamServer
 

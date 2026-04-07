@@ -103,7 +103,7 @@ What already exists:
 - long-lived payment-session control loop bound to the provider session behind that ingress
 - provider-originated RAV requests and low-funds control propagated through that ingress/runtime path
 - startup-driven ingress config via CLI/YAML, with oracle-first discovery and direct provider override as explicit bypass
-- low-funds termination surfaced through the client-facing ingress as runtime `ResourceExhausted`
+- low-funds termination now resolves ambiguous ingress EOF against provider-persisted session end state, so provider payment issues surface through the client-facing ingress as runtime `ResourceExhausted` without relying on control-loop timing heuristics
 - the wrapper-era `ReportUsage` runtime path has been removed, and the remaining manual `Init` / `EndSession` RPC surfaces are not part of the supported runtime flow
 
 What is still missing for MVP:

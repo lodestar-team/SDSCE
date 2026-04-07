@@ -9,6 +9,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/graphprotocol/substreams-data-service/horizon"
+	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
@@ -102,7 +103,7 @@ func (s *Gateway) PaymentSession(
 					return nil
 				}
 				if !session.IsActive() {
-					_ = stream.Send(stopPaymentSessionResponse("session is not active"))
+					_ = stream.Send(stopResponseForInactiveSession(session))
 					return nil
 				}
 
@@ -127,7 +128,7 @@ func (s *Gateway) PaymentSession(
 				return nil
 			}
 			if !session.IsActive() {
-				_ = stream.Send(stopPaymentSessionResponse("session is not active"))
+				_ = stream.Send(stopResponseForInactiveSession(session))
 				return nil
 			}
 
@@ -201,6 +202,11 @@ func (s *Gateway) handleRAVSubmission(
 	err := s.runtime.withSessionEval(sessionID, func(state *runtimeSessionState) error {
 		pending := state.pendingRAV
 		if pending == nil {
+			freshSession, err := s.repo.SessionGet(ctx, sessionID)
+			if err == nil && freshSession != nil && !freshSession.IsActive() {
+				resp = stopResponseForInactiveSession(freshSession)
+				return nil
+			}
 			resp = stopPaymentSessionResponse("unexpected rav_submission without an in-flight provider rav_request; respond on PaymentSession only")
 			return nil
 		}
@@ -354,6 +360,27 @@ func stopPaymentSessionResponse(reason string) *providerv1.PaymentSessionRespons
 				Reason: reason,
 			},
 		},
+	}
+}
+
+func stopResponseForInactiveSession(session *repository.Session) *providerv1.PaymentSessionResponse {
+	if session == nil {
+		return stopPaymentSessionResponse("session is not active")
+	}
+
+	switch session.EndReason {
+	case commonv1.EndReason_END_REASON_PAYMENT_ISSUE:
+		return stopPaymentSessionResponse("need more funds")
+	case commonv1.EndReason_END_REASON_COMPLETE:
+		return stopPaymentSessionResponse("session completed")
+	case commonv1.EndReason_END_REASON_CLIENT_DISCONNECT:
+		return stopPaymentSessionResponse("client disconnected")
+	case commonv1.EndReason_END_REASON_PROVIDER_STOP:
+		return stopPaymentSessionResponse("provider ended stream")
+	case commonv1.EndReason_END_REASON_ERROR:
+		return stopPaymentSessionResponse("provider session error")
+	default:
+		return stopPaymentSessionResponse("session is not active")
 	}
 }
 

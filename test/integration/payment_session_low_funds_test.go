@@ -98,6 +98,82 @@ func TestPaymentSession_StopsOnLowFunds(t *testing.T) {
 	_ = stream.CloseResponse()
 }
 
+func TestPaymentSession_StaleRAVSubmissionAfterLowFundsStillSurfacesPaymentIssue(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	env := devenv.Get()
+	require.NotNil(t, env, "devenv not started")
+
+	config := DefaultTestSetupConfig()
+	config.EscrowAmount = big.NewInt(1)
+	payer := newFundedTestAccount(t, env)
+	serviceProvider := newFundedTestAccount(t, env)
+	setup, err := env.SetupCustomPaymentParticipantsWithSigner(payer, serviceProvider, config)
+	require.NoError(t, err)
+
+	repo := repository.NewInMemoryRepository()
+	providerGateway, gatewayClient, shutdown := startPaymentGatewayForTest(t, ":19018", &providergateway.Config{
+		ListenAddr:          ":19018",
+		ServiceProvider:     serviceProvider.Address,
+		Domain:              env.Domain(),
+		CollectorAddr:       env.Collector.Address,
+		EscrowAddr:          env.Escrow.Address,
+		RPCEndpoint:         env.RPCURL,
+		PricingConfig:       deterministicPricingConfig(),
+		RAVRequestThreshold: sds.NewGRTFromUint64(1),
+		DataPlaneEndpoint:   "substreams.provider.example:443",
+		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
+		Repository:          repo,
+	})
+	defer shutdown()
+	usageService := providerusage.NewUsageService(repo, deterministicRepositoryPricingConfig(), providerGateway)
+
+	startResp := startGatewaySession(t, ctx, gatewayClient, payer.Address, serviceProvider.Address, env.DataService.Address, setup.SignerKey, env.Domain())
+	stream := bindPaymentSession(t, ctx, gatewayClient, startResp.Msg.SessionId)
+
+	reportMeteredUsage(t, ctx, usageService, payer.Address, serviceProvider.Address, startResp.Msg.SessionId, 1, 0, 1)
+
+	firstResp, err := stream.Receive()
+	require.NoError(t, err)
+	require.NotNil(t, firstResp.GetRavRequest(), "expected initial rav_request before low-funds termination")
+
+	reportMeteredUsage(t, ctx, usageService, payer.Address, serviceProvider.Address, startResp.Msg.SessionId, 1, 0, 1)
+
+	signedRAV := signExactRequestedRAV(t, env.Domain(), setup.SignerKey, payer.Address, env.DataService.Address, serviceProvider.Address, firstResp.GetRavRequest())
+	require.NoError(t, stream.Send(&providerv1.PaymentSessionRequest{
+		SessionId: startResp.Msg.SessionId,
+		Message: &providerv1.PaymentSessionRequest_RavSubmission{
+			RavSubmission: &providerv1.SignedRAVSubmission{
+				SignedRav: sidecar.HorizonSignedRAVToProto(signedRAV),
+				Usage:     firstResp.GetRavRequest().GetUsage(),
+			},
+		},
+	}))
+
+	finalResp, err := stream.Receive()
+	require.NoError(t, err)
+	require.Nil(t, finalResp.GetRavRequest())
+
+	if need := finalResp.GetNeedMoreFunds(); need != nil {
+		require.Equal(t, 0, need.GetMinimumNeeded().ToBigInt().Cmp(big.NewInt(1)))
+	} else {
+		require.NotNil(t, finalResp.GetSessionControl())
+		require.Equal(t, providerv1.SessionControl_ACTION_STOP, finalResp.GetSessionControl().GetAction())
+		require.Contains(t, finalResp.GetSessionControl().GetReason(), "need more funds")
+	}
+
+	session, err := repo.SessionGet(ctx, startResp.Msg.SessionId)
+	require.NoError(t, err)
+	require.Equal(t, repository.SessionStatusTerminated, session.Status)
+	require.Equal(t, commonv1.EndReason_END_REASON_PAYMENT_ISSUE, session.EndReason)
+
+	require.NoError(t, stream.CloseRequest())
+	_ = stream.CloseResponse()
+}
+
 func TestPaymentSession_ExactBalanceContinues(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

@@ -484,19 +484,25 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - The consumer ingress must preserve Substreams-compatible data-plane behavior, so the fix cannot rely on injecting SDS-specific terminal metadata into the proxied Substreams stream.
     - The current runtime path still has a lifecycle race between the upstream data-plane stream ending and the provider `PaymentSession` loop delivering a terminal payment-control decision.
     - That race can make a real provider-enforced payment stop surface to the client as generic upstream EOF/transport closure instead of the intended runtime `ResourceExhausted` style outcome.
+    - On April 6, 2026, the task was reopened after the same residual first-pass full-suite failure reproduced on both `486700a` (`Remove deprecated usage-report runtime path`) and the pre-`MVP-038` commit `403bf9f` (`Harden stateful runtime test isolation`), which shows this is not newly introduced by `MVP-038`.
   - Assumptions:
     - `A2`
     - `A3`
   - Done when:
-    - The sidecar ingress resolves data-plane completion versus provider payment-control termination through explicit control-plane/lifecycle coordination rather than a fixed timing heuristic.
+    - The sidecar ingress resolves data-plane completion versus provider payment-control termination through explicit control-plane/lifecycle coordination against provider-persisted session end state rather than a fixed timing heuristic.
     - Provider low-funds or terminal payment-control decisions deterministically win over competing upstream EOF timing when both refer to the same live session.
     - The solution does not require changing the Substreams data-plane response shape or adding SDS-specific payloads to proxied stream messages.
   - Verify:
-    - Add focused coverage for the ordering case where the upstream stream ends first and the terminal provider payment-control decision arrives shortly after.
-    - Confirm normal successful EOF does not pay an unnecessary fixed teardown delay.
-    - Re-run `go test ./test/integration -run 'TestConsumerIngress_StopsStreamOnLowFunds|TestFirecoreStopsStreamOnLowFunds' -count=1 -v` and confirm the terminal client-visible error is sourced from provider payment-control semantics rather than a transport race.
-    - Implemented in `consumer/sidecar/ingress.go` by coordinating upstream termination with the `PaymentSession` control loop, classifying finite expected EOF separately, and resolving ambiguous upstream EOF/internal-cancel termination against provider control within `payment-session-roundtrip-timeout`.
-    - Added focused coverage in `test/integration/consumer_ingress_test.go` for delayed provider stop after upstream end and for prompt finite EOF without teardown-delay regression.
+    - `buf generate`
+    - `go test ./consumer/sidecar/...`
+    - `go test ./provider/gateway/...`
+    - `go test ./test/integration -run 'TestConsumerIngress_StopsStreamOnLowFunds|TestConsumerIngress_ResolvesAmbiguousEOFWithDelayedProviderStop|TestConsumerIngress_ResolvesAmbiguousEOFFromProviderSessionStatus|TestConsumerIngress_FiniteEOFReturnsPromptlyWithoutControlStop|TestFirecoreStopsStreamOnLowFunds' -count=1 -v`
+    - `go test ./test/integration/... -count=1`
+    - `go test ./...`
+    - `go vet ./...`
+    - Implemented in `consumer/sidecar/ingress.go` by keeping the fast path for expected finite EOF, then resolving ambiguous upstream EOF/internal-cancel termination against provider-persisted session end state via `GetSessionStatus.end_reason` within `payment-session-roundtrip-timeout`.
+    - Added focused unit coverage in `consumer/sidecar/ingress_test.go` for end-reason mapping, timeout/error handling, and coordinator preemption.
+    - Added focused integration coverage in `test/integration/consumer_ingress_test.go` for delayed provider stop after upstream end, prompt finite EOF without teardown-delay regression, and the status-driven payment-issue resolution case where the provider `PaymentSession` stream does not deliver the terminal semantic before ingress sees EOF.
 
 - [x] MVP-041 Define and enforce exact response semantics for provider-originated `RavRequest` handling in the long-lived `PaymentSession` loop.
   - Context:

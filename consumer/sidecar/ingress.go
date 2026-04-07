@@ -74,6 +74,10 @@ type ingressStreamProgress struct {
 	highestBlock uint64
 }
 
+type ingressSessionStatusGetter func(context.Context, string) (*providerv1.GetSessionStatusResponse, error)
+
+const ambiguousIngressStatusPollInterval = 50 * time.Millisecond
+
 func newIngressTerminationCoordinator(cancel context.CancelFunc) *ingressTerminationCoordinator {
 	return &ingressTerminationCoordinator{cancel: cancel}
 }
@@ -279,7 +283,7 @@ func (s *Sidecar) proxyV2Stream(
 	for {
 		resp, err := upstream.Recv()
 		if err != nil {
-			return s.resolveIngressStreamTermination(stream.Context(), runtimeCtx, err, progress.expectedEOF(req.GetStopBlockNum()), coordinator, controlDone)
+			return s.resolveIngressStreamTermination(stream.Context(), runtimeCtx, err, progress.expectedEOF(req.GetStopBlockNum()), bootstrap.LocalSession.ID, coordinator, controlDone)
 		}
 
 		if err := stream.Send(resp); err != nil {
@@ -322,7 +326,7 @@ func (s *Sidecar) proxyV3Stream(
 	for {
 		resp, err := upstream.Recv()
 		if err != nil {
-			return s.resolveIngressStreamTermination(stream.Context(), runtimeCtx, err, progress.expectedEOF(req.GetStopBlockNum()), coordinator, controlDone)
+			return s.resolveIngressStreamTermination(stream.Context(), runtimeCtx, err, progress.expectedEOF(req.GetStopBlockNum()), bootstrap.LocalSession.ID, coordinator, controlDone)
 		}
 
 		if err := stream.Send(resp); err != nil {
@@ -365,7 +369,7 @@ func (s *Sidecar) proxyV4Stream(
 	for {
 		resp, err := upstream.Recv()
 		if err != nil {
-			return s.resolveIngressStreamTermination(stream.Context(), runtimeCtx, err, progress.expectedEOF(req.GetStopBlockNum()), coordinator, controlDone)
+			return s.resolveIngressStreamTermination(stream.Context(), runtimeCtx, err, progress.expectedEOF(req.GetStopBlockNum()), bootstrap.LocalSession.ID, coordinator, controlDone)
 		}
 
 		if err := stream.Send(resp); err != nil {
@@ -453,6 +457,19 @@ func (s *Sidecar) runIngressPaymentControl(
 			}
 
 			if err := client.SendRAVSubmission(session.ID, signed, ravReq.GetUsage()); err != nil {
+				if statusResp, statusErr := client.GetSessionStatus(ctx, session.ID); statusErr == nil {
+					if resolved, resolvedErr := resolveAmbiguousIngressSessionStatus(statusResp); resolved {
+						switch {
+						case resolvedErr == nil:
+							coordinator.setCanceled()
+						case status.Code(resolvedErr) == codes.ResourceExhausted:
+							coordinator.setSemanticStop(resolvedErr)
+						default:
+							coordinator.setControlFailure(resolvedErr)
+						}
+						return
+					}
+				}
 				coordinator.setControlFailure(status.Errorf(codes.Unavailable, "submit RAV on provider payment session: %v", err))
 				return
 			}
@@ -505,6 +522,7 @@ func (s *Sidecar) resolveIngressStreamTermination(
 	runtimeCtx context.Context,
 	upstreamErr error,
 	expectedEOF bool,
+	sessionID string,
 	coordinator *ingressTerminationCoordinator,
 	controlDone <-chan struct{},
 ) error {
@@ -517,11 +535,11 @@ func (s *Sidecar) resolveIngressStreamTermination(
 			return nil
 		}
 
-		return s.awaitAmbiguousIngressTerminationResolution(clientCtx, coordinator, controlDone)
+		return s.awaitAmbiguousIngressTerminationResolution(clientCtx, sessionID, coordinator, controlDone)
 	}
 
-	if clientCtx.Err() == nil && runtimeCtx.Err() != nil {
-		return s.awaitAmbiguousIngressTerminationResolution(clientCtx, coordinator, controlDone)
+	if clientCtx.Err() == nil && (runtimeCtx.Err() != nil || isAmbiguousIngressUpstreamError(upstreamErr)) {
+		return s.awaitAmbiguousIngressTerminationResolution(clientCtx, sessionID, coordinator, controlDone)
 	}
 
 	if resultErr := coordinator.currentError(); resultErr != nil {
@@ -535,8 +553,26 @@ func (s *Sidecar) resolveIngressStreamTermination(
 	return nil
 }
 
+func isAmbiguousIngressUpstreamError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+
+	switch status.Code(err) {
+	case codes.Canceled, codes.Unavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Sidecar) awaitAmbiguousIngressTerminationResolution(
 	clientCtx context.Context,
+	sessionID string,
 	coordinator *ingressTerminationCoordinator,
 	controlDone <-chan struct{},
 ) error {
@@ -544,25 +580,97 @@ func (s *Sidecar) awaitAmbiguousIngressTerminationResolution(
 		return resultErr
 	}
 
-	timer := time.NewTimer(s.paymentSessionRoundtripTimeout)
-	defer timer.Stop()
+	client := s.paymentSessions.Get(sessionID)
+	if client == nil {
+		return status.Error(codes.Unavailable, "provider payment session client is not configured")
+	}
 
-	select {
-	case <-clientCtx.Done():
-		if resultErr := coordinator.currentError(); resultErr != nil {
-			return resultErr
+	return awaitAmbiguousIngressTerminationResolution(
+		clientCtx,
+		sessionID,
+		s.paymentSessionRoundtripTimeout,
+		coordinator,
+		controlDone,
+		client.GetSessionStatus,
+	)
+}
+
+func resolveAmbiguousIngressSessionStatus(resp *providerv1.GetSessionStatusResponse) (bool, error) {
+	if resp == nil || resp.GetActive() {
+		return false, nil
+	}
+
+	switch resp.GetEndReason() {
+	case commonv1.EndReason_END_REASON_COMPLETE, commonv1.EndReason_END_REASON_CLIENT_DISCONNECT:
+		return true, nil
+	case commonv1.EndReason_END_REASON_PAYMENT_ISSUE:
+		return true, status.Error(codes.ResourceExhausted, "need more funds")
+	case commonv1.EndReason_END_REASON_PROVIDER_STOP:
+		return true, status.Error(codes.Unavailable, "provider session terminated with end reason provider stop")
+	case commonv1.EndReason_END_REASON_ERROR:
+		return true, status.Error(codes.Unavailable, "provider session terminated with end reason error")
+	case commonv1.EndReason_END_REASON_UNSPECIFIED:
+		fallthrough
+	default:
+		return true, status.Errorf(codes.Unavailable, "provider session terminated with end reason %s", resp.GetEndReason().String())
+	}
+}
+
+func awaitAmbiguousIngressTerminationResolution(
+	clientCtx context.Context,
+	sessionID string,
+	timeout time.Duration,
+	coordinator *ingressTerminationCoordinator,
+	controlDone <-chan struct{},
+	getStatus ingressSessionStatusGetter,
+) error {
+	deadlineCtx, cancel := context.WithTimeout(clientCtx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(ambiguousIngressStatusPollInterval)
+	defer ticker.Stop()
+
+	var lastStatusErr error
+
+	for {
+		if coordinator != nil {
+			if resultErr := coordinator.currentError(); resultErr != nil {
+				return resultErr
+			}
 		}
-		return clientCtx.Err()
-	case <-controlDone:
-		if resultErr := coordinator.currentError(); resultErr != nil {
-			return resultErr
+
+		statusResp, err := getStatus(deadlineCtx, sessionID)
+		if err == nil {
+			resolved, resolvedErr := resolveAmbiguousIngressSessionStatus(statusResp)
+			if resolved {
+				return resolvedErr
+			}
+		} else {
+			lastStatusErr = err
 		}
-		return status.Error(codes.Unavailable, "upstream Substreams stream terminated before provider payment control resolved the session")
-	case <-timer.C:
-		if resultErr := coordinator.currentError(); resultErr != nil {
-			return resultErr
+
+		select {
+		case <-clientCtx.Done():
+			if coordinator != nil {
+				if resultErr := coordinator.currentError(); resultErr != nil {
+					return resultErr
+				}
+			}
+			return clientCtx.Err()
+		case <-deadlineCtx.Done():
+			if coordinator != nil {
+				if resultErr := coordinator.currentError(); resultErr != nil {
+					return resultErr
+				}
+			}
+			if lastStatusErr != nil {
+				return status.Errorf(codes.Unavailable, "upstream Substreams stream terminated before provider session status resolved the session: %v", lastStatusErr)
+			}
+			return status.Errorf(codes.Unavailable, "upstream Substreams stream terminated before provider session status resolved the session within %s", timeout)
+		case <-ticker.C:
+		case <-controlDone:
+			controlDone = nil
 		}
-		return status.Errorf(codes.Unavailable, "upstream Substreams stream terminated before provider payment control resolved the session within %s", s.paymentSessionRoundtripTimeout)
 	}
 }
 

@@ -186,6 +186,25 @@ func (c *paymentSessionClient) Receive(ctx context.Context) (*providerv1.Payment
 	}
 }
 
+func (c *paymentSessionClient) GetSessionStatus(ctx context.Context, sessionID string) (*providerv1.GetSessionStatusResponse, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("session id is required")
+	}
+
+	c.mu.Lock()
+	client := c.gatewayClient
+	c.mu.Unlock()
+
+	resp, err := client.GetSessionStatus(ctx, connect.NewRequest(&providerv1.GetSessionStatusRequest{
+		SessionId: sessionID,
+	}))
+	if err != nil {
+		return nil, fmt.Errorf("get session status for %q: %w", sessionID, err)
+	}
+
+	return resp.Msg, nil
+}
+
 func (c *paymentSessionClient) ensureStreamLocked() *connect.BidiStreamForClient[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse] {
 	if c.stream != nil {
 		return c.stream

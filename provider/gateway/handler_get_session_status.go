@@ -36,11 +36,15 @@ func (s *Gateway) GetSessionStatus(
 	}
 
 	resp := &providerv1.GetSessionStatusResponse{
-		Active: session.IsActive(),
+		Active:    session.IsActive(),
+		EndReason: commonv1.EndReason_END_REASON_UNSPECIFIED,
 		PaymentStatus: &commonv1.PaymentStatus{
 			CurrentRavValue:       commonv1.GRTFromBigInt(cur),
 			AccumulatedUsageValue: commonv1.GRTFromBigInt(acc),
 		},
+	}
+	if !session.IsActive() {
+		resp.EndReason = session.EndReason
 	}
 	return connect.NewResponse(resp), nil
 }

@@ -34,6 +34,7 @@ In practice, this means:
 - protobuf or contract changes to SDS auth/session/usage plugin surfaces may be runtime-breaking even when endpoint names remain the same
 - older `firecore` or embedded plugin binaries may become incompatible with newer SDS provider/plugin gateways
 - compatibility should be treated as an explicit release/deployment concern, not something inferred from "starts successfully"
+- the additive `MVP-040` change to `provider.v1.GetSessionStatusResponse` (`end_reason`) is control-plane-only and backward-compatible for external `firecore` / Substreams runtime tuples because it does not modify the auth/session/usage plugin surfaces
 
 ## Supported MVP Deployment Shape
 

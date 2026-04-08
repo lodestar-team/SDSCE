@@ -122,6 +122,11 @@ func TestFirecore(t *testing.T) {
 			TLSCertFile: "",
 			TLSKeyFile:  "",
 		},
+		sidecarlib.ServerTransportConfig{
+			Plaintext:   true,
+			TLSCertFile: "",
+			TLSKeyFile:  "",
+		},
 		pricingConfig,
 		sds.NewGRTFromUint64(1),
 	)
@@ -318,6 +323,11 @@ func TestFirecoreStopsStreamOnLowFunds(t *testing.T) {
 			TLSCertFile: "",
 			TLSKeyFile:  "",
 		},
+		sidecarlib.ServerTransportConfig{
+			Plaintext:   true,
+			TLSCertFile: "",
+			TLSKeyFile:  "",
+		},
 		pricingConfig,
 		sds.NewGRTFromUint64(1),
 	)
@@ -410,7 +420,8 @@ func startFirecoreProviderStack(
 	rpcEndpoint string,
 	dataPlaneEndpoint string,
 	repositoryDSN string,
-	transportConfig sidecarlib.ServerTransportConfig,
+	paymentTransportConfig sidecarlib.ServerTransportConfig,
+	pluginTransportConfig sidecarlib.ServerTransportConfig,
 	pricingConfig *sidecarlib.PricingConfig,
 	ravRequestThreshold sds.GRT,
 ) (*firecoreProviderStack, error) {
@@ -432,7 +443,7 @@ func startFirecoreProviderStack(
 		RAVRequestThreshold: ravRequestThreshold,
 		DataPlaneEndpoint:   dataPlaneEndpoint,
 		Repository:          repo,
-		TransportConfig:     transportConfig,
+		TransportConfig:     paymentTransportConfig,
 	}, firecoreLog)
 	go payment.Run()
 
@@ -451,10 +462,11 @@ func startFirecoreProviderStack(
 	sessionService := providersession.NewSessionService(repo, nil)
 
 	pluginGateway := plugin.NewPluginGateway(&plugin.PluginGatewayConfig{
-		ListenAddr:     pluginListenAddr,
-		AuthService:    authService,
-		UsageService:   usageService,
-		SessionService: sessionService,
+		ListenAddr:      pluginListenAddr,
+		AuthService:     authService,
+		UsageService:    usageService,
+		SessionService:  sessionService,
+		TransportConfig: pluginTransportConfig,
 	}, firecoreLog)
 	go pluginGateway.Run()
 

@@ -119,31 +119,6 @@ func (s *Gateway) StartSession(
 		}
 	}
 
-	// Terminate any existing active sessions for this payer to prevent stale sessions
-	// This handles cases where previous sessions weren't properly cleaned up
-	existingSessions, err := s.repo.SessionList(ctx, repository.SessionFilter{
-		Payer:  &payer,
-		Status: func() *repository.SessionStatus { s := repository.SessionStatusActive; return &s }(),
-	})
-	if err != nil {
-		s.logger.Warn("failed to list existing sessions", zap.Error(err))
-		// Continue anyway - this is not critical
-	} else if len(existingSessions) > 0 {
-		s.logger.Info("terminating existing active sessions for payer",
-			zap.Stringer("payer", payer),
-			zap.Int("count", len(existingSessions)),
-		)
-		for _, existingSession := range existingSessions {
-			existingSession.End(commonv1.EndReason_END_REASON_CLIENT_DISCONNECT)
-			if updateErr := s.repo.SessionUpdate(ctx, existingSession); updateErr != nil {
-				s.logger.Warn("failed to terminate existing session",
-					zap.String("session_id", existingSession.ID),
-					zap.Error(updateErr),
-				)
-			}
-		}
-	}
-
 	// Create session using GlobalRepository
 	sessionID := session.GenerateID()
 	consumerSession := repository.NewSession(sessionID, payer, s.serviceProvider, dataService, toRepoPricingConfig(s.pricingConfig))

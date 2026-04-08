@@ -11,6 +11,7 @@ import (
 	providerauth "github.com/graphprotocol/substreams-data-service/provider/auth"
 	providersession "github.com/graphprotocol/substreams-data-service/provider/session"
 	providerusage "github.com/graphprotocol/substreams-data-service/provider/usage"
+	sidecarlib "github.com/graphprotocol/substreams-data-service/sidecar"
 	"github.com/streamingfast/dgrpc/server"
 	"github.com/streamingfast/dgrpc/server/connectrpc"
 	"github.com/streamingfast/shutter"
@@ -31,9 +32,10 @@ type PluginGateway struct {
 	server     *connectrpc.ConnectWebServer
 
 	// Plugin services (serve firehose-core sds:// plugins via Connect)
-	authService    *providerauth.AuthService
-	usageService   *providerusage.UsageService
-	sessionService *providersession.SessionService
+	authService     *providerauth.AuthService
+	usageService    *providerusage.UsageService
+	sessionService  *providersession.SessionService
+	transportConfig sidecarlib.ServerTransportConfig
 }
 
 type PluginGatewayConfig struct {
@@ -43,16 +45,19 @@ type PluginGatewayConfig struct {
 	AuthService    *providerauth.AuthService
 	UsageService   *providerusage.UsageService
 	SessionService *providersession.SessionService
+	// TransportConfig controls the Plugin Gateway transport posture.
+	TransportConfig sidecarlib.ServerTransportConfig
 }
 
 func NewPluginGateway(config *PluginGatewayConfig, logger *zap.Logger) *PluginGateway {
 	return &PluginGateway{
-		Shutter:        shutter.New(),
-		listenAddr:     config.ListenAddr,
-		logger:         logger,
-		authService:    config.AuthService,
-		usageService:   config.UsageService,
-		sessionService: config.SessionService,
+		Shutter:         shutter.New(),
+		listenAddr:      config.ListenAddr,
+		logger:          logger,
+		authService:     config.AuthService,
+		usageService:    config.UsageService,
+		sessionService:  config.SessionService,
+		transportConfig: config.TransportConfig,
 	}
 }
 
@@ -71,9 +76,15 @@ func (g *PluginGateway) Run() {
 		},
 	}
 
+	transportOpt, err := g.transportOption()
+	if err != nil {
+		g.Shutdown(err)
+		return
+	}
+
 	g.server = connectrpc.New(
 		handlerGetters,
-		server.WithPlainTextServer(),
+		transportOpt,
 		server.WithLogger(g.logger),
 		server.WithHealthCheck(server.HealthCheckOverHTTP, g.healthCheck),
 		server.WithConnectPermissiveCORS(),
@@ -96,4 +107,8 @@ func (g *PluginGateway) Run() {
 
 func (g *PluginGateway) healthCheck(ctx context.Context) (isReady bool, out interface{}, err error) {
 	return true, nil, nil
+}
+
+func (g *PluginGateway) transportOption() (server.Option, error) {
+	return g.transportConfig.DGRPCOption("plugin gateway")
 }

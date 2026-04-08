@@ -30,6 +30,12 @@ type ProviderGateways struct {
 	PluginGateway  *plugin.PluginGateway
 }
 
+type pluginTransportFlags struct {
+	Plaintext   bool
+	TLSCertFile string
+	TLSKeyFile  string
+}
+
 // Shutdown gracefully shuts down both gateways
 func (g *ProviderGateways) Shutdown(err error) {
 	if g.PaymentGateway != nil {
@@ -38,6 +44,27 @@ func (g *ProviderGateways) Shutdown(err error) {
 	if g.PluginGateway != nil {
 		g.PluginGateway.Shutdown(err)
 	}
+}
+
+func resolvePluginTransportConfig(paymentTransportConfig sidecarlib.ServerTransportConfig, pluginFlags pluginTransportFlags) (sidecarlib.ServerTransportConfig, error) {
+	if !pluginFlags.hasOverrides() {
+		return paymentTransportConfig, nil
+	}
+
+	pluginTransportConfig := sidecarlib.ServerTransportConfig{
+		Plaintext:   pluginFlags.Plaintext,
+		TLSCertFile: pluginFlags.TLSCertFile,
+		TLSKeyFile:  pluginFlags.TLSKeyFile,
+	}
+	if err := pluginTransportConfig.Validate("plugin gateway"); err != nil {
+		return sidecarlib.ServerTransportConfig{}, err
+	}
+
+	return pluginTransportConfig, nil
+}
+
+func (f pluginTransportFlags) hasOverrides() bool {
+	return f.Plaintext || f.TLSCertFile != "" || f.TLSKeyFile != ""
 }
 
 var ProviderGatewayCommand = Command(
@@ -82,6 +109,9 @@ var ProviderGatewayCommand = Command(
 		flags.Bool("plaintext", false, "Serve plaintext h2c instead of TLS (local/demo only)")
 		flags.String("tls-cert-file", "", "Path to the TLS certificate PEM file")
 		flags.String("tls-key-file", "", "Path to the TLS private key PEM file")
+		flags.Bool("plugin-plaintext", false, "Serve the Plugin Gateway as plaintext h2c instead of TLS (local/demo only)")
+		flags.String("plugin-tls-cert-file", "", "Path to the Plugin Gateway TLS certificate PEM file")
+		flags.String("plugin-tls-key-file", "", "Path to the Plugin Gateway TLS private key PEM file")
 		flags.String("repository-dsn", "inmemory://", "Repository DSN (inmemory:// or psql://user:pass@host:port/dbname)")
 	}),
 )
@@ -103,7 +133,8 @@ func StartProviderGateway(
 	rpcEndpoint string,
 	dataPlaneEndpoint string,
 	repositoryDSN string,
-	transportConfig sidecarlib.ServerTransportConfig,
+	paymentTransportConfig sidecarlib.ServerTransportConfig,
+	pluginTransportConfig sidecarlib.ServerTransportConfig,
 	pricingConfig *sidecarlib.PricingConfig,
 ) (*ProviderGateways, error) {
 	if dataPlaneEndpoint == "" {
@@ -129,7 +160,7 @@ func StartProviderGateway(
 		PricingConfig:     pricingConfig,
 		DataPlaneEndpoint: dataPlaneEndpoint,
 		Repository:        repo,
-		TransportConfig:   transportConfig,
+		TransportConfig:   paymentTransportConfig,
 	}
 
 	paymentGateway := gateway.New(paymentConfig, providerLog)
@@ -147,10 +178,11 @@ func StartProviderGateway(
 
 	// Create Plugin Gateway
 	pluginConfig := &plugin.PluginGatewayConfig{
-		ListenAddr:     pluginListenAddr,
-		AuthService:    authService,
-		UsageService:   usageService,
-		SessionService: sessionService,
+		ListenAddr:      pluginListenAddr,
+		AuthService:     authService,
+		UsageService:    usageService,
+		SessionService:  sessionService,
+		TransportConfig: pluginTransportConfig,
 	}
 
 	pluginGateway := plugin.NewPluginGateway(pluginConfig, providerLog)
@@ -175,6 +207,9 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 	plaintext := sflags.MustGetBool(cmd, "plaintext")
 	tlsCertFile := sflags.MustGetString(cmd, "tls-cert-file")
 	tlsKeyFile := sflags.MustGetString(cmd, "tls-key-file")
+	pluginPlaintext := sflags.MustGetBool(cmd, "plugin-plaintext")
+	pluginTLSCertFile := sflags.MustGetString(cmd, "plugin-tls-cert-file")
+	pluginTLSKeyFile := sflags.MustGetString(cmd, "plugin-tls-key-file")
 	repositoryDSN := sflags.MustGetString(cmd, "repository-dsn")
 
 	cli.Ensure(serviceProviderHex != "", "<service-provider> is required")
@@ -198,6 +233,13 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 		TLSKeyFile:  tlsKeyFile,
 	}
 	cli.NoError(transportConfig.Validate("provider gateway"), "invalid transport configuration")
+
+	pluginTransportConfig, err := resolvePluginTransportConfig(transportConfig, pluginTransportFlags{
+		Plaintext:   pluginPlaintext,
+		TLSCertFile: pluginTLSCertFile,
+		TLSKeyFile:  pluginTLSKeyFile,
+	})
+	cli.NoError(err, "invalid plugin gateway transport configuration")
 
 	// Load provider pricing and RAV request configuration.
 	providerPricingConfig := gateway.DefaultProviderPricingConfig()
@@ -241,10 +283,11 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 
 	// Create Plugin Gateway
 	pluginConfig := &plugin.PluginGatewayConfig{
-		ListenAddr:     pluginListenAddr,
-		AuthService:    authService,
-		UsageService:   usageService,
-		SessionService: sessionService,
+		ListenAddr:      pluginListenAddr,
+		AuthService:     authService,
+		UsageService:    usageService,
+		SessionService:  sessionService,
+		TransportConfig: pluginTransportConfig,
 	}
 
 	pluginGateway := plugin.NewPluginGateway(pluginConfig, providerLog)

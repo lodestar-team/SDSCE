@@ -64,28 +64,87 @@ func normalizeNetworkKey(raw string) (string, error) {
 }
 
 func resolveRequestedNetwork(pkg *pbsubstreams.Package, requested string) (string, error) {
-	derivedNetwork, err := normalizeNetworkKey(pkg.GetNetwork())
-	if err != nil {
-		return "", fmt.Errorf("invalid <substreams_package.network>: %w", err)
-	}
-
 	requestedNetwork, err := normalizeNetworkKey(requested)
 	if err != nil {
 		return "", fmt.Errorf("invalid <requested_network>: %w", err)
 	}
 
-	if derivedNetwork != "" && requestedNetwork != "" && derivedNetwork != requestedNetwork {
-		return "", fmt.Errorf("package-derived network %q conflicts with requested network %q", derivedNetwork, requestedNetwork)
+	if pkg == nil {
+		if requestedNetwork != "" {
+			return requestedNetwork, nil
+		}
+		return "", errors.New("either <substreams_package.network> or <requested_network> is required when <provider_control_plane_endpoint> is not set")
+	}
+
+	topLevelNetwork, err := normalizeNetworkKey(pkg.GetNetwork())
+	if err != nil {
+		return "", fmt.Errorf("invalid <substreams_package.network>: %w", err)
+	}
+
+	normalizedNetworks, err := normalizePackageNetworks(pkg.GetNetworks())
+	if err != nil {
+		return "", err
+	}
+
+	derivedNetwork := topLevelNetwork
+	switch len(normalizedNetworks) {
+	case 0:
+		// Keep the top-level package network or requested fallback.
+	case 1:
+		for network := range normalizedNetworks {
+			derivedNetwork = network
+		}
+	default:
+		if topLevelNetwork != "" {
+			if _, ok := normalizedNetworks[topLevelNetwork]; ok {
+				derivedNetwork = topLevelNetwork
+				break
+			}
+		}
+		if requestedNetwork != "" {
+			if _, ok := normalizedNetworks[requestedNetwork]; ok {
+				derivedNetwork = requestedNetwork
+				break
+			}
+		}
+		return "", fmt.Errorf("ambiguous package network metadata: multiple <substreams_package.networks> entries require a matching top-level <substreams_package.network> or <requested_network>")
 	}
 
 	if derivedNetwork != "" {
+		if requestedNetwork != "" && derivedNetwork != requestedNetwork {
+			return "", fmt.Errorf("package-derived network %q conflicts with requested network %q", derivedNetwork, requestedNetwork)
+		}
 		return derivedNetwork, nil
 	}
+
 	if requestedNetwork != "" {
 		return requestedNetwork, nil
 	}
 
 	return "", errors.New("either <substreams_package.network> or <requested_network> is required when <provider_control_plane_endpoint> is not set")
+}
+
+func normalizePackageNetworks(networks map[string]*pbsubstreams.NetworkParams) (map[string]struct{}, error) {
+	if len(networks) == 0 {
+		return nil, nil
+	}
+
+	normalized := make(map[string]struct{}, len(networks))
+	for rawNetwork := range networks {
+		if strings.TrimSpace(rawNetwork) == "" {
+			return nil, fmt.Errorf("invalid <substreams_package.networks[%q]>: network is required", rawNetwork)
+		}
+		network, err := normalizeNetworkKey(rawNetwork)
+		if err != nil {
+			return nil, fmt.Errorf("invalid <substreams_package.networks[%q]>: %w", rawNetwork, err)
+		}
+		if _, ok := normalized[network]; ok {
+			return nil, fmt.Errorf("duplicate normalized <substreams_package.networks> entry %q", network)
+		}
+		normalized[network] = struct{}{}
+	}
+
+	return normalized, nil
 }
 
 func effectiveSessionPricing(

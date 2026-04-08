@@ -206,12 +206,12 @@ SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-local
 
 `TestFirecore` defaults to `ghcr.io/streamingfast/dummy-blockchain:v1.7.7`. Override it with `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE` when validating locally rebuilt runtimes. Refreshing the upstream published images so the default path works again is tracked in `MVP-036`.
 
-A sample firecore configuration is provided in `devel/firecore.config.yaml` that uses dummy-blockchain as the reader node and configures the SDS plugins (auth, session, metering) to connect to the provider gateway on `:9001`.
+A sample firecore configuration is provided in `devel/firecore.config.yaml` that uses dummy-blockchain as the reader node and configures the SDS plugins (auth, session, metering) to connect to the private Plugin Gateway on `:9003`.
 
 Sanity check (what to look for in logs):
 - Good:
   - `auth plugin instantiation {"plugin_kind": "sds"}`
-  - `MeteringConfig:"sds://localhost:9001?..."`
+  - `MeteringConfig:"sds://localhost:9003?..."`
   - `processing block {"block_number": ...}` (dummy-blockchain is running)
 - Bad:
   - `executable file not found in $PATH` for `dummy-blockchain` → ensure `$(go env GOPATH)/bin` is on `PATH`

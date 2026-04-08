@@ -163,7 +163,10 @@ func StartProviderGateway(
 		TransportConfig:   paymentTransportConfig,
 	}
 
-	paymentGateway := gateway.New(paymentConfig, providerLog)
+	paymentGateway, err := gateway.New(paymentConfig, providerLog)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create payment gateway: %w", err)
+	}
 	go paymentGateway.Run()
 
 	// Create Plugin Gateway services
@@ -269,7 +272,8 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 		Repository:          repo,
 	}
 
-	paymentGateway := gateway.New(paymentConfig, providerLog)
+	paymentGateway, err := gateway.New(paymentConfig, providerLog)
+	cli.NoError(err, "failed to create payment gateway")
 
 	// Create Plugin Gateway services
 	var collectorQuerier auth.CollectorAuthorizer

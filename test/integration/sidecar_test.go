@@ -19,6 +19,7 @@ import (
 	consumerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/consumer/v1/consumerv1connect"
 	providergateway "github.com/graphprotocol/substreams-data-service/provider/gateway"
+	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 	pbsubstreams "github.com/streamingfast/substreams/pb/sf/substreams/v1"
 )
@@ -66,9 +67,11 @@ func TestPaymentFlowBasic_EndSessionRemainsDeprecatedForManagedSessions(t *testi
 		RPCEndpoint:         env.RPCURL,
 		RAVRequestThreshold: sds.NewGRTFromUint64(1),
 		DataPlaneEndpoint:   "substreams.provider.example:443",
+		Repository:          repository.NewInMemoryRepository(),
 		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
 	}
-	providerGateway := providergateway.New(providerConfig, zlog.Named("provider"))
+	providerGateway, err := providergateway.New(providerConfig, zlog.Named("provider"))
+	require.NoError(t, err)
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond) // Wait for server to start
@@ -140,7 +143,7 @@ func TestInit_CreatesFreshSessionWithoutResumeSemantics(t *testing.T) {
 	defer consumerSidecar.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond) // Wait for server to start
 
-	providerGateway := providergateway.New(&providergateway.Config{
+	providerGateway, err := providergateway.New(&providergateway.Config{
 		ListenAddr:        ":19009",
 		ServiceProvider:   env.ServiceProvider.Address,
 		Domain:            domain,
@@ -153,8 +156,10 @@ func TestInit_CreatesFreshSessionWithoutResumeSemantics(t *testing.T) {
 			PricePerByte:  sds.ZeroGRT(),
 		},
 		RAVRequestThreshold: sds.NewGRTFromUint64(1),
+		Repository:          repository.NewInMemoryRepository(),
 		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("provider"))
+	require.NoError(t, err)
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond) // Wait for server to start
@@ -242,7 +247,7 @@ func TestInit_UsesOracleDiscoveryWhenDirectProviderOverrideAbsent(t *testing.T) 
 	setup, err := env.SetupTestWithSigner(nil)
 	require.NoError(t, err)
 
-	providerGateway := providergateway.New(&providergateway.Config{
+	providerGateway, err := providergateway.New(&providergateway.Config{
 		ListenAddr:        ":19031",
 		ServiceProvider:   env.ServiceProvider.Address,
 		Domain:            env.Domain(),
@@ -255,8 +260,10 @@ func TestInit_UsesOracleDiscoveryWhenDirectProviderOverrideAbsent(t *testing.T) 
 			PricePerByte:  sds.ZeroGRT(),
 		},
 		RAVRequestThreshold: sds.NewGRTFromUint64(1),
+		Repository:          repository.NewInMemoryRepository(),
 		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("provider"))
+	require.NoError(t, err)
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)
@@ -317,7 +324,7 @@ func TestInit_RejectsProviderPricingAboveOracleCeiling(t *testing.T) {
 	setup, err := env.SetupTestWithSigner(nil)
 	require.NoError(t, err)
 
-	providerGateway := providergateway.New(&providergateway.Config{
+	providerGateway, err := providergateway.New(&providergateway.Config{
 		ListenAddr:        ":19034",
 		ServiceProvider:   env.ServiceProvider.Address,
 		Domain:            env.Domain(),
@@ -330,8 +337,10 @@ func TestInit_RejectsProviderPricingAboveOracleCeiling(t *testing.T) {
 			PricePerByte:  sds.ZeroGRT(),
 		},
 		RAVRequestThreshold: sds.NewGRTFromUint64(1),
+		Repository:          repository.NewInMemoryRepository(),
 		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("provider"))
+	require.NoError(t, err)
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)

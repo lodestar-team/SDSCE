@@ -18,7 +18,8 @@ var ErrNotFound = errors.New("not found")
 
 // GlobalRepository provides global state storage for live session/client tracking.
 // All methods are namespaced by domain (Session*, Client*, Quota*, etc.)
-// All implementations must be safe for concurrent use.
+// All implementations must be safe for concurrent use and return independent
+// snapshots from getters rather than live shared pointers.
 type GlobalRepository interface {
 	// Session management
 	SessionCreate(ctx context.Context, session *Session) error

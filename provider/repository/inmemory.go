@@ -24,7 +24,7 @@ type InMemoryRepository struct {
 	workers  *haxmap.Map[string, *Worker]
 	quotas   *haxmap.Map[string, *QuotaUsage]
 
-	// usageMu guards usageSlice append operations; haxmap does not natively
+	// usageMu guards usage slice append operations; haxmap does not natively
 	// support atomic append-to-slice, so we use a thin mutex here.
 	usageMu sync.Mutex
 	usage   *haxmap.Map[string, []*UsageEvent]
@@ -52,7 +52,7 @@ func (r *InMemoryRepository) SessionCreate(_ context.Context, session *Session) 
 	if session.ID == "" {
 		return fmt.Errorf("session ID must not be empty")
 	}
-	if _, loaded := r.sessions.GetOrSet(session.ID, session); loaded {
+	if _, loaded := r.sessions.GetOrSet(session.ID, cloneSession(session)); loaded {
 		return fmt.Errorf("session %q already exists", session.ID)
 	}
 	return nil
@@ -64,7 +64,7 @@ func (r *InMemoryRepository) SessionGet(_ context.Context, sessionID string) (*S
 	if !ok {
 		return nil, fmt.Errorf("session %q: %w", sessionID, ErrNotFound)
 	}
-	return s, nil
+	return cloneSession(s), nil
 }
 
 // SessionUpdate replaces the stored session. Returns an error if the session does not exist.
@@ -72,32 +72,43 @@ func (r *InMemoryRepository) SessionUpdate(_ context.Context, session *Session) 
 	if session == nil {
 		return fmt.Errorf("session must not be nil")
 	}
-	if _, ok := r.sessions.Get(session.ID); !ok {
-		return fmt.Errorf("session %q not found", session.ID)
+
+	next := cloneSession(session)
+	for {
+		current, ok := r.sessions.Get(session.ID)
+		if !ok {
+			return fmt.Errorf("session %q not found", session.ID)
+		}
+		if r.sessions.CompareAndSwap(session.ID, current, next) {
+			return nil
+		}
 	}
-	r.sessions.Set(session.ID, session)
-	return nil
 }
 
 // SessionUpdateRAVAndBaseline updates only the accepted RAV and the corresponding baseline snapshot.
 func (r *InMemoryRepository) SessionUpdateRAVAndBaseline(_ context.Context, sessionID string, currentRAV *horizon.SignedRAV, baselineBlocks, baselineBytes, baselineReqs uint64, baselineCost *big.Int) error {
-	session, ok := r.sessions.Get(sessionID)
-	if !ok {
-		return fmt.Errorf("session %q: %w", sessionID, ErrNotFound)
-	}
+	for {
+		session, ok := r.sessions.Get(sessionID)
+		if !ok {
+			return fmt.Errorf("session %q: %w", sessionID, ErrNotFound)
+		}
 
-	session.CurrentRAV = currentRAV
-	session.BaselineBlocks = baselineBlocks
-	session.BaselineBytes = baselineBytes
-	session.BaselineReqs = baselineReqs
-	if baselineCost != nil {
-		session.BaselineCost = new(big.Int).Set(baselineCost)
-	} else {
-		session.BaselineCost = big.NewInt(0)
+		next := cloneSession(session)
+		next.CurrentRAV = cloneSignedRAV(currentRAV)
+		next.BaselineBlocks = baselineBlocks
+		next.BaselineBytes = baselineBytes
+		next.BaselineReqs = baselineReqs
+		if baselineCost != nil {
+			next.BaselineCost = new(big.Int).Set(baselineCost)
+		} else {
+			next.BaselineCost = big.NewInt(0)
+		}
+		next.UpdatedAt = time.Now()
+
+		if r.sessions.CompareAndSwap(sessionID, session, next) {
+			return nil
+		}
 	}
-	session.UpdatedAt = time.Now()
-	r.sessions.Set(sessionID, session)
-	return nil
 }
 
 // SessionApplyUsage appends a usage event and advances the owning session aggregates.
@@ -106,19 +117,21 @@ func (r *InMemoryRepository) SessionApplyUsage(ctx context.Context, sessionID st
 		return fmt.Errorf("usage event must not be nil")
 	}
 
-	session, ok := r.sessions.Get(sessionID)
-	if !ok {
-		return fmt.Errorf("session %q: %w", sessionID, ErrNotFound)
-	}
-
-	if err := r.UsageAdd(ctx, sessionID, usage); err != nil {
-		return err
-	}
-
 	blocks, bytes, requests := usage.SanitizedTotals()
-	session.AddUsage(blocks, bytes, requests, cost)
-	r.sessions.Set(sessionID, session)
-	return nil
+	for {
+		session, ok := r.sessions.Get(sessionID)
+		if !ok {
+			return fmt.Errorf("session %q: %w", sessionID, ErrNotFound)
+		}
+
+		next := cloneSession(session)
+		next.AddUsage(blocks, bytes, requests, cost)
+		if r.sessions.CompareAndSwap(sessionID, session, next) {
+			break
+		}
+	}
+
+	return r.UsageAdd(ctx, sessionID, usage)
 }
 
 // SessionList returns all sessions that match the given filter.
@@ -134,7 +147,7 @@ func (r *InMemoryRepository) SessionList(_ context.Context, filter SessionFilter
 		if filter.CreatedAfter != nil && !s.CreatedAt.After(*filter.CreatedAfter) {
 			return true
 		}
-		result = append(result, s)
+		result = append(result, cloneSession(s))
 		return true
 	})
 	return result, nil
@@ -155,7 +168,7 @@ func (r *InMemoryRepository) WorkerCreate(_ context.Context, worker *Worker) err
 	if worker.Key == "" {
 		return fmt.Errorf("worker key must not be empty")
 	}
-	if _, loaded := r.workers.GetOrSet(worker.Key, worker); loaded {
+	if _, loaded := r.workers.GetOrSet(worker.Key, cloneWorker(worker)); loaded {
 		return fmt.Errorf("worker %q already exists", worker.Key)
 	}
 	return nil
@@ -167,7 +180,7 @@ func (r *InMemoryRepository) WorkerGet(_ context.Context, workerKey string) (*Wo
 	if !ok {
 		return nil, fmt.Errorf("worker %q: %w", workerKey, ErrNotFound)
 	}
-	return w, nil
+	return cloneWorker(w), nil
 }
 
 // WorkerDelete removes a worker by its key.
@@ -192,41 +205,62 @@ func (r *InMemoryRepository) QuotaGet(_ context.Context, payer eth.Address) (*Qu
 			LastUpdated: time.Now(),
 		}, nil
 	}
-	return q, nil
+	return cloneQuotaUsage(q), nil
 }
 
 // QuotaIncrement atomically increments the quota counters for a payer.
 func (r *InMemoryRepository) QuotaIncrement(_ context.Context, payer eth.Address, sessions int, workers int) error {
 	payerKey := payer.Pretty()
-	q, _ := r.quotas.GetOrCompute(payerKey, func() *QuotaUsage {
-		return &QuotaUsage{Payer: payer}
-	})
-	q.ActiveSessions += sessions
-	q.ActiveWorkers += workers
-	q.LastUpdated = time.Now()
-	r.quotas.Set(payerKey, q)
-	return nil
+	for {
+		current, ok := r.quotas.Get(payerKey)
+		if !ok {
+			next := &QuotaUsage{Payer: payer}
+			next.ActiveSessions = sessions
+			next.ActiveWorkers = workers
+			next.LastUpdated = time.Now()
+			if actual, loaded := r.quotas.GetOrSet(payerKey, next); !loaded {
+				return nil
+			} else {
+				current = actual
+			}
+		}
+
+		next := cloneQuotaUsage(current)
+		next.ActiveSessions += sessions
+		next.ActiveWorkers += workers
+		next.LastUpdated = time.Now()
+
+		if r.quotas.CompareAndSwap(payerKey, current, next) {
+			return nil
+		}
+	}
 }
 
 // QuotaDecrement atomically decrements the quota counters for a payer.
 // Counters are clamped to zero to prevent underflow.
 func (r *InMemoryRepository) QuotaDecrement(_ context.Context, payer eth.Address, sessions int, workers int) error {
 	payerKey := payer.Pretty()
-	q, ok := r.quotas.Get(payerKey)
-	if !ok {
-		return nil
+	for {
+		current, ok := r.quotas.Get(payerKey)
+		if !ok {
+			return nil
+		}
+
+		next := cloneQuotaUsage(current)
+		next.ActiveSessions -= sessions
+		if next.ActiveSessions < 0 {
+			next.ActiveSessions = 0
+		}
+		next.ActiveWorkers -= workers
+		if next.ActiveWorkers < 0 {
+			next.ActiveWorkers = 0
+		}
+		next.LastUpdated = time.Now()
+
+		if r.quotas.CompareAndSwap(payerKey, current, next) {
+			return nil
+		}
 	}
-	q.ActiveSessions -= sessions
-	if q.ActiveSessions < 0 {
-		q.ActiveSessions = 0
-	}
-	q.ActiveWorkers -= workers
-	if q.ActiveWorkers < 0 {
-		q.ActiveWorkers = 0
-	}
-	q.LastUpdated = time.Now()
-	r.quotas.Set(payerKey, q)
-	return nil
 }
 
 // --- Usage accumulation ---
@@ -242,7 +276,7 @@ func (r *InMemoryRepository) UsageAdd(_ context.Context, sessionID string, usage
 	events, _ := r.usage.GetOrCompute(sessionID, func() []*UsageEvent {
 		return make([]*UsageEvent, 0, 8)
 	})
-	events = append(events, usage)
+	events = append(events, cloneUsageEvent(usage))
 	r.usage.Set(sessionID, events)
 	return nil
 }
@@ -257,4 +291,99 @@ func (r *InMemoryRepository) Ping(_ context.Context) error {
 // Close is a no-op for the in-memory implementation.
 func (r *InMemoryRepository) Close() error {
 	return nil
+}
+
+func cloneSession(session *Session) *Session {
+	if session == nil {
+		return nil
+	}
+
+	clone := *session
+	clone.Metadata = cloneStringMap(session.Metadata)
+	clone.EndedAt = cloneTimePtr(session.EndedAt)
+	clone.CurrentRAV = cloneSignedRAV(session.CurrentRAV)
+	clone.TotalCost = cloneBigInt(session.TotalCost)
+	clone.BaselineCost = cloneBigInt(session.BaselineCost)
+	return &clone
+}
+
+func cloneWorker(worker *Worker) *Worker {
+	if worker == nil {
+		return nil
+	}
+
+	clone := *worker
+	return &clone
+}
+
+func cloneQuotaUsage(quota *QuotaUsage) *QuotaUsage {
+	if quota == nil {
+		return nil
+	}
+
+	clone := *quota
+	return &clone
+}
+
+func cloneUsageEvent(usage *UsageEvent) *UsageEvent {
+	if usage == nil {
+		return nil
+	}
+
+	clone := *usage
+	return &clone
+}
+
+func cloneSignedRAV(rav *horizon.SignedRAV) *horizon.SignedRAV {
+	if rav == nil {
+		return nil
+	}
+
+	clone := &horizon.SignedRAV{
+		Signature: rav.Signature,
+	}
+	if rav.Message != nil {
+		clone.Message = cloneRAV(rav.Message)
+	}
+	return clone
+}
+
+func cloneRAV(rav *horizon.RAV) *horizon.RAV {
+	if rav == nil {
+		return nil
+	}
+
+	clone := *rav
+	clone.ValueAggregate = cloneBigInt(rav.ValueAggregate)
+	clone.Metadata = append([]byte(nil), rav.Metadata...)
+	return &clone
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return make(map[string]string)
+	}
+
+	clone := make(map[string]string, len(values))
+	for key, value := range values {
+		clone[key] = value
+	}
+	return clone
+}
+
+func cloneTimePtr(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+
+	clone := *value
+	return &clone
+}
+
+func cloneBigInt(value *big.Int) *big.Int {
+	if value == nil {
+		return nil
+	}
+
+	return new(big.Int).Set(value)
 }

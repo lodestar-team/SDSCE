@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -59,11 +60,15 @@ func RegisterSession() {
 
 // sessionInfo tracks a borrowed session and its workers.
 type sessionInfo struct {
-	organizationID string
-	apiKeyID       string
-	traceID        string
-	workers        *haxmap.Map[string, struct{}]
-	closer         chan struct{}
+	mu              sync.Mutex
+	organizationID  string
+	apiKeyID        string
+	traceID         string
+	workers         *haxmap.Map[string, struct{}]
+	closer          chan struct{}
+	keepAliveCtx    context.Context
+	keepAliveCancel context.CancelFunc
+	released        bool
 }
 
 // sessionPool implements dsession.SessionPool by calling the provider gateway.
@@ -148,16 +153,19 @@ func (p *sessionPool) Get(ctx context.Context, serviceName string, organizationI
 
 	// Start keep-alive for borrowed sessions
 	if workerStatus == sessionv1.BorrowStatus_BORROW_STATUS_BORROWED {
+		keepAliveCtx, keepAliveCancel := context.WithCancel(context.Background())
 		done := make(chan struct{})
 		p.sessions.Set(workerKey, &sessionInfo{
-			organizationID: organizationID,
-			apiKeyID:       apiKeyID,
-			traceID:        traceID,
-			workers:        haxmap.New[string, struct{}](),
-			closer:         done,
+			organizationID:  organizationID,
+			apiKeyID:        apiKeyID,
+			traceID:         traceID,
+			workers:         haxmap.New[string, struct{}](),
+			closer:          done,
+			keepAliveCtx:    keepAliveCtx,
+			keepAliveCancel: keepAliveCancel,
 		})
 
-		p.startKeepAlive(ctx, done, workerKey, onError)
+		p.startKeepAlive(keepAliveCtx, done, workerKey, onError)
 	}
 
 	p.logger.Debug("borrowed request worker", zap.String("worker_key", workerKey))
@@ -173,16 +181,16 @@ func (p *sessionPool) Release(sessionKey string) {
 			return
 		}
 
-		// Collect workers to release
-		var workersToRelease []string
-		info.workers.ForEach(func(workerKey string, _ struct{}) bool {
-			workersToRelease = append(workersToRelease, workerKey)
-			return true
-		})
-		done := info.closer
+		workersToRelease, done, cancel, ok := info.beginRelease()
+		if !ok {
+			return
+		}
+
 		p.sessions.Del(sessionKey)
 
-		// Close the done channel
+		if cancel != nil {
+			cancel()
+		}
 		if done != nil {
 			close(done)
 		}
@@ -273,7 +281,11 @@ func (p *sessionPool) GetWorker(ctx context.Context, serviceName string, session
 		go p.releaseWorkerInternal(workerKey)
 		return "", fmt.Errorf("%w: session key %s was released", dsession.ErrSessionNotFound, sessionKey)
 	}
-	info.workers.Set(workerKey, struct{}{})
+	if !info.addWorker(workerKey) {
+		// Session was released after the worker was borrowed but before it was recorded.
+		go p.releaseWorkerInternal(workerKey)
+		return "", fmt.Errorf("%w: session key %s was released", dsession.ErrSessionNotFound, sessionKey)
+	}
 
 	p.logger.Info("borrowed worker",
 		zap.String("organization_id", organizationID),
@@ -383,4 +395,34 @@ func (p *sessionPool) startKeepAlive(ctx context.Context, done <-chan struct{}, 
 			}
 		}
 	}()
+}
+
+func (info *sessionInfo) beginRelease() ([]string, chan struct{}, context.CancelFunc, bool) {
+	info.mu.Lock()
+	defer info.mu.Unlock()
+
+	if info.released {
+		return nil, nil, nil, false
+	}
+	info.released = true
+
+	workersToRelease := make([]string, 0)
+	info.workers.ForEach(func(workerKey string, _ struct{}) bool {
+		workersToRelease = append(workersToRelease, workerKey)
+		return true
+	})
+
+	return workersToRelease, info.closer, info.keepAliveCancel, true
+}
+
+func (info *sessionInfo) addWorker(workerKey string) bool {
+	info.mu.Lock()
+	defer info.mu.Unlock()
+
+	if info.released {
+		return false
+	}
+
+	info.workers.Set(workerKey, struct{}{})
+	return true
 }

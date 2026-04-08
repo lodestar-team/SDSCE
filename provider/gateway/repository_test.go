@@ -58,6 +58,13 @@ func TestNewRepositoryFromDSN_UnsupportedScheme(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported DSN scheme")
 }
 
+func TestNewRequiresRepository(t *testing.T) {
+	repo, err := New(&Config{}, zlogTest)
+	require.Error(t, err)
+	require.Nil(t, repo)
+	assert.Contains(t, err.Error(), "repository must be provided explicitly")
+}
+
 func TestSanitizeDSN(t *testing.T) {
 	tests := []struct {
 		name     string

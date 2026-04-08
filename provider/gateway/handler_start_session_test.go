@@ -23,7 +23,7 @@ func TestStartSession_AllowsConcurrentSessionsForSamePayer(t *testing.T) {
 	collector := eth.MustNewAddress("0x4444444444444444444444444444444444444444")
 
 	repo := repository.NewInMemoryRepository()
-	gateway := New(&Config{
+	gateway, err := New(&Config{
 		ListenAddr:        ":0",
 		ServiceProvider:   serviceProvider,
 		Domain:            horizon.NewDomain(1337, collector),
@@ -32,6 +32,7 @@ func TestStartSession_AllowsConcurrentSessionsForSamePayer(t *testing.T) {
 		Repository:        repo,
 		TransportConfig:   sidecar.ServerTransportConfig{Plaintext: true},
 	}, zap.NewNop())
+	require.NoError(t, err)
 
 	start := func() *connect.Response[providerv1.StartSessionResponse] {
 		resp, err := gateway.StartSession(ctx, connect.NewRequest(&providerv1.StartSessionRequest{

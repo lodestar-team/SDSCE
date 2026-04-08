@@ -20,9 +20,10 @@ type runtimeManager struct {
 }
 
 type runtimeSessionState struct {
-	evalMu     sync.Mutex
-	events     chan *providerv1.PaymentSessionResponse
-	pendingRAV *pendingRAVRequest
+	evalMu         sync.Mutex
+	events         chan *providerv1.PaymentSessionResponse
+	pendingRAV     *pendingRAVRequest
+	queuedResponse *providerv1.PaymentSessionResponse
 }
 
 func newRuntimeManager() *runtimeManager {
@@ -50,10 +51,25 @@ func (m *runtimeManager) bindSession(
 		m.mu.Unlock()
 		return fmt.Errorf("payment session stream already bound for %q", sessionID)
 	}
+	needsRefresh := current.pendingRAV != nil && current.queuedResponse == nil
+	if needsRefresh {
+		// The previous stream had already received the RAV request before it disconnected.
+		// Clear the pending marker so the fresh bind can regenerate the in-flight request.
+		current.pendingRAV = nil
+	}
 	current.events = events
+	queued := current.queuedResponse
+	pending := current.pendingRAV.clone()
 	m.mu.Unlock()
 
-	return m.onMeteredUsage(ctx, gateway, sessionID)
+	m.tryDeliverQueuedResponse(sessionID, events, queued, pending)
+
+	if err := m.onMeteredUsage(ctx, gateway, sessionID); err != nil {
+		m.cleanupSessionState(sessionID, events)
+		return err
+	}
+
+	return nil
 }
 
 func (m *runtimeManager) unbindSession(sessionID string, events chan *providerv1.PaymentSessionResponse) {
@@ -61,15 +77,7 @@ func (m *runtimeManager) unbindSession(sessionID string, events chan *providerv1
 		return
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	current := m.sessions[sessionID]
-	if current == nil || current.events != events {
-		return
-	}
-
-	current.events = nil
+	m.cleanupSessionState(sessionID, events)
 }
 
 func (m *runtimeManager) onMeteredUsage(ctx context.Context, gateway *Gateway, sessionID string) error {
@@ -116,6 +124,7 @@ func (m *runtimeManager) evaluateMeteredUsage(ctx context.Context, gateway *Gate
 	}
 
 	if assessment.insufficient() {
+		m.clearPendingRAV(sessionID)
 		gateway.logger.Info("stopping session due to insufficient funds from metered runtime evaluation",
 			zap.String("session_id", sessionID),
 		)
@@ -175,21 +184,30 @@ func (m *runtimeManager) dispatch(sessionID string, resp *providerv1.PaymentSess
 		return
 	}
 
-	var events chan *providerv1.PaymentSessionResponse
+	var (
+		events     chan *providerv1.PaymentSessionResponse
+		pendingRef *pendingRAVRequest
+	)
 
 	m.mu.Lock()
-	current := m.sessions[sessionID]
-	if current != nil {
-		events = current.events
-		current.pendingRAV = pending.clone()
-	}
+	current := m.ensureSessionStateLocked(sessionID)
+	events = current.events
+	current.queuedResponse = resp
+	current.pendingRAV = pending.clone()
+	pendingRef = current.pendingRAV
 	m.mu.Unlock()
 
 	if events == nil {
 		return
 	}
 
-	events <- resp
+	select {
+	case events <- resp:
+		m.clearQueuedResponse(sessionID, events, resp, pendingRef)
+	default:
+		// Best-effort dispatch: metering ingestion must not block on stream delivery.
+		// The latest control response remains queued in runtime state for a later bind.
+	}
 }
 
 func (m *runtimeManager) hasPendingRAV(sessionID string) bool {
@@ -224,4 +242,79 @@ func (m *runtimeManager) ensureSessionStateLocked(sessionID string) *runtimeSess
 	current = &runtimeSessionState{}
 	m.sessions[sessionID] = current
 	return current
+}
+
+func (m *runtimeManager) cleanupSessionState(sessionID string, events chan *providerv1.PaymentSessionResponse) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.cleanupSessionStateLocked(sessionID, events)
+}
+
+func (m *runtimeManager) cleanupSessionStateLocked(sessionID string, events chan *providerv1.PaymentSessionResponse) {
+	current := m.sessions[sessionID]
+	if current == nil || current.events != events {
+		return
+	}
+
+	current.events = nil
+	if current.pendingRAV == nil && current.queuedResponse == nil {
+		delete(m.sessions, sessionID)
+	}
+}
+
+func (m *runtimeManager) clearPendingRAV(sessionID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	current := m.sessions[sessionID]
+	if current == nil {
+		return
+	}
+
+	current.pendingRAV = nil
+}
+
+func (m *runtimeManager) clearQueuedControl(sessionID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	current := m.sessions[sessionID]
+	if current == nil {
+		return
+	}
+
+	current.pendingRAV = nil
+	current.queuedResponse = nil
+	if current.events == nil {
+		delete(m.sessions, sessionID)
+	}
+}
+
+func (m *runtimeManager) tryDeliverQueuedResponse(sessionID string, events chan *providerv1.PaymentSessionResponse, resp *providerv1.PaymentSessionResponse, pending *pendingRAVRequest) {
+	if events == nil || resp == nil {
+		return
+	}
+
+	select {
+	case events <- resp:
+		m.clearQueuedResponse(sessionID, events, resp, pending)
+	default:
+	}
+}
+
+func (m *runtimeManager) clearQueuedResponse(sessionID string, events chan *providerv1.PaymentSessionResponse, resp *providerv1.PaymentSessionResponse, pending *pendingRAVRequest) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	current := m.sessions[sessionID]
+	if current == nil || current.events != events || current.queuedResponse != resp {
+		return
+	}
+
+	current.queuedResponse = nil
+	current.pendingRAV = pending
+	if current.events == nil && current.pendingRAV == nil {
+		delete(m.sessions, sessionID)
+	}
 }

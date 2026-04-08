@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,6 +26,7 @@ type stubSessionService struct {
 
 	borrowWorker func(context.Context, *connect.Request[sessionv1.BorrowWorkerRequest]) (*connect.Response[sessionv1.BorrowWorkerResponse], error)
 	keepAlive    func(context.Context, *connect.Request[sessionv1.KeepAliveRequest]) (*connect.Response[sessionv1.KeepAliveResponse], error)
+	returnWorker func(context.Context, *connect.Request[sessionv1.ReturnWorkerRequest]) (*connect.Response[sessionv1.ReturnWorkerResponse], error)
 }
 
 func (s stubSessionService) BorrowWorker(ctx context.Context, req *connect.Request[sessionv1.BorrowWorkerRequest]) (*connect.Response[sessionv1.BorrowWorkerResponse], error) {
@@ -38,6 +41,13 @@ func (s stubSessionService) KeepAlive(ctx context.Context, req *connect.Request[
 		return s.keepAlive(ctx, req)
 	}
 	return connect.NewResponse(&sessionv1.KeepAliveResponse{}), nil
+}
+
+func (s stubSessionService) ReturnWorker(ctx context.Context, req *connect.Request[sessionv1.ReturnWorkerRequest]) (*connect.Response[sessionv1.ReturnWorkerResponse], error) {
+	if s.returnWorker != nil {
+		return s.returnWorker(ctx, req)
+	}
+	return connect.NewResponse(&sessionv1.ReturnWorkerResponse{}), nil
 }
 
 func newTestSessionPool(t *testing.T, svc sessionv1connect.SessionServiceHandler, keepAliveDelay time.Duration) *sessionPool {
@@ -59,6 +69,20 @@ func newTestSessionPool(t *testing.T, svc sessionv1connect.SessionServiceHandler
 	}
 }
 
+func newTestSessionInfo(t *testing.T) *sessionInfo {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	return &sessionInfo{
+		workers:         haxmap.New[string, struct{}](),
+		closer:          make(chan struct{}),
+		keepAliveCtx:    ctx,
+		keepAliveCancel: cancel,
+	}
+}
+
 func TestSessionPoolGetWorker_MapsPermissionDenied(t *testing.T) {
 	pool := newTestSessionPool(t, stubSessionService{
 		borrowWorker: func(context.Context, *connect.Request[sessionv1.BorrowWorkerRequest]) (*connect.Response[sessionv1.BorrowWorkerResponse], error) {
@@ -72,6 +96,7 @@ func TestSessionPoolGetWorker_MapsPermissionDenied(t *testing.T) {
 		traceID:        "trace",
 		workers:        haxmap.New[string, struct{}](),
 		closer:         make(chan struct{}),
+		keepAliveCtx:   context.Background(),
 	})
 
 	ctx := dauth.WithTrustedHeaders(context.Background(), dauth.TrustedHeaders{
@@ -91,9 +116,11 @@ func TestSessionPoolKeepAlive_MapsResourceExhaustedToQuotaExceeded(t *testing.T)
 
 	done := make(chan struct{})
 	pool.sessions.Set("session-key", &sessionInfo{
-		apiKeyID: "api-key",
-		workers:  haxmap.New[string, struct{}](),
-		closer:   done,
+		apiKeyID:        "api-key",
+		workers:         haxmap.New[string, struct{}](),
+		closer:          done,
+		keepAliveCtx:    context.Background(),
+		keepAliveCancel: func() {},
 	})
 
 	errCh := make(chan error, 1)
@@ -110,4 +137,105 @@ func TestSessionPoolKeepAlive_MapsResourceExhaustedToQuotaExceeded(t *testing.T)
 	case <-time.After(time.Second):
 		t.Fatal("expected keepalive to surface a quota exceeded error")
 	}
+}
+
+func TestSessionPoolReleaseIsIdempotent(t *testing.T) {
+	var returnWorkerCalls atomic.Int32
+	pool := newTestSessionPool(t, stubSessionService{
+		returnWorker: func(context.Context, *connect.Request[sessionv1.ReturnWorkerRequest]) (*connect.Response[sessionv1.ReturnWorkerResponse], error) {
+			returnWorkerCalls.Add(1)
+			return connect.NewResponse(&sessionv1.ReturnWorkerResponse{}), nil
+		},
+	}, 10*time.Millisecond)
+
+	pool.sessions.Set("session-key", func() *sessionInfo {
+		info := newTestSessionInfo(t)
+		info.organizationID = "0x1111111111111111111111111111111111111111"
+		info.apiKeyID = "api-key"
+		info.traceID = "trace"
+		info.workers.Set("worker-1", struct{}{})
+		return info
+	}())
+
+	pool.Release("session-key")
+	pool.Release("session-key")
+
+	require.Eventually(t, func() bool {
+		return returnWorkerCalls.Load() == 2
+	}, time.Second, 10*time.Millisecond)
+	require.Equal(t, int32(2), returnWorkerCalls.Load())
+}
+
+func TestSessionPoolReleaseConcurrentCallsAreSafe(t *testing.T) {
+	var returnWorkerCalls atomic.Int32
+	pool := newTestSessionPool(t, stubSessionService{
+		returnWorker: func(context.Context, *connect.Request[sessionv1.ReturnWorkerRequest]) (*connect.Response[sessionv1.ReturnWorkerResponse], error) {
+			returnWorkerCalls.Add(1)
+			return connect.NewResponse(&sessionv1.ReturnWorkerResponse{}), nil
+		},
+	}, 10*time.Millisecond)
+
+	pool.sessions.Set("session-key", func() *sessionInfo {
+		info := newTestSessionInfo(t)
+		info.organizationID = "0x1111111111111111111111111111111111111111"
+		info.apiKeyID = "api-key"
+		info.traceID = "trace"
+		info.workers.Set("worker-1", struct{}{})
+		info.workers.Set("worker-2", struct{}{})
+		return info
+	}())
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pool.Release("session-key")
+		}()
+	}
+	wg.Wait()
+
+	require.Eventually(t, func() bool {
+		return returnWorkerCalls.Load() == 3
+	}, time.Second, 10*time.Millisecond)
+	require.Equal(t, int32(3), returnWorkerCalls.Load())
+}
+
+func TestSessionPoolKeepAliveUsesSessionLifecycleNotBorrowContext(t *testing.T) {
+	var keepAliveCalls atomic.Int32
+	pool := newTestSessionPool(t, stubSessionService{
+		borrowWorker: func(context.Context, *connect.Request[sessionv1.BorrowWorkerRequest]) (*connect.Response[sessionv1.BorrowWorkerResponse], error) {
+			return connect.NewResponse(&sessionv1.BorrowWorkerResponse{
+				WorkerKey: "session-key",
+				Status:    sessionv1.BorrowStatus_BORROW_STATUS_BORROWED,
+			}), nil
+		},
+		keepAlive: func(context.Context, *connect.Request[sessionv1.KeepAliveRequest]) (*connect.Response[sessionv1.KeepAliveResponse], error) {
+			keepAliveCalls.Add(1)
+			return connect.NewResponse(&sessionv1.KeepAliveResponse{}), nil
+		},
+		returnWorker: func(context.Context, *connect.Request[sessionv1.ReturnWorkerRequest]) (*connect.Response[sessionv1.ReturnWorkerResponse], error) {
+			return connect.NewResponse(&sessionv1.ReturnWorkerResponse{}), nil
+		},
+	}, 10*time.Millisecond)
+
+	borrowCtx, cancelBorrow := context.WithCancel(context.Background())
+	borrowCtx = dauth.WithTrustedHeaders(borrowCtx, dauth.TrustedHeaders{
+		sds.HeaderSessionID: "sds-session-id",
+	})
+
+	workerKey, err := pool.Get(borrowCtx, "substreams", "org-1", "api-key", "trace", nil)
+	require.NoError(t, err)
+	require.Equal(t, "session-key", workerKey)
+
+	cancelBorrow()
+
+	require.Eventually(t, func() bool {
+		return keepAliveCalls.Load() > 0
+	}, time.Second, 10*time.Millisecond)
+
+	pool.Release("session-key")
+	require.Eventually(t, func() bool {
+		return keepAliveCalls.Load() >= 1
+	}, time.Second, 10*time.Millisecond)
 }

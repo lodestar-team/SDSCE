@@ -108,12 +108,12 @@ func (s *Gateway) PaymentSession(
 				}
 
 				runtimeEvents = make(chan *providerv1.PaymentSessionResponse, 4)
+				sessionID = gotSessionID
 				if err := s.runtime.bindSession(ctx, s, gotSessionID, runtimeEvents); err != nil {
 					_ = stream.Send(stopPaymentSessionResponse(err.Error()))
 					return nil
 				}
 
-				sessionID = gotSessionID
 				if msg.GetMessage() == nil {
 					continue
 				}
@@ -292,6 +292,7 @@ func (s *Gateway) handleRAVSubmission(
 		}
 
 		state.pendingRAV = nil
+		state.queuedResponse = nil
 		if err := s.runtime.evaluateMeteredUsage(ctx, s, sessionID); err != nil {
 			s.logger.Warn("failed to re-evaluate metered usage after RAV acceptance", zap.String("session_id", sessionID), zap.Error(err))
 			resp = stopPaymentSessionResponse("failed to refresh runtime payment state")
@@ -336,9 +337,11 @@ func (s *Gateway) handleFundsAcknowledgment(
 	)
 
 	if ack.WillDeposit {
+		s.runtime.clearQueuedControl(sessionID)
 		return continuePaymentSessionResponse()
 	}
 
+	s.runtime.clearQueuedControl(sessionID)
 	return stopPaymentSessionResponse("insufficient funds and no deposit planned")
 }
 

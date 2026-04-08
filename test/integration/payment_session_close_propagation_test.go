@@ -18,6 +18,7 @@ import (
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
 	providergateway "github.com/graphprotocol/substreams-data-service/provider/gateway"
+	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
@@ -36,7 +37,7 @@ func TestSessionClose_ConsumerEndSession_IsDeprecatedForProviderManagedSessions(
 
 	domain := env.Domain()
 
-	providerGateway := providergateway.New(&providergateway.Config{
+	providerGateway, err := providergateway.New(&providergateway.Config{
 		ListenAddr:        ":19028",
 		ServiceProvider:   env.ServiceProvider.Address,
 		Domain:            domain,
@@ -49,8 +50,10 @@ func TestSessionClose_ConsumerEndSession_IsDeprecatedForProviderManagedSessions(
 			PricePerByte:  sds.ZeroGRT(),
 		},
 		RAVRequestThreshold: sds.NewGRTFromUint64(1),
+		Repository:          repository.NewInMemoryRepository(),
 		TransportConfig:     sidecar.ServerTransportConfig{Plaintext: true},
 	}, zlog.Named("provider"))
+	require.NoError(t, err)
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)

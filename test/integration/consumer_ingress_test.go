@@ -57,7 +57,7 @@ func TestConsumerIngress_UsesOracleSelectedProviderReceiver(t *testing.T) {
 	defer shutdownUpstream()
 
 	repo := repository.NewInMemoryRepository()
-	providerGateway := providergateway.New(&providergateway.Config{
+	providerGateway, err := providergateway.New(&providergateway.Config{
 		ListenAddr:          providerAddr,
 		ServiceProvider:     env.ServiceProvider.Address,
 		Domain:              env.Domain(),
@@ -70,6 +70,7 @@ func TestConsumerIngress_UsesOracleSelectedProviderReceiver(t *testing.T) {
 		TransportConfig:     sidecarlib.ServerTransportConfig{Plaintext: true},
 		Repository:          repo,
 	}, zlog.Named("provider"))
+	require.NoError(t, err)
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)
@@ -170,7 +171,7 @@ func TestConsumerIngress_StopsStreamOnLowFunds(t *testing.T) {
 	defer shutdownUpstream()
 
 	repo := repository.NewInMemoryRepository()
-	providerGateway := providergateway.New(&providergateway.Config{
+	providerGateway, err := providergateway.New(&providergateway.Config{
 		ListenAddr:          providerAddr,
 		ServiceProvider:     serviceProvider.Address,
 		Domain:              env.Domain(),
@@ -183,6 +184,7 @@ func TestConsumerIngress_StopsStreamOnLowFunds(t *testing.T) {
 		TransportConfig:     sidecarlib.ServerTransportConfig{Plaintext: true},
 		Repository:          repo,
 	}, zlog.Named("provider"))
+	require.NoError(t, err)
 	usageService = providerusage.NewUsageService(repo, deterministicRepositoryPricingConfig(), providerGateway)
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
@@ -261,7 +263,7 @@ func TestConsumerIngress_FiniteEOFReturnsPromptlyWithoutControlStop(t *testing.T
 	defer shutdownUpstream()
 
 	repo := repository.NewInMemoryRepository()
-	providerGateway := providergateway.New(&providergateway.Config{
+	providerGateway, err := providergateway.New(&providergateway.Config{
 		ListenAddr:          providerAddr,
 		ServiceProvider:     env.ServiceProvider.Address,
 		Domain:              env.Domain(),
@@ -274,6 +276,7 @@ func TestConsumerIngress_FiniteEOFReturnsPromptlyWithoutControlStop(t *testing.T
 		TransportConfig:     sidecarlib.ServerTransportConfig{Plaintext: true},
 		Repository:          repo,
 	}, zlog.Named("provider"))
+	require.NoError(t, err)
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)
@@ -356,7 +359,7 @@ func TestConsumerIngress_ResolvesAmbiguousEOFWithDelayedProviderStop(t *testing.
 	defer shutdownUpstream()
 
 	repo := repository.NewInMemoryRepository()
-	providerGateway := providergateway.New(&providergateway.Config{
+	providerGateway, err := providergateway.New(&providergateway.Config{
 		ListenAddr:          providerAddr,
 		ServiceProvider:     serviceProvider.Address,
 		Domain:              env.Domain(),
@@ -369,6 +372,7 @@ func TestConsumerIngress_ResolvesAmbiguousEOFWithDelayedProviderStop(t *testing.
 		TransportConfig:     sidecarlib.ServerTransportConfig{Plaintext: true},
 		Repository:          repo,
 	}, zlog.Named("provider"))
+	require.NoError(t, err)
 	usageService = providerusage.NewUsageService(repo, deterministicRepositoryPricingConfig(), providerGateway)
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
@@ -452,7 +456,7 @@ func TestConsumerIngress_ResolvesAmbiguousEOFFromProviderSessionStatus(t *testin
 	defer shutdownUpstream()
 
 	repo := repository.NewInMemoryRepository()
-	providerGateway := providergateway.New(&providergateway.Config{
+	providerGateway, err := providergateway.New(&providergateway.Config{
 		ListenAddr:          providerAddr,
 		ServiceProvider:     env.ServiceProvider.Address,
 		Domain:              env.Domain(),
@@ -465,6 +469,7 @@ func TestConsumerIngress_ResolvesAmbiguousEOFFromProviderSessionStatus(t *testin
 		TransportConfig:     sidecarlib.ServerTransportConfig{Plaintext: true},
 		Repository:          repo,
 	}, zlog.Named("provider"))
+	require.NoError(t, err)
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)

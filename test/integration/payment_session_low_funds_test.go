@@ -298,7 +298,8 @@ func deterministicRepositoryPricingConfig() repository.PricingConfig {
 func startPaymentGatewayForTest(t *testing.T, endpoint string, config *providergateway.Config) (*providergateway.Gateway, providerv1connect.PaymentGatewayServiceClient, func()) {
 	t.Helper()
 
-	providerGateway := providergateway.New(config, zlog.Named("provider"))
+	providerGateway, err := providergateway.New(config, zlog.Named("provider"))
+	require.NoError(t, err)
 	go providerGateway.Run()
 	time.Sleep(100 * time.Millisecond)
 

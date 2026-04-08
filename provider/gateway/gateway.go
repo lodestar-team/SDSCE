@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"net/http"
 	"time"
@@ -79,8 +80,8 @@ type Config struct {
 	DataPlaneEndpoint   string
 	TransportConfig     sidecar.ServerTransportConfig
 
-	// Repository provides session/usage state storage.
-	// If nil, an in-memory repository is created.
+	// Repository provides session/usage state storage and must be selected
+	// explicitly by the caller.
 	Repository repository.GlobalRepository
 }
 
@@ -89,7 +90,14 @@ type authCacheEntry struct {
 	expires time.Time
 }
 
-func New(config *Config, logger *zap.Logger) *Gateway {
+func New(config *Config, logger *zap.Logger) (*Gateway, error) {
+	if config == nil {
+		return nil, fmt.Errorf("gateway config must not be nil")
+	}
+	if config.Repository == nil {
+		return nil, fmt.Errorf("gateway repository must be provided explicitly")
+	}
+
 	var escrowQuerier *sidecar.EscrowQuerier
 	if config.RPCEndpoint != "" && config.EscrowAddr != nil {
 		escrowQuerier = sidecar.NewEscrowQuerier(config.RPCEndpoint, config.EscrowAddr)
@@ -109,13 +117,6 @@ func New(config *Config, logger *zap.Logger) *Gateway {
 		ravRequestThreshold = DefaultRAVRequestThreshold()
 	}
 
-	// Use provided repository or create an in-memory one as fallback
-	repo := config.Repository
-	if repo == nil {
-		logger.Info("no repository provided, using in-memory repository")
-		repo = repository.NewInMemoryRepository()
-	}
-
 	return &Gateway{
 		Shutter:             shutter.New(),
 		listenAddr:          config.ListenAddr,
@@ -131,9 +132,9 @@ func New(config *Config, logger *zap.Logger) *Gateway {
 		dataPlaneEndpoint:   config.DataPlaneEndpoint,
 		transportConfig:     config.TransportConfig,
 		authCache:           haxmap.New[string, authCacheEntry](),
-		repo:                repo,
+		repo:                config.Repository,
 		runtime:             newRuntimeManager(),
-	}
+	}, nil
 }
 
 // toRepoPricingConfig converts sidecar.PricingConfig to repository.PricingConfig.

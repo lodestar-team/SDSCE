@@ -432,7 +432,7 @@ func startFirecoreProviderStack(
 
 	domain := horizon.NewDomain(chainID, collectorAddr)
 
-	payment := paymentgateway.New(&paymentgateway.Config{
+	payment, err := paymentgateway.New(&paymentgateway.Config{
 		ListenAddr:          paymentListenAddr,
 		ServiceProvider:     serviceProviderAddr,
 		Domain:              domain,
@@ -445,6 +445,9 @@ func startFirecoreProviderStack(
 		Repository:          repo,
 		TransportConfig:     paymentTransportConfig,
 	}, firecoreLog)
+	if err != nil {
+		return nil, err
+	}
 	go payment.Run()
 
 	var collectorQuerier providerauth.CollectorAuthorizer

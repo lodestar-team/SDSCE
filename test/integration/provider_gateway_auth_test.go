@@ -17,6 +17,7 @@ import (
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
 	providergateway "github.com/graphprotocol/substreams-data-service/provider/gateway"
+	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
@@ -45,9 +46,11 @@ func TestPaymentGateway_OnChainAuthorization(t *testing.T) {
 		EscrowAddr:        env.Escrow.Address,
 		RPCEndpoint:       env.RPCURL,
 		DataPlaneEndpoint: "substreams.provider.example:443",
+		Repository:        repository.NewInMemoryRepository(),
 		TransportConfig:   sidecar.ServerTransportConfig{Plaintext: true},
 	}
-	providerGateway := providergateway.New(providerConfig, zlog.Named("provider"))
+	providerGateway, err := providergateway.New(providerConfig, zlog.Named("provider"))
+	require.NoError(t, err)
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)

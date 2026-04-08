@@ -73,7 +73,7 @@ func runDemoSetup(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("START COMMANDS:\n")
 	fmt.Printf("  Provider gateway:\n")
-	fmt.Printf("    sds provider gateway --service-provider %s --collector-address %s --escrow-address %s --rpc-endpoint %s --data-plane-endpoint localhost:10016 --plaintext --plugin-plaintext\n",
+	fmt.Printf("    sds provider gateway --repository-dsn \"psql://dev-node:changeme@localhost:5432/dev-node?sslmode=disable\" --grpc-listen-addr=:9001 --plugin-listen-addr=:9003 --plaintext --plugin-plaintext --service-provider %s --collector-address %s --escrow-address %s --rpc-endpoint %s --data-plane-endpoint \"https://localhost:10016?insecure=true\"\n",
 		env.ServiceProvider.Address.Pretty(),
 		env.Collector.Address.Pretty(),
 		env.Escrow.Address.Pretty(),
@@ -81,13 +81,13 @@ func runDemoSetup(cmd *cobra.Command, args []string) error {
 	)
 	fmt.Printf("\n")
 	fmt.Printf("  Consumer sidecar:\n")
-	fmt.Printf("    sds consumer sidecar --signer-private-key 0x%s --collector-address %s\n",
+	fmt.Printf("    sds consumer sidecar --grpc-listen-addr=:9002 --config=devel/consumer-sidecar.direct.yaml --plaintext --signer-private-key 0x%s --collector-address %s\n",
 		env.DemoSigner.PrivateKey.String(),
 		env.Collector.Address.Pretty(),
 	)
 	fmt.Printf("\n")
 	fmt.Printf("  Substreams ingress example:\n")
-	fmt.Printf("    substreams gui common@v0.1.0 map_clocks -e localhost:9002 --plaintext --network mainnet -s 0 -t +20\n")
+	fmt.Printf("    substreams gui common@v0.1.0 map_clocks -e localhost:9002 --plaintext\n")
 
 	return nil
 }

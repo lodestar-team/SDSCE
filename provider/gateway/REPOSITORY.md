@@ -6,7 +6,7 @@ The provider gateway supports pluggable repository backends for session and usag
 
 ### In-Memory Repository
 
-An in-memory repository that stores all data in RAM. This is the default and is suitable for development and testing.
+An in-memory repository that stores all data in RAM. The CLI still falls back to this when `--repository-dsn` is omitted, but it is only suitable for development, testing, and single-process demo runs.
 
 **DSN Format:**
 ```
@@ -23,10 +23,13 @@ inmemory://
 ```bash
 sds provider gateway \
   --repository-dsn "inmemory://" \
+  --plaintext \
+  --plugin-plaintext \
   --service-provider "0x..." \
   --collector-address "0x..." \
   --escrow-address "0x..." \
-  --rpc-endpoint "http://localhost:8545"
+  --rpc-endpoint "http://localhost:8545" \
+  --data-plane-endpoint "https://localhost:10016?insecure=true"
 ```
 
 ### PostgreSQL Repository
@@ -54,20 +57,26 @@ The PostgreSQL DSN follows standard connection string format. Common parameters:
 ```bash
 sds provider gateway \
   --repository-dsn "psql://sds_user:secret@localhost:5432/sds?sslmode=disable" \
+  --plaintext \
+  --plugin-plaintext \
   --service-provider "0x..." \
   --collector-address "0x..." \
   --escrow-address "0x..." \
-  --rpc-endpoint "http://localhost:8545"
+  --rpc-endpoint "http://localhost:8545" \
+  --data-plane-endpoint "https://localhost:10016?insecure=true"
 ```
 
 **Production Example with SSL:**
 ```bash
 sds provider gateway \
   --repository-dsn "psql://sds_user:secret@prod-db.example.com:5432/sds?sslmode=require&connect_timeout=10" \
+  --tls-cert-file "/etc/sds/provider.crt" \
+  --tls-key-file "/etc/sds/provider.key" \
   --service-provider "0x..." \
   --collector-address "0x..." \
   --escrow-address "0x..." \
-  --rpc-endpoint "https://mainnet.infura.io/v3/YOUR-KEY"
+  --rpc-endpoint "https://mainnet.infura.io/v3/YOUR-KEY" \
+  --data-plane-endpoint "https://tier1.example.com:10016"
 ```
 
 ## Security Considerations
@@ -169,10 +178,13 @@ Test the gateway with PostgreSQL:
 ```bash
 sds provider gateway \
   --repository-dsn "psql://sds_user:secret@localhost:5432/sds?sslmode=disable" \
+  --plaintext \
+  --plugin-plaintext \
   --service-provider "0x1234567890123456789012345678901234567890" \
   --collector-address "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd" \
   --escrow-address "0x1111111111111111111111111111111111111111" \
-  --rpc-endpoint "http://localhost:8545"
+  --rpc-endpoint "http://localhost:8545" \
+  --data-plane-endpoint "https://localhost:10016?insecure=true"
 ```
 
 ## Implementation Details
@@ -207,4 +219,4 @@ It does not yet define the provider collection lifecycle model for `collectible`
 
 ### Backward Compatibility
 
-If no `--repository-dsn` flag is provided, the gateway defaults to `inmemory://`, maintaining backward compatibility with existing deployments.
+If no `--repository-dsn` flag is provided, the gateway currently falls back to `inmemory://` for backward compatibility. Treat that as a local/demo convenience only; deployed or multi-instance gateways should set an explicit PostgreSQL DSN.

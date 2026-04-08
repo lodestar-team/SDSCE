@@ -44,15 +44,15 @@ reflex -c .reflex.direct
 reflex -c .reflex.oracle
 ```
 
-The default `.reflex` flow uses the deterministic demo signer that `sds devenv` authorizes automatically. It also passes `--plaintext` explicitly for the local/demo sidecar<->gateway path. Outside local/demo usage, configure TLS certificate/key files instead of relying on plaintext defaults.
+The default `.reflex` flow uses the deterministic demo signer that `sds devenv` authorizes automatically. It also passes `--plaintext` explicitly for the local/demo sidecar<->gateway path, while the provider gateway's private Plugin Gateway inherits that local transport unless you override it with the plugin-specific flags added in the CLI. Outside local/demo usage, configure TLS certificate/key files instead of relying on plaintext defaults.
 
 The consumer sidecar `--payment-session-roundtrip-timeout` also bounds how long ingress will wait to resolve an ambiguous upstream EOF against the provider `PaymentSession` control loop before classifying the end of stream as an unresolved transport/control failure.
 
 Local endpoints exposed by the direct-provider stack:
 
 - Consumer sidecar ingress: `localhost:9002`
-- Provider gateway: `localhost:9001`
-- Provider plugin gateway: `localhost:9003`
+- Provider payment gateway: `localhost:9001`
+- Provider plugin gateway: `localhost:9003` (private `sds://` surface)
 - Substreams tier1: `localhost:10016`
 
 The oracle-backed stack exposes the same sidecar/provider endpoints and also starts the local oracle on `localhost:9004`.
@@ -93,7 +93,7 @@ For Substreams CLI installation and upgrade instructions, use the official docs:
 Use the normal Substreams CLI against the consumer sidecar ingress for local SDS flows:
 
 ```bash
-substreams gui common@v0.1.0 map_clocks -e localhost:9002 --plaintext --network mainnet -s 0 -t +20
+substreams gui common@v0.1.0 map_clocks -e localhost:9002 --plaintext
 ```
 
 ### Development Environment
@@ -211,7 +211,7 @@ A sample firecore configuration is provided in `devel/firecore.config.yaml` that
 Sanity check (what to look for in logs):
 - Good:
   - `auth plugin instantiation {"plugin_kind": "sds"}`
-  - `MeteringConfig:"sds://localhost:9003?..."`
+  - `MeteringConfig:"sds://localhost:9003?plaintext=true..."`
   - `processing block {"block_number": ...}` (dummy-blockchain is running)
 - Bad:
   - `executable file not found in $PATH` for `dummy-blockchain` → ensure `$(go env GOPATH)/bin` is on `PATH`
@@ -276,25 +276,31 @@ Runs alongside the data provider (substreams-tier1) and handles:
 
 The provider gateway supports two repository backends via the `--repository-dsn` flag:
 
-- **In-memory** (default): `--repository-dsn="inmemory://"` - For development/testing
-- **PostgreSQL**: `--repository-dsn="psql://user:pass@host:port/dbname?sslmode=disable"` - For production
+- **In-memory**: `--repository-dsn="inmemory://"` - Local/demo and test-only; appropriate for a single-process stack
+- **PostgreSQL**: `--repository-dsn="psql://user:pass@host:port/dbname?sslmode=disable"` - Persistent and appropriate for multi-instance or deployed gateways
 
 ```bash
-# Using devenv addresses with in-memory repository (default)
+# Using devenv addresses with in-memory repository (local/demo only)
 sds provider gateway \
+  --repository-dsn "inmemory://" \
   --plaintext \
+  --plugin-plaintext \
   --service-provider 0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
   --collector-address 0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9 \
   --escrow-address 0xfc7487a37ca8eac2e64cba61277aa109e9b8631e \
-  --rpc-endpoint <RPC_URL_FROM_DEVENV>
+  --rpc-endpoint <RPC_URL_FROM_DEVENV> \
+  --data-plane-endpoint "https://localhost:10016?insecure=true"
 
 # Using PostgreSQL repository
 sds provider gateway \
   --repository-dsn "psql://dev-node:changeme@localhost:5432/dev-node?sslmode=disable" \
+  --plaintext \
+  --plugin-plaintext \
   --service-provider 0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
   --collector-address 0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9 \
   --escrow-address 0xfc7487a37ca8eac2e64cba61277aa109e9b8631e \
-  --rpc-endpoint <RPC_URL_FROM_DEVENV>
+  --rpc-endpoint <RPC_URL_FROM_DEVENV> \
+  --data-plane-endpoint "https://localhost:10016?insecure=true"
 ```
 
 #### Horizon Package (`horizon/`)

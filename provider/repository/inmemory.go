@@ -24,6 +24,10 @@ type InMemoryRepository struct {
 	workers  *haxmap.Map[string, *Worker]
 	quotas   *haxmap.Map[string, *QuotaUsage]
 
+	// mu serializes worker/quota mutations so multi-step repository operations
+	// can be made atomic inside the in-memory backend.
+	mu sync.Mutex
+
 	// usageMu guards usage slice append operations; haxmap does not natively
 	// support atomic append-to-slice, so we use a thin mutex here.
 	usageMu sync.Mutex
@@ -162,6 +166,9 @@ func (r *InMemoryRepository) SessionCount(_ context.Context) int {
 
 // WorkerCreate stores a new worker. Returns an error if the worker key already exists.
 func (r *InMemoryRepository) WorkerCreate(_ context.Context, worker *Worker) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if worker == nil {
 		return fmt.Errorf("worker must not be nil")
 	}
@@ -172,6 +179,57 @@ func (r *InMemoryRepository) WorkerCreate(_ context.Context, worker *Worker) err
 		return fmt.Errorf("worker %q already exists", worker.Key)
 	}
 	return nil
+}
+
+// WorkerCreateAndReserveQuota atomically creates a worker and reserves quota for its payer.
+func (r *InMemoryRepository) WorkerCreateAndReserveQuota(_ context.Context, worker *Worker, maxWorkers int) (*QuotaUsage, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if worker == nil {
+		return nil, fmt.Errorf("worker must not be nil")
+	}
+	if worker.Key == "" {
+		return nil, fmt.Errorf("worker key must not be empty")
+	}
+	if maxWorkers < 0 {
+		return nil, fmt.Errorf("max workers must not be negative")
+	}
+
+	if _, loaded := r.workers.Get(worker.Key); loaded {
+		return nil, fmt.Errorf("worker %q already exists", worker.Key)
+	}
+
+	payerKey := worker.Payer.Pretty()
+	current, ok := r.quotas.Get(payerKey)
+	if !ok {
+		if 1 > maxWorkers {
+			return &QuotaUsage{
+				Payer:       worker.Payer,
+				LastUpdated: time.Now(),
+			}, ErrQuotaExceeded
+		}
+
+		next := &QuotaUsage{
+			Payer:         worker.Payer,
+			ActiveWorkers: 1,
+			LastUpdated:   time.Now(),
+		}
+		r.workers.Set(worker.Key, cloneWorker(worker))
+		r.quotas.Set(payerKey, next)
+		return cloneQuotaUsage(next), nil
+	}
+
+	if current.ActiveWorkers+1 > maxWorkers {
+		return cloneQuotaUsage(current), ErrQuotaExceeded
+	}
+
+	next := cloneQuotaUsage(current)
+	next.ActiveWorkers++
+	next.LastUpdated = time.Now()
+	r.workers.Set(worker.Key, cloneWorker(worker))
+	r.quotas.Set(payerKey, next)
+	return cloneQuotaUsage(next), nil
 }
 
 // WorkerGet retrieves a worker by its key.
@@ -185,6 +243,9 @@ func (r *InMemoryRepository) WorkerGet(_ context.Context, workerKey string) (*Wo
 
 // WorkerDelete removes a worker by its key.
 func (r *InMemoryRepository) WorkerDelete(_ context.Context, workerKey string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if _, ok := r.workers.Get(workerKey); !ok {
 		return fmt.Errorf("worker %q not found", workerKey)
 	}
@@ -208,8 +269,60 @@ func (r *InMemoryRepository) QuotaGet(_ context.Context, payer eth.Address) (*Qu
 	return cloneQuotaUsage(q), nil
 }
 
+// QuotaReserve atomically reserves worker quota for a payer.
+func (r *InMemoryRepository) QuotaReserve(_ context.Context, payer eth.Address, maxWorkers int, workers int) (*QuotaUsage, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if workers <= 0 {
+		return nil, fmt.Errorf("workers must be positive")
+	}
+	if maxWorkers < 0 {
+		return nil, fmt.Errorf("max workers must not be negative")
+	}
+
+	payerKey := payer.Pretty()
+	for {
+		current, ok := r.quotas.Get(payerKey)
+		if !ok {
+			if workers > maxWorkers {
+				return &QuotaUsage{
+					Payer:       payer,
+					LastUpdated: time.Now(),
+				}, ErrQuotaExceeded
+			}
+
+			next := &QuotaUsage{
+				Payer:         payer,
+				ActiveWorkers: workers,
+				LastUpdated:   time.Now(),
+			}
+			if actual, loaded := r.quotas.GetOrSet(payerKey, next); !loaded {
+				return cloneQuotaUsage(next), nil
+			} else {
+				current = actual
+			}
+		}
+
+		if current.ActiveWorkers+workers > maxWorkers {
+			return cloneQuotaUsage(current), ErrQuotaExceeded
+		}
+
+		next := cloneQuotaUsage(current)
+		next.ActiveWorkers += workers
+		next.LastUpdated = time.Now()
+
+		if r.quotas.CompareAndSwap(payerKey, current, next) {
+			return cloneQuotaUsage(next), nil
+		}
+	}
+}
+
 // QuotaIncrement atomically increments the quota counters for a payer.
 func (r *InMemoryRepository) QuotaIncrement(_ context.Context, payer eth.Address, sessions int, workers int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	payerKey := payer.Pretty()
 	for {
 		current, ok := r.quotas.Get(payerKey)
@@ -239,6 +352,9 @@ func (r *InMemoryRepository) QuotaIncrement(_ context.Context, payer eth.Address
 // QuotaDecrement atomically decrements the quota counters for a payer.
 // Counters are clamped to zero to prevent underflow.
 func (r *InMemoryRepository) QuotaDecrement(_ context.Context, payer eth.Address, sessions int, workers int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	payerKey := payer.Pretty()
 	for {
 		current, ok := r.quotas.Get(payerKey)

@@ -74,47 +74,36 @@ func (s *SessionService) BorrowWorker(
 		return nil, err
 	}
 
-	// Check current quota usage.
-	quota, err := s.repo.QuotaGet(ctx, payer)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reading quota: %w", err))
-	}
-
 	maxWorkers := s.quotas.MaxWorkersPerSession(payerStr) * s.quotas.MaxConcurrentSessions(payerStr)
 
-	if quota.ActiveWorkers >= maxWorkers {
-		zlog.Warn("quota exceeded for payer",
-			zap.Stringer("payer", payer),
-			zap.Int("active_workers", quota.ActiveWorkers),
-			zap.Int("max_workers", maxWorkers),
-		)
-		return connect.NewResponse(&sessionv1.BorrowWorkerResponse{
-			Status: sessionv1.BorrowStatus_BORROW_STATUS_RESOURCE_EXHAUSTED,
-			WorkerState: &sessionv1.WorkerState{
-				MaxWorkers:    int64(maxWorkers),
-				ActiveWorkers: int64(quota.ActiveWorkers),
-			},
-		}), nil
-	}
-
-	// Create the worker entry.
+	// Create the worker entry and reserve quota atomically.
 	// Worker key is unique per request, built from payer and timestamp.
-	workerKey := buildWorkerKey(payerStr, sessionID, time.Now())
+	now := time.Now()
+	workerKey := buildWorkerKey(payerStr, sessionID, now)
 	worker := &repository.Worker{
 		Key:       workerKey,
 		SessionID: sessionID,
 		Payer:     payer,
-		CreatedAt: time.Now(),
+		CreatedAt: now,
 		TraceID:   "", // No trace ID - workers are identified by their unique key
 	}
-	if err := s.repo.WorkerCreate(ctx, worker); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("creating worker: %w", err))
-	}
-
-	// Increment quota.
-	if err := s.repo.QuotaIncrement(ctx, payer, 0, 1); err != nil {
-		// Non-fatal: log and continue (quota is eventually consistent in the in-memory model).
-		zlog.Warn("failed to increment quota", zap.Stringer("payer", payer), zap.Error(err))
+	quota, err := s.repo.WorkerCreateAndReserveQuota(ctx, worker, maxWorkers)
+	if err != nil {
+		if errors.Is(err, repository.ErrQuotaExceeded) {
+			zlog.Warn("quota exceeded for payer",
+				zap.Stringer("payer", payer),
+				zap.Int("active_workers", quota.ActiveWorkers),
+				zap.Int("max_workers", maxWorkers),
+			)
+			return connect.NewResponse(&sessionv1.BorrowWorkerResponse{
+				Status: sessionv1.BorrowStatus_BORROW_STATUS_RESOURCE_EXHAUSTED,
+				WorkerState: &sessionv1.WorkerState{
+					MaxWorkers:    int64(maxWorkers),
+					ActiveWorkers: int64(quota.ActiveWorkers),
+				},
+			}), nil
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("creating worker and reserving quota: %w", err))
 	}
 
 	zlog.Debug("worker borrowed",
@@ -128,7 +117,7 @@ func (s *SessionService) BorrowWorker(
 		Status:    sessionv1.BorrowStatus_BORROW_STATUS_BORROWED,
 		WorkerState: &sessionv1.WorkerState{
 			MaxWorkers:    int64(maxWorkers),
-			ActiveWorkers: int64(quota.ActiveWorkers + 1),
+			ActiveWorkers: int64(quota.ActiveWorkers),
 		},
 	}), nil
 }

@@ -16,6 +16,10 @@ import (
 // All repository implementations should return this error for consistency.
 var ErrNotFound = errors.New("not found")
 
+// ErrQuotaExceeded is returned when a quota reservation would exceed the
+// configured limit.
+var ErrQuotaExceeded = errors.New("quota exceeded")
+
 // GlobalRepository provides global state storage for live session/client tracking.
 // All methods are namespaced by domain (Session*, Client*, Quota*, etc.)
 // All implementations must be safe for concurrent use and return independent
@@ -32,11 +36,13 @@ type GlobalRepository interface {
 
 	// Worker/connection tracking within sessions
 	WorkerCreate(ctx context.Context, worker *Worker) error
+	WorkerCreateAndReserveQuota(ctx context.Context, worker *Worker, maxWorkers int) (*QuotaUsage, error)
 	WorkerGet(ctx context.Context, workerKey string) (*Worker, error)
 	WorkerDelete(ctx context.Context, workerKey string) error
 
 	// Quota tracking
 	QuotaGet(ctx context.Context, payer eth.Address) (*QuotaUsage, error)
+	QuotaReserve(ctx context.Context, payer eth.Address, maxWorkers int, workers int) (*QuotaUsage, error)
 	QuotaIncrement(ctx context.Context, payer eth.Address, sessions int, workers int) error
 	QuotaDecrement(ctx context.Context, payer eth.Address, sessions int, workers int) error
 

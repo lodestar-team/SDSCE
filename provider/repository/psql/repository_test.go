@@ -308,6 +308,83 @@ func TestWorkerCreateAndGet(t *testing.T) {
 	})
 }
 
+func TestWorkerCreateAndReserveQuota(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+
+		pricingConfig := sds.PricingConfig{
+			PricePerBlock: sds.MustNewGRT(100),
+			PricePerByte:  sds.MustNewGRT(10),
+		}
+
+		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
+		receiver := eth.MustNewAddress("0x2234567890123456789012345678901234567890")
+		dataService := eth.MustNewAddress("0x3234567890123456789012345678901234567890")
+
+		session := repository.NewSession("atomic-worker-session-1", payer, receiver, dataService, pricingConfig)
+		require.NoError(t, db.SessionCreate(ctx, session))
+
+		worker := &repository.Worker{
+			Key:       "atomic-worker-1",
+			SessionID: session.ID,
+			Payer:     payer,
+			CreatedAt: time.Now(),
+			TraceID:   "trace-atomic-1",
+		}
+
+		quota, err := db.WorkerCreateAndReserveQuota(ctx, worker, 3)
+		require.NoError(t, err)
+		require.NotNil(t, quota)
+		assert.Equal(t, 1, quota.ActiveWorkers)
+
+		retrievedWorker, err := db.WorkerGet(ctx, worker.Key)
+		require.NoError(t, err)
+		assert.Equal(t, worker.Key, retrievedWorker.Key)
+
+		currentQuota, err := db.QuotaGet(ctx, payer)
+		require.NoError(t, err)
+		assert.Equal(t, 1, currentQuota.ActiveWorkers)
+	})
+}
+
+func TestWorkerCreateAndReserveQuota_RollsBackOnWorkerCreateFailure(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+
+		pricingConfig := sds.PricingConfig{
+			PricePerBlock: sds.MustNewGRT(100),
+			PricePerByte:  sds.MustNewGRT(10),
+		}
+
+		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
+		receiver := eth.MustNewAddress("0x2234567890123456789012345678901234567890")
+		dataService := eth.MustNewAddress("0x3234567890123456789012345678901234567890")
+
+		session := repository.NewSession("atomic-worker-session-dup", payer, receiver, dataService, pricingConfig)
+		require.NoError(t, db.SessionCreate(ctx, session))
+
+		worker := &repository.Worker{
+			Key:       "atomic-worker-dup",
+			SessionID: session.ID,
+			Payer:     payer,
+			CreatedAt: time.Now(),
+		}
+
+		quota, err := db.WorkerCreateAndReserveQuota(ctx, worker, 3)
+		require.NoError(t, err)
+		require.NotNil(t, quota)
+		assert.Equal(t, 1, quota.ActiveWorkers)
+
+		quota, err = db.WorkerCreateAndReserveQuota(ctx, worker, 3)
+		require.Error(t, err)
+		require.Nil(t, quota)
+
+		currentQuota, err := db.QuotaGet(ctx, payer)
+		require.NoError(t, err)
+		assert.Equal(t, 1, currentQuota.ActiveWorkers)
+	})
+}
+
 func TestWorkerDelete(t *testing.T) {
 	withTestDB(t, func(db *Database) {
 		ctx := context.Background()
@@ -373,6 +450,34 @@ func TestQuotaGetAndIncrement(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 3, quota.ActiveSessions)
 		assert.Equal(t, 8, quota.ActiveWorkers)
+	})
+}
+
+func TestQuotaReserve(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+
+		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
+
+		quota, err := db.QuotaReserve(ctx, payer, 3, 1)
+		require.NoError(t, err)
+		assert.Equal(t, 0, quota.ActiveSessions)
+		assert.Equal(t, 1, quota.ActiveWorkers)
+
+		quota, err = db.QuotaReserve(ctx, payer, 3, 2)
+		require.NoError(t, err)
+		assert.Equal(t, 0, quota.ActiveSessions)
+		assert.Equal(t, 3, quota.ActiveWorkers)
+
+		quota, err = db.QuotaReserve(ctx, payer, 3, 1)
+		require.ErrorIs(t, err, repository.ErrQuotaExceeded)
+		assert.Equal(t, 0, quota.ActiveSessions)
+		assert.Equal(t, 3, quota.ActiveWorkers)
+
+		current, err := db.QuotaGet(ctx, payer)
+		require.NoError(t, err)
+		assert.Equal(t, 0, current.ActiveSessions)
+		assert.Equal(t, 3, current.ActiveWorkers)
 	})
 }
 

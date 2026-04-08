@@ -242,6 +242,45 @@ func TestInMemory_WorkerCreate_Duplicate(t *testing.T) {
 	require.Error(t, repo.WorkerCreate(ctx, w))
 }
 
+func TestInMemory_WorkerCreateAndReserveQuota(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+
+	worker := newTestWorker("worker-atomic-1", "session-atomic-1", "0x1111111111111111111111111111111111111111")
+	quota, err := repo.WorkerCreateAndReserveQuota(ctx, worker, 3)
+	require.NoError(t, err)
+	require.NotNil(t, quota)
+	assert.Equal(t, 1, quota.ActiveWorkers)
+
+	gotWorker, err := repo.WorkerGet(ctx, worker.Key)
+	require.NoError(t, err)
+	assert.Equal(t, worker.Key, gotWorker.Key)
+
+	gotQuota, err := repo.QuotaGet(ctx, worker.Payer)
+	require.NoError(t, err)
+	assert.Equal(t, 1, gotQuota.ActiveWorkers)
+}
+
+func TestInMemory_WorkerCreateAndReserveQuota_DuplicateWorkerDoesNotMutateQuota(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+
+	worker := newTestWorker("worker-atomic-dup", "session-atomic-dup", "0x2222222222222222222222222222222222222222")
+	quota, err := repo.WorkerCreateAndReserveQuota(ctx, worker, 3)
+	require.NoError(t, err)
+	require.NotNil(t, quota)
+	assert.Equal(t, 1, quota.ActiveWorkers)
+
+	quota, err = repo.WorkerCreateAndReserveQuota(ctx, worker, 3)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "already exists")
+	assert.Nil(t, quota)
+
+	gotQuota, err := repo.QuotaGet(ctx, worker.Payer)
+	require.NoError(t, err)
+	assert.Equal(t, 1, gotQuota.ActiveWorkers)
+}
+
 func TestInMemory_WorkerGet_NotFound(t *testing.T) {
 	repo := repository.NewInMemoryRepository()
 	ctx := context.Background()
@@ -277,6 +316,41 @@ func TestInMemory_QuotaGet_NewPayer(t *testing.T) {
 	assert.Equal(t, "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", q.Payer.Pretty())
 	assert.Equal(t, 0, q.ActiveSessions)
 	assert.Equal(t, 0, q.ActiveWorkers)
+}
+
+func TestInMemory_QuotaReserve(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+
+	payer := eth.MustNewAddress("0x1111111111111111111111111111111111111111")
+	quota, err := repo.QuotaReserve(ctx, payer, 3, 1)
+	require.NoError(t, err)
+	assert.Equal(t, 1, quota.ActiveWorkers)
+
+	quota, err = repo.QuotaReserve(ctx, payer, 3, 2)
+	require.NoError(t, err)
+	assert.Equal(t, 3, quota.ActiveWorkers)
+
+	quota, err = repo.QuotaReserve(ctx, payer, 3, 1)
+	require.ErrorIs(t, err, repository.ErrQuotaExceeded)
+	assert.Equal(t, 3, quota.ActiveWorkers)
+}
+
+func TestInMemory_QuotaReserve_ExhaustedDoesNotMutate(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+
+	payer := eth.MustNewAddress("0x2222222222222222222222222222222222222222")
+	_, err := repo.QuotaReserve(ctx, payer, 1, 1)
+	require.NoError(t, err)
+
+	quota, err := repo.QuotaReserve(ctx, payer, 1, 1)
+	require.ErrorIs(t, err, repository.ErrQuotaExceeded)
+	assert.Equal(t, 1, quota.ActiveWorkers)
+
+	got, err := repo.QuotaGet(ctx, payer)
+	require.NoError(t, err)
+	assert.Equal(t, 1, got.ActiveWorkers)
 }
 
 func TestInMemory_QuotaIncrement(t *testing.T) {

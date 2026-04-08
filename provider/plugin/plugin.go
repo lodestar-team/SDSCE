@@ -8,11 +8,13 @@
 //
 // Usage in firehose-core:
 //
-//	common-auth-plugin: "sds://localhost:9003"
-//	common-session-plugin: "sds://localhost:9003"
-//	common-metering-plugin: "sds://localhost:9003?network=my-network"
+//	common-auth-plugin: "sds://<plugin-gateway-host>:9003"
+//	common-session-plugin: "sds://<plugin-gateway-host>:9003"
+//	common-metering-plugin: "sds://<plugin-gateway-host>:9003?network=my-network"
 //
-// For local/demo-only plaintext, explicitly append ?plaintext=true.
+// In the local demo stack, <plugin-gateway-host> is localhost and the private
+// Plugin Gateway listens on :9003. Append ?plaintext=true only when that
+// private endpoint is intentionally running plaintext.
 // Note: Port 9003 is the Plugin Gateway (PRIVATE internal services).
 // Port 9001 is the Payment Gateway (PUBLIC for consumer sidecars).
 package plugin
@@ -53,7 +55,7 @@ func parseBaseConfig(configURL string) (*baseConfig, url.Values, error) {
 
 	hostname := u.Hostname()
 	if hostname == "" {
-		return nil, nil, fmt.Errorf("hostname is required, e.g. sds://localhost:9003")
+		return nil, nil, fmt.Errorf("hostname is required, e.g. sds://<plugin-gateway-host>:9003")
 	}
 
 	port := u.Port()

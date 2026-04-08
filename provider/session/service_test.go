@@ -2,6 +2,7 @@ package session_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -35,6 +36,28 @@ func newTestReturnWorkerRequest(msg *sessionv1.ReturnWorkerRequest) *connect.Req
 // newTestKeepAliveRequest creates a keep alive request.
 func newTestKeepAliveRequest(msg *sessionv1.KeepAliveRequest) *connect.Request[sessionv1.KeepAliveRequest] {
 	return connect.NewRequest(msg)
+}
+
+type quotaReservationFailRepo struct {
+	*repository.InMemoryRepository
+}
+
+func (r *quotaReservationFailRepo) WorkerCreateAndReserveQuota(_ context.Context, worker *repository.Worker, maxWorkers int) (*repository.QuotaUsage, error) {
+	return &repository.QuotaUsage{
+		Payer:         worker.Payer,
+		ActiveWorkers: maxWorkers,
+		LastUpdated:   time.Now(),
+	}, repository.ErrQuotaExceeded
+}
+
+type atomicBorrowFailRepo struct {
+	*repository.InMemoryRepository
+	calls int
+}
+
+func (r *atomicBorrowFailRepo) WorkerCreateAndReserveQuota(_ context.Context, worker *repository.Worker, maxWorkers int) (*repository.QuotaUsage, error) {
+	r.calls++
+	return nil, errors.New("atomic borrow failed")
 }
 
 func mustCreateSession(t *testing.T, repo *repository.InMemoryRepository, sessionID, payer string) *repository.Session {
@@ -186,6 +209,41 @@ func TestSessionService_BorrowWorker_QuotaExceeded(t *testing.T) {
 	resp2, err := svc.BorrowWorker(context.Background(), req2)
 	require.NoError(t, err)
 	assert.Equal(t, sessionv1.BorrowStatus_BORROW_STATUS_RESOURCE_EXHAUSTED, resp2.Msg.Status)
+}
+
+func TestSessionService_BorrowWorker_QuotaReservationFailure_DoesNotCreateWorker(t *testing.T) {
+	spy := &quotaReservationFailRepo{InMemoryRepository: repository.NewInMemoryRepository()}
+	svc := session.NewSessionService(spy, nil)
+	repo := spy.InMemoryRepository
+	mustCreateSession(t, repo, "reservation-failure-session", "0x1111111111111111111111111111111111111111")
+
+	resp, err := svc.BorrowWorker(context.Background(), newTestRequest(&sessionv1.BorrowWorkerRequest{
+		Service:        "substreams",
+		OrganizationId: "0x1111111111111111111111111111111111111111",
+		SessionId:      "trace-reserve-failure",
+	}, "reservation-failure-session"))
+	require.NoError(t, err)
+	assert.Equal(t, sessionv1.BorrowStatus_BORROW_STATUS_RESOURCE_EXHAUSTED, resp.Msg.Status)
+}
+
+func TestSessionService_BorrowWorker_AtomicReserveFailureReturnsInternalError(t *testing.T) {
+	spy := &atomicBorrowFailRepo{InMemoryRepository: repository.NewInMemoryRepository()}
+	svc := session.NewSessionService(spy, nil)
+	repo := spy.InMemoryRepository
+	mustCreateSession(t, repo, "atomic-borrow-failure-session", "0x1111111111111111111111111111111111111111")
+
+	resp, err := svc.BorrowWorker(context.Background(), newTestRequest(&sessionv1.BorrowWorkerRequest{
+		Service:        "substreams",
+		OrganizationId: "0x1111111111111111111111111111111111111111",
+		SessionId:      "trace-atomic-failure",
+	}, "atomic-borrow-failure-session"))
+	require.Error(t, err)
+	require.Nil(t, resp)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeInternal, connectErr.Code())
+	assert.Equal(t, 1, spy.calls)
 }
 
 func TestSessionService_BorrowWorker_PerPayerOverride(t *testing.T) {

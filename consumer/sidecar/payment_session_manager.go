@@ -13,6 +13,13 @@ import (
 	sidecarlib "github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
+type paymentSessionStream interface {
+	Send(*providerv1.PaymentSessionRequest) error
+	Receive() (*providerv1.PaymentSessionResponse, error)
+	CloseRequest() error
+	CloseResponse() error
+}
+
 type paymentSessionManager struct {
 	mu sync.RWMutex
 	m  map[string]*paymentSessionClient
@@ -61,17 +68,23 @@ func (m *paymentSessionManager) Close(sessionID string) {
 
 type paymentSessionClient struct {
 	mu sync.Mutex
+	// sendMu serializes writes only within the current stream generation.
+	sendMu *sync.Mutex
 
 	providerEndpoint string
 	gatewayClient    providerv1connect.PaymentGatewayServiceClient
+	newStream        func(context.Context) paymentSessionStream
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	stream         *connect.BidiStreamForClient[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse]
-	streamCancel   context.CancelFunc
-	receiveCh      chan paymentSessionReceiveResult
-	boundSessionID string
+	stream           paymentSessionStream
+	streamCancel     context.CancelFunc
+	receiveCh        chan paymentSessionReceiveResult
+	boundSessionID   string
+	bindingSessionID string
+	bindingDone      chan struct{}
+	streamGeneration uint64
 }
 
 type paymentSessionReceiveResult struct {
@@ -81,12 +94,16 @@ type paymentSessionReceiveResult struct {
 
 func newPaymentSessionClient(providerEndpoint string) *paymentSessionClient {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &paymentSessionClient{
+	client := &paymentSessionClient{
 		providerEndpoint: providerEndpoint,
 		gatewayClient:    newPaymentGatewayClient(providerEndpoint),
 		ctx:              ctx,
 		cancel:           cancel,
 	}
+	client.newStream = func(ctx context.Context) paymentSessionStream {
+		return client.gatewayClient.PaymentSession(ctx)
+	}
+	return client
 }
 
 func (c *paymentSessionClient) SetEndpoint(providerEndpoint string) {
@@ -111,24 +128,70 @@ func (c *paymentSessionClient) BindSession(sessionID string) error {
 		return fmt.Errorf("session id is required")
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	for {
+		c.mu.Lock()
+		switch {
+		case c.boundSessionID == sessionID && c.stream != nil:
+			c.mu.Unlock()
+			return nil
+		case c.bindingSessionID == sessionID:
+			waitCh := c.bindingDone
+			c.mu.Unlock()
+			if waitCh != nil {
+				<-waitCh
+			}
+			continue
+		case c.boundSessionID != "" && c.boundSessionID != sessionID:
+			err := fmt.Errorf("payment session client already bound to %q", c.boundSessionID)
+			c.mu.Unlock()
+			return err
+		case c.bindingSessionID != "" && c.bindingSessionID != sessionID:
+			err := fmt.Errorf("payment session client is currently binding %q", c.bindingSessionID)
+			c.mu.Unlock()
+			return err
+		}
 
-	if c.boundSessionID == sessionID && c.stream != nil {
-		return nil
-	}
-	if c.boundSessionID != "" && c.boundSessionID != sessionID {
-		return fmt.Errorf("payment session client already bound to %q", c.boundSessionID)
-	}
+		stream := c.ensureStreamLocked()
+		sendMu := c.sendMu
+		if c.bindingDone == nil {
+			c.bindingDone = make(chan struct{})
+		}
+		bindingDone := c.bindingDone
+		streamGeneration := c.streamGeneration
+		c.bindingSessionID = sessionID
+		c.mu.Unlock()
 
-	stream := c.ensureStreamLocked()
-	if err := stream.Send(&providerv1.PaymentSessionRequest{SessionId: sessionID}); err != nil {
-		c.closeLocked()
+		err := c.sendRequest(sendMu, stream, &providerv1.PaymentSessionRequest{SessionId: sessionID})
+
+		c.mu.Lock()
+		sameStream := c.stream == stream && c.streamGeneration == streamGeneration
+		attemptActive := c.bindingDone == bindingDone && c.bindingSessionID == sessionID
+		if err == nil {
+			if sameStream && attemptActive {
+				c.boundSessionID = sessionID
+				c.bindingSessionID = ""
+				c.finishBindingLocked()
+				c.mu.Unlock()
+				return nil
+			}
+
+			if attemptActive {
+				c.bindingSessionID = ""
+				c.finishBindingLocked()
+			}
+			c.mu.Unlock()
+			return fmt.Errorf("bind payment session %q: stream changed while binding", sessionID)
+		}
+
+		if sameStream && attemptActive {
+			c.closeLocked()
+		} else if attemptActive {
+			c.bindingSessionID = ""
+			c.finishBindingLocked()
+		}
+		c.mu.Unlock()
 		return fmt.Errorf("bind payment session %q: %w", sessionID, err)
 	}
-
-	c.boundSessionID = sessionID
-	return nil
 }
 
 func (c *paymentSessionClient) SendRAVSubmission(sessionID string, signed *horizon.SignedRAV, usage *commonv1.Usage) error {
@@ -139,31 +202,49 @@ func (c *paymentSessionClient) SendRAVSubmission(sessionID string, signed *horiz
 		return fmt.Errorf("signed RAV is required")
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	for {
+		c.mu.Lock()
+		switch {
+		case c.boundSessionID == sessionID && c.stream != nil:
+			stream := c.stream
+			sendMu := c.sendMu
+			streamGeneration := c.streamGeneration
+			c.mu.Unlock()
 
-	if c.boundSessionID == "" {
-		return fmt.Errorf("payment session client is not bound")
-	}
-	if c.boundSessionID != sessionID {
-		return fmt.Errorf("payment session client is bound to %q, not %q", c.boundSessionID, sessionID)
-	}
+			if err := c.sendRequest(sendMu, stream, &providerv1.PaymentSessionRequest{
+				SessionId: sessionID,
+				Message: &providerv1.PaymentSessionRequest_RavSubmission{
+					RavSubmission: &providerv1.SignedRAVSubmission{
+						SignedRav: sidecarlib.HorizonSignedRAVToProto(signed),
+						Usage:     usage,
+					},
+				},
+			}); err != nil {
+				c.mu.Lock()
+				if c.stream == stream && c.streamGeneration == streamGeneration {
+					c.closeLocked()
+				}
+				c.mu.Unlock()
+				return fmt.Errorf("send rav submission for session %q: %w", sessionID, err)
+			}
 
-	stream := c.ensureStreamLocked()
-	if err := stream.Send(&providerv1.PaymentSessionRequest{
-		SessionId: sessionID,
-		Message: &providerv1.PaymentSessionRequest_RavSubmission{
-			RavSubmission: &providerv1.SignedRAVSubmission{
-				SignedRav: sidecarlib.HorizonSignedRAVToProto(signed),
-				Usage:     usage,
-			},
-		},
-	}); err != nil {
-		c.closeLocked()
-		return fmt.Errorf("send rav submission for session %q: %w", sessionID, err)
+			return nil
+		case c.bindingSessionID == sessionID:
+			waitCh := c.bindingDone
+			c.mu.Unlock()
+			if waitCh != nil {
+				<-waitCh
+			}
+			continue
+		case c.boundSessionID == "":
+			c.mu.Unlock()
+			return fmt.Errorf("payment session client is not bound")
+		case c.boundSessionID != sessionID:
+			err := fmt.Errorf("payment session client is bound to %q, not %q", c.boundSessionID, sessionID)
+			c.mu.Unlock()
+			return err
+		}
 	}
-
-	return nil
 }
 
 func (c *paymentSessionClient) Receive(ctx context.Context) (*providerv1.PaymentSessionResponse, error) {
@@ -205,13 +286,14 @@ func (c *paymentSessionClient) GetSessionStatus(ctx context.Context, sessionID s
 	return resp.Msg, nil
 }
 
-func (c *paymentSessionClient) ensureStreamLocked() *connect.BidiStreamForClient[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse] {
+func (c *paymentSessionClient) ensureStreamLocked() paymentSessionStream {
 	if c.stream != nil {
 		return c.stream
 	}
 
 	streamCtx, streamCancel := context.WithCancel(c.ctx)
-	c.stream = c.gatewayClient.PaymentSession(streamCtx)
+	c.stream = c.newStream(streamCtx)
+	c.sendMu = &sync.Mutex{}
 	c.streamCancel = streamCancel
 	c.receiveCh = make(chan paymentSessionReceiveResult, 1)
 	go c.receiveLoop(streamCtx, c.stream, c.receiveCh)
@@ -220,7 +302,7 @@ func (c *paymentSessionClient) ensureStreamLocked() *connect.BidiStreamForClient
 
 func (c *paymentSessionClient) receiveLoop(
 	ctx context.Context,
-	stream *connect.BidiStreamForClient[providerv1.PaymentSessionRequest, providerv1.PaymentSessionResponse],
+	stream paymentSessionStream,
 	ch chan paymentSessionReceiveResult,
 ) {
 	defer close(ch)
@@ -240,6 +322,7 @@ func (c *paymentSessionClient) receiveLoop(
 }
 
 func (c *paymentSessionClient) closeLocked() {
+	c.streamGeneration++
 	if c.streamCancel != nil {
 		c.streamCancel()
 		c.streamCancel = nil
@@ -249,8 +332,31 @@ func (c *paymentSessionClient) closeLocked() {
 		_ = c.stream.CloseResponse()
 		c.stream = nil
 	}
+	c.sendMu = nil
 	c.receiveCh = nil
 	c.boundSessionID = ""
+	c.bindingSessionID = ""
+	c.finishBindingLocked()
+}
+
+func (c *paymentSessionClient) finishBindingLocked() {
+	if c.bindingDone == nil {
+		return
+	}
+
+	close(c.bindingDone)
+	c.bindingDone = nil
+}
+
+func (c *paymentSessionClient) sendRequest(sendMu *sync.Mutex, stream paymentSessionStream, req *providerv1.PaymentSessionRequest) error {
+	if sendMu == nil {
+		return fmt.Errorf("payment session client transport is unavailable")
+	}
+
+	sendMu.Lock()
+	defer sendMu.Unlock()
+
+	return stream.Send(req)
 }
 
 func (c *paymentSessionClient) Close() {

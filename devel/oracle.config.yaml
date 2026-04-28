@@ -1,0 +1,29 @@
+providers:
+  - id: local-dev-provider
+    service_provider: "0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf"
+    control_plane_endpoint: "http://localhost:9001"
+
+networks:
+  mainnet:
+    pricing:
+      price_per_block: "0.000115 GRT"
+      price_per_byte: "0.0000000061 GRT"
+    provider_ids:
+      - local-dev-provider
+    preferred_provider_id: local-dev-provider
+
+  acme:
+    pricing:
+      price_per_block: "0.000115 GRT"
+      price_per_byte: "0.0000000061 GRT"
+    provider_ids:
+      - local-dev-provider
+    preferred_provider_id: local-dev-provider
+
+  test:
+    pricing:
+      price_per_block: "0.000115 GRT"
+      price_per_byte: "0.0000000061 GRT"
+    provider_ids:
+      - local-dev-provider
+    preferred_provider_id: local-dev-provider

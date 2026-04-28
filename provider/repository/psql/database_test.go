@@ -56,8 +56,8 @@ func runMigrationsInSchema(t *testing.T, db *sqlx.DB, schema string) {
 	_, err := db.ExecContext(ctx, fmt.Sprintf("SET search_path TO %s", schema))
 	require.NoError(t, err)
 
-	// Use absolute path to migrations
-	migrationPath := "file:///Users/maoueh/work/sf/substreams-data-service/provider/repository/psql/migrations"
+	migrationPath, err := MigrationSourceURL()
+	require.NoError(t, err, "Failed to resolve migration source URL")
 
 	// Don't use SchemaName in config - let it use search_path instead
 	dbDriver, err := migratepg.WithInstance(db.DB, &migratepg.Config{

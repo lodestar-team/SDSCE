@@ -1,0 +1,4 @@
+payer_address: "0xe90874856c339d5d3733c92ea5acadc6014b34d5"
+receiver_address: "0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf"
+data_service_address: "0x37478fd2f5845e3664fe4155d74c00e1a4e7a5e2"
+provider_control_plane_endpoint: "http://localhost:9001"

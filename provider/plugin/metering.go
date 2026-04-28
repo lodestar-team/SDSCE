@@ -3,7 +3,9 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -20,7 +22,7 @@ import (
 // RegisterMetering registers the "sds" scheme with dmetering.
 // The config URL format is:
 //
-//	sds://host:port?plaintext=true&insecure=true&network=<network>&buffer=<size>&delay=<ms>
+//	sds://host:port?plaintext=true&insecure=true&network=<network>&buffer=<size>&delay=<ms>&report-timeout=<duration>
 //
 // The plugin connects to the provider gateway's UsageService for metering.
 func RegisterMetering() {
@@ -35,7 +37,7 @@ func RegisterMetering() {
 		// Validate known parameters
 		for k := range vals {
 			switch k {
-			case "insecure", "plaintext", "network", "buffer", "delay", "panic-on-drop", "panicOnDrop":
+			case "insecure", "plaintext", "network", "buffer", "delay", "report-timeout", "panic-on-drop", "panicOnDrop":
 				// Known parameters
 			default:
 				return nil, fmt.Errorf("unknown query parameter: %s", k)
@@ -57,9 +59,22 @@ func RegisterMetering() {
 			return nil, fmt.Errorf("invalid delay: %w", err)
 		}
 
+		reportTimeout, err := parseMeteringReportTimeout(vals)
+		if err != nil {
+			return nil, fmt.Errorf("invalid report-timeout: %w", err)
+		}
+
 		panicOnDrop := vals.Get("panicOnDrop") == "true" || vals.Get("panic-on-drop") == "true"
 
-		return newMeteringEmitter(baseCfg, network, bufferSize, time.Duration(delay)*time.Millisecond, panicOnDrop, logger)
+		return newMeteringEmitter(
+			baseCfg,
+			network,
+			bufferSize,
+			time.Duration(delay)*time.Millisecond,
+			reportTimeout,
+			panicOnDrop,
+			logger,
+		)
 	})
 }
 
@@ -73,18 +88,31 @@ type emittedEvent struct {
 // meteringEmitter implements dmetering.EventEmitter by calling the provider gateway.
 type meteringEmitter struct {
 	*shutter.Shutter
-	client      usagev1connect.UsageServiceClient
-	network     string
-	buffer      chan emittedEvent
-	activeBatch []*usagev1.Event
-	done        chan bool
-	panicOnDrop bool
-	delay       time.Duration
-	logger      *zap.Logger
+	mu            sync.Mutex
+	client        usagev1connect.UsageServiceClient
+	network       string
+	buffer        chan emittedEvent
+	activeBatch   []*usagev1.Event
+	done          chan struct{}
+	shuttingDown  bool
+	panicOnDrop   bool
+	delay         time.Duration
+	reportTimeout time.Duration
+	logger        *zap.Logger
 }
 
-func newMeteringEmitter(cfg *baseConfig, network string, bufferSize uint64, delay time.Duration, panicOnDrop bool, logger *zap.Logger) (dmetering.EventEmitter, error) {
+const defaultMeteringReportTimeout = 30 * time.Second
+
+func parseMeteringReportTimeout(vals url.Values) (time.Duration, error) {
+	return parseDuration(vals.Get("report-timeout"), defaultMeteringReportTimeout)
+}
+
+func newMeteringEmitter(cfg *baseConfig, network string, bufferSize uint64, delay, reportTimeout time.Duration, panicOnDrop bool, logger *zap.Logger) (dmetering.EventEmitter, error) {
 	httpClient := newHTTPClient(cfg)
+
+	if reportTimeout <= 0 {
+		reportTimeout = defaultMeteringReportTimeout
+	}
 
 	client := usagev1connect.NewUsageServiceClient(
 		httpClient,
@@ -92,20 +120,20 @@ func newMeteringEmitter(cfg *baseConfig, network string, bufferSize uint64, dela
 	)
 
 	e := &meteringEmitter{
-		Shutter:     shutter.New(),
-		client:      client,
-		network:     network,
-		buffer:      make(chan emittedEvent, bufferSize),
-		done:        make(chan bool, 1),
-		panicOnDrop: panicOnDrop,
-		delay:       delay,
-		logger:      logger.Named("sds-metering"),
+		Shutter:       shutter.New(),
+		client:        client,
+		network:       network,
+		buffer:        make(chan emittedEvent, bufferSize),
+		done:          make(chan struct{}),
+		panicOnDrop:   panicOnDrop,
+		delay:         delay,
+		reportTimeout: reportTimeout,
+		logger:        logger.Named("sds-metering"),
 	}
 
 	e.OnTerminating(func(err error) {
 		e.logger.Info("received shutdown signal, waiting for launch loop to end", zap.Error(err))
 		<-e.done
-		e.flushAndClose()
 	})
 
 	go e.launch()
@@ -114,11 +142,16 @@ func newMeteringEmitter(cfg *baseConfig, network string, bufferSize uint64, dela
 }
 
 func (e *meteringEmitter) launch() {
+	defer close(e.done)
+
 	ticker := time.NewTicker(e.delay)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-e.Terminating():
-			e.done <- true
+			e.beginShutdown()
+			e.flushAndClose()
 			return
 		case <-ticker.C:
 			e.emit(e.activeBatch)
@@ -130,9 +163,13 @@ func (e *meteringEmitter) launch() {
 	}
 }
 
-func (e *meteringEmitter) flushAndClose() {
-	close(e.buffer)
+func (e *meteringEmitter) beginShutdown() {
+	e.mu.Lock()
+	e.shuttingDown = true
+	e.mu.Unlock()
+}
 
+func (e *meteringEmitter) flushAndClose() {
 	t0 := time.Now()
 	e.logger.Info("waiting for event flush to complete", zap.Int("count", len(e.buffer)))
 	defer func() {
@@ -140,14 +177,15 @@ func (e *meteringEmitter) flushAndClose() {
 	}()
 
 	for {
-		ev, ok := <-e.buffer
-		if !ok {
+		select {
+		case ev := <-e.buffer:
+			ev.Network = e.network
+			e.activeBatch = append(e.activeBatch, e.eventToProto(ev))
+		default:
 			e.logger.Info("sending last events", zap.Int("count", len(e.activeBatch)))
 			e.emit(e.activeBatch)
 			return
 		}
-		ev.Network = e.network
-		e.activeBatch = append(e.activeBatch, e.eventToProto(ev))
 	}
 }
 
@@ -164,6 +202,14 @@ func (e *meteringEmitter) Emit(ctx context.Context, ev dmetering.Event) {
 	}
 
 	trustedHeaders := dauth.FromContext(ctx)
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.shuttingDown {
+		e.logger.Debug("emitter is shutting down, dropping event", zap.Object("event", ev))
+		return
+	}
 
 	select {
 	case e.buffer <- emittedEvent{Event: ev, SessionID: trustedHeaders.Get(sds.HeaderSessionID)}:
@@ -190,7 +236,14 @@ func (e *meteringEmitter) emit(events []*usagev1.Event) {
 	// The usage service will read the session ID from each event's Meta field,
 	// which is populated by the dmetering middleware in firehose-core.
 
-	_, err := e.client.Report(context.Background(), req)
+	ctx := context.Background()
+	if e.reportTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, e.reportTimeout)
+		defer cancel()
+	}
+
+	_, err := e.client.Report(ctx, req)
 	if err != nil {
 		e.logger.Warn("failed to emit events", zap.Error(err))
 	}

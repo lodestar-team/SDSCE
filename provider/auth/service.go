@@ -15,7 +15,6 @@ import (
 	"github.com/alphadose/haxmap"
 	sds "github.com/graphprotocol/substreams-data-service"
 	"github.com/graphprotocol/substreams-data-service/horizon"
-	"github.com/graphprotocol/substreams-data-service/internal/session"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	authv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/auth/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/auth/v1/authv1connect"
@@ -105,7 +104,9 @@ func (s *AuthService) ValidateAuth(
 	// Extract x-sds-rav header
 	ravHeaders, ok := lowerHeaders[strings.ToLower(sds.HeaderRAV)]
 	if !ok || len(ravHeaders) == 0 {
-		logger.Warn("missing x-sds-rav header")
+		logger.Warn("missing x-sds-rav header",
+			zap.Strings("received_header_names", slices.Collect(maps.Keys(lowerHeaders))),
+		)
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("missing %s header", sds.HeaderRAV))
 	}
 
@@ -131,7 +132,7 @@ func (s *AuthService) ValidateAuth(
 		return nil, connect.NewError(connect.CodeUnauthenticated, err)
 	}
 
-	// Extract session ID from x-sds-session-id header (optional)
+	// Extract session ID from x-sds-session-id header.
 	var validatedSessionID string
 	if sessionHeaders, ok := lowerHeaders[strings.ToLower(sds.HeaderSessionID)]; ok && len(sessionHeaders) > 0 {
 		validatedSessionID = sessionHeaders[0]
@@ -148,10 +149,10 @@ func (s *AuthService) ValidateAuth(
 		}
 		logger.Debug("session validated successfully", zap.String("session_id", validatedSessionID))
 	} else {
-		// No session ID provided - generate a new one for this auth attempt
-		// This allows backwards compatibility with clients that don't send session IDs yet
-		validatedSessionID = session.GenerateID()
-		logger.Debug("no session_id provided, generated new one", zap.String("session_id", validatedSessionID))
+		logger.Warn("missing x-sds-session-id header",
+			zap.Strings("received_header_names", slices.Collect(maps.Keys(lowerHeaders))),
+		)
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("missing %s header", sds.HeaderSessionID))
 	}
 
 	// Build trusted headers to return to the plugin

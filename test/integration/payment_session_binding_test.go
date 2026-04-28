@@ -19,6 +19,7 @@ import (
 	providerv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
 	providergateway "github.com/graphprotocol/substreams-data-service/provider/gateway"
+	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 )
 
@@ -38,15 +39,18 @@ func TestPaymentSession_BindsToSessionID(t *testing.T) {
 	domain := env.Domain()
 
 	providerConfig := &providergateway.Config{
-		ListenAddr:      ":19006",
-		ServiceProvider: env.ServiceProvider.Address,
-		Domain:          domain,
-		CollectorAddr:   env.Collector.Address,
-		EscrowAddr:      env.Escrow.Address,
-		RPCEndpoint:     env.RPCURL,
-		TransportConfig: sidecar.ServerTransportConfig{Plaintext: true},
+		ListenAddr:        ":19006",
+		ServiceProvider:   env.ServiceProvider.Address,
+		Domain:            domain,
+		CollectorAddr:     env.Collector.Address,
+		EscrowAddr:        env.Escrow.Address,
+		RPCEndpoint:       env.RPCURL,
+		DataPlaneEndpoint: "substreams.provider.example:443",
+		Repository:        repository.NewInMemoryRepository(),
+		TransportConfig:   sidecar.ServerTransportConfig{Plaintext: true},
 	}
-	providerGateway := providergateway.New(providerConfig, zlog.Named("provider"))
+	providerGateway, err := providergateway.New(providerConfig, zlog.Named("provider"))
+	require.NoError(t, err)
 	go providerGateway.Run()
 	defer providerGateway.Shutdown(nil)
 	time.Sleep(100 * time.Millisecond)
@@ -83,6 +87,7 @@ func TestPaymentSession_BindsToSessionID(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, startResp.Msg.Accepted, "expected StartSession accepted: %s", startResp.Msg.RejectionReason)
 	require.NotEmpty(t, startResp.Msg.SessionId)
+	require.Equal(t, "substreams.provider.example:443", startResp.Msg.GetDataPlaneEndpoint())
 
 	// Missing session_id should fail with InvalidArgument.
 	streamBad := gatewayClient.PaymentSession(ctx)
@@ -100,13 +105,13 @@ func TestPaymentSession_BindsToSessionID(t *testing.T) {
 	require.Equal(t, providerv1.SessionControl_ACTION_STOP, respBad.GetSessionControl().GetAction())
 	require.Contains(t, respBad.GetSessionControl().GetReason(), "<session_id> is required")
 
-	// Correct session_id should be accepted and return CONTINUE.
+	// Correct session_id should bind the stream and allow non-terminal control messages.
 	stream := gatewayClient.PaymentSession(ctx)
 	require.NoError(t, stream.Send(&providerv1.PaymentSessionRequest{
 		SessionId: startResp.Msg.SessionId,
-		Message: &providerv1.PaymentSessionRequest_RavSubmission{
-			RavSubmission: &providerv1.SignedRAVSubmission{
-				SignedRav: sidecar.HorizonSignedRAVToProto(signedRAV),
+		Message: &providerv1.PaymentSessionRequest_FundsAck{
+			FundsAck: &providerv1.FundsAcknowledgment{
+				WillDeposit: true,
 			},
 		},
 	}))

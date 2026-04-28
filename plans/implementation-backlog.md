@@ -1,6 +1,6 @@
 # Substreams Data Service — Implementation Backlog
 
-_Last updated: 2026-03-04_
+_Last updated: 2026-03-09_
 
 This repo already contains a working **Horizon V2 (TAP) signing/verification core** (`horizon/`) and a **development environment + integration tests** (`horizon/devenv/`, `test/integration/`).
 
@@ -55,6 +55,83 @@ See also: `docs/agent-workflow.md` for the step-by-step implementation/verificat
 2. **Dynamic signer authorization (on-chain) + escrow enforcement**
 3. **RAV request policy + streaming loop (Continue/Stop/Pause)**
 4. **Production hardening (authn/z, persistence, metrics, rate limits, etc.)**
+
+---
+
+## Recommended Next Path (2026-03-09)
+
+This section captures the current implementation analysis after the demo wiring work (`sds demo setup`, `.reflex.stack`, `devel/sds_sink`, provider-authoritative pricing, on-chain signer authorization, and sidecar↔sidecar `PaymentSession` flow).
+
+### What is already solid enough
+
+- The happy-path protocol is now demonstrable:
+  - consumer `Init` ↔ provider `StartSession`
+  - shared session IDs + session resumption
+  - bidirectional `PaymentSession`
+  - provider-driven `rav_request`
+  - provider-authoritative cost computation
+  - consumer `EndSession` propagating session close
+  - on-chain signer authorization via `isAuthorized`
+- The repo also has a realistic manual stack:
+  - `sds devenv`
+  - `sds demo setup`
+  - `reflex -c .reflex.stack`
+  - `./devel/sds_sink run ...`
+
+### Highest-priority implementation sequence
+
+1. **Provider exposure control first** (`SDS-022` -> `SDS-016`)
+   - Implement aggregate outstanding-liability tracking per payer/collection across concurrent sessions.
+   - Use that ledger plus escrow balance checks to drive `need_more_funds` and provider `Continue` / `Pause` / `Stop` decisions.
+   - Rationale: this is the main missing product-safety loop. Without it, the provider can still over-serve even though the happy path works.
+
+2. **Make the real streaming demo obey stop decisions** (`SDS-038`)
+   - `sds sink run` should terminate promptly when `ReportUsage` returns `should_continue=false`, surface the stop reason, and still best-effort `EndSession`.
+   - Rationale: once provider exposure control exists, the primary demo must prove that the client path actually honors those decisions.
+
+3. **Stabilize RAV issuance policy** (`SDS-020`)
+   - Add deterministic signing thresholds (value/time/provider-request) instead of signing on every usage report.
+   - Rationale: this is needed before real load and before upstream integrations rely on the current behavior.
+
+4. **Freeze the wire contract before deeper integration** (`SDS-008` + `SDS-028`)
+   - Define the `metadata` schema and the client↔provider payment/header contract together.
+   - This should explicitly cover:
+     - canonical serialized payment material,
+     - session binding,
+     - signature encoding,
+     - any metadata used for replay protection / request correlation.
+   - Rationale: the older phase 1 spec still reflects an earlier control-plane shape; the current repo has moved toward `x-sds-rav` headers and SDS/firecore plugin integration, so the protocol contract needs to be frozen before cross-repo work deepens.
+
+5. **Then wire into the real client/provider paths** (`SDS-029` + `SDS-030`)
+   - Provider side: the live tier1/provider path must validate payment on connect, report metering from the live stream, and act on `Continue` / `Pause` / `Stop`.
+   - Consumer side: the real substreams client path must call `Init` / `ReportUsage` / `EndSession` and keep payment state current without relying on the demo wrapper.
+   - Rationale: this is the point where the project stops being a demo scaffold and becomes the actual product integration.
+
+6. **Only after that, finalize settlement workflow** (`SDS-021`)
+   - Decide who triggers `collect()` and how operators run it (admin RPC, daemon, or external workflow).
+   - Rationale: important for monetization, but downstream of correct off-chain liability and stream-control behavior.
+
+7. **Finish production hardening after protocol semantics are stable** (`SDS-024`, `SDS-023`, `SDS-025`, `SDS-026`, `SDS-027`)
+   - Persistence / restart semantics first.
+   - TTL / cleanup next.
+   - Then transport security, observability, and abuse protection.
+   - Rationale: all are required for production, but they should land after the economic/control semantics stop moving.
+
+### Additional tasks not yet tracked explicitly
+
+- **Define exact live-stream metering semantics.**
+  - We have chosen provider-authoritative cost calculation, but we still need a crisp contract for what exact usage signals are billed in the real provider integration path.
+  - This likely belongs under `SDS-019`/`SDS-028`, but it is important enough to call out explicitly before deeper tier1/client integration.
+
+- **Refresh the architecture/protocol docs once the wire contract is frozen.**
+  - The phase 1 spec remains useful for the big picture, but parts of it no longer match the current implementation direction (notably the API-key-oriented flow versus the current sidecar + header + firecore/plugin path).
+  - This should happen once `SDS-008`/`SDS-028` are settled, so future work is guided by the current architecture rather than the older draft.
+
+### Not the highest leverage right now
+
+- `SDS-039` is partially addressed already by README/demo documentation; the remaining value is mostly in a clearer runtime preflight/failure mode.
+- `SDS-032` and `SDS-033` are useful cleanup, but they do not materially move protocol completeness or product readiness.
+- Multi-provider/oracle work from the older spec should remain deferred until the single-provider path is complete and robust.
 
 ---
 

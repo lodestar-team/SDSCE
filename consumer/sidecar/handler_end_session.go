@@ -2,6 +2,7 @@ package sidecar
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"time"
 
@@ -29,6 +30,13 @@ func (s *Sidecar) EndSession(
 	if err != nil {
 		s.logger.Warn("session not found", zap.String("session_id", sessionID))
 		return nil, connect.NewError(connect.CodeNotFound, err)
+	}
+
+	if s.paymentSessions.Get(sessionID) != nil {
+		return nil, connect.NewError(
+			connect.CodeFailedPrecondition,
+			errors.New("EndSession is deprecated for provider-managed sessions; use the consumer sidecar ingress endpoint instead"),
+		)
 	}
 	defer s.paymentSessions.Close(sessionID)
 

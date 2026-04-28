@@ -12,7 +12,9 @@ import (
 )
 
 // SubmitRAV submits a signed RAV to the provider gateway.
-// Called when the provider requests a new RAV for continued service.
+// Deprecated for provider-managed runtime sessions: live provider-issued
+// rav_request messages must be answered on the bound PaymentSession stream.
+// This unary surface remains only for legacy/manual non-runtime flows.
 func (s *Gateway) SubmitRAV(
 	ctx context.Context,
 	req *connect.Request[providerv1.SubmitRAVRequest],
@@ -40,6 +42,13 @@ func (s *Gateway) SubmitRAV(
 			Accepted:        false,
 			RejectionReason: "session is not active",
 			ShouldContinue:  false,
+		}), nil
+	}
+	if s.runtime.hasPendingRAV(sessionID) {
+		return connect.NewResponse(&providerv1.SubmitRAVResponse{
+			Accepted:        false,
+			RejectionReason: "SubmitRAV is deprecated for provider-managed runtime requests; respond on the bound PaymentSession stream",
+			ShouldContinue:  true,
 		}), nil
 	}
 
@@ -132,12 +141,16 @@ func (s *Gateway) SubmitRAV(
 		}), nil
 	}
 
-	// Store the new RAV
-	session.CurrentRAV = signedRAV
-	session.MarkBaseline()
+	baselineBlocks := session.BlocksProcessed
+	baselineBytes := session.BytesTransferred
+	baselineReqs := session.Requests
+	baselineCost := big.NewInt(0)
+	if session.TotalCost != nil {
+		baselineCost = new(big.Int).Set(session.TotalCost)
+	}
 
-	// Update the session in the repository
-	if err := s.repo.SessionUpdate(ctx, session); err != nil {
+	// Update only the accepted RAV and the matching baseline in the repository.
+	if err := s.repo.SessionUpdateRAVAndBaseline(ctx, sessionID, signedRAV, baselineBlocks, baselineBytes, baselineReqs, baselineCost); err != nil {
 		s.logger.Warn("failed to update session", zap.String("session_id", sessionID), zap.Error(err))
 	}
 

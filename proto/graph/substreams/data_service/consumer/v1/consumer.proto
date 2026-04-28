@@ -3,6 +3,7 @@ syntax = "proto3";
 package graph.substreams.data_service.consumer.v1;
 
 import "graph/substreams/data_service/common/v1/types.proto";
+import "sf/substreams/v1/package.proto";
 
 // ConsumerSidecarService is the service that the substreams client calls to manage
 // payment sessions. It handles RAV signing and usage tracking on the consumer side.
@@ -14,10 +15,6 @@ service ConsumerSidecarService {
   // Returns the initial RAV to use for authentication.
   rpc Init(InitRequest) returns (InitResponse);
 
-  // ReportUsage reports usage received from the provider.
-  // Called by substreams as data is received during streaming.
-  rpc ReportUsage(ReportUsageRequest) returns (ReportUsageResponse);
-
   // EndSession ends the current session and reports final usage.
   // Called by substreams when the stream ends.
   rpc EndSession(EndSessionRequest) returns (EndSessionResponse);
@@ -26,14 +23,17 @@ service ConsumerSidecarService {
 message InitRequest {
   // The escrow account to use for funding this session
   common.v1.EscrowAccount escrow_account = 1;
-  // The provider gateway endpoint for payment session management (e.g., "https://gateway.provider.com:9001")
+  // Direct provider override. When set, this bypasses oracle discovery.
+  // This is the provider control-plane endpoint used for session/payment management.
   // Supports ?insecure=true query parameter for self-signed certificates.
-  string gateway_endpoint = 2;
-  // The Substreams endpoint for data streaming (e.g., "substreams.provider.com:10015")
-  // This is where the sink will connect to stream data.
-  string substreams_endpoint = 4;
-  // Optional: existing RAV to continue from (for session resumption)
-  common.v1.SignedRAV existing_rav = 3;
+  string provider_control_plane_endpoint = 2;
+
+  reserved 3, 4;
+
+  // The already-loaded Substreams package used for network derivation.
+  sf.substreams.v1.Package substreams_package = 5;
+  // Optional explicit network fallback when package derivation is unavailable.
+  string requested_network = 6;
 }
 
 message InitResponse {
@@ -41,22 +41,8 @@ message InitResponse {
   common.v1.SessionInfo session = 1;
   // The RAV to include in the payment header when connecting to provider
   common.v1.SignedRAV payment_rav = 2;
-}
-
-message ReportUsageRequest {
-  // The session ID
-  string session_id = 1;
-  // The usage to report
-  common.v1.Usage usage = 2;
-}
-
-message ReportUsageResponse {
-  // Updated RAV if a new one was negotiated
-  common.v1.SignedRAV updated_rav = 1;
-  // Whether the session should continue
-  bool should_continue = 2;
-  // If should_continue is false, the reason for stopping
-  string stop_reason = 3;
+  // The session-specific data-plane endpoint returned by the provider handshake.
+  string data_plane_endpoint = 3;
 }
 
 message EndSessionRequest {

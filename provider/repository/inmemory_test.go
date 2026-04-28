@@ -2,9 +2,12 @@ package repository_test
 
 import (
 	"context"
+	"errors"
+	"math/big"
 	"testing"
 	"time"
 
+	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/streamingfast/eth-go"
 	"github.com/stretchr/testify/assert"
@@ -80,6 +83,7 @@ func TestInMemory_SessionGet_NotFound(t *testing.T) {
 
 	_, err := repo.SessionGet(ctx, "missing")
 	require.Error(t, err)
+	assert.ErrorIs(t, err, repository.ErrNotFound)
 	assert.Contains(t, err.Error(), "not found")
 }
 
@@ -105,6 +109,39 @@ func TestInMemory_SessionUpdate_NotFound(t *testing.T) {
 
 	s := newTestSession("missing", "0x1111111111111111111111111111111111111111")
 	require.Error(t, repo.SessionUpdate(ctx, s))
+}
+
+func TestInMemory_SessionUpdateRAVAndBaseline_PreservesUsageTotals(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+
+	s := newTestSession("s1", "0x1111111111111111111111111111111111111111")
+	s.BlocksProcessed = 10
+	s.BytesTransferred = 20
+	s.Requests = 3
+	s.TotalCost = big.NewInt(30)
+	require.NoError(t, repo.SessionCreate(ctx, s))
+
+	rav := &horizon.SignedRAV{
+		Message: &horizon.RAV{
+			Payer:          s.Payer,
+			ValueAggregate: big.NewInt(12),
+		},
+	}
+	require.NoError(t, repo.SessionUpdateRAVAndBaseline(ctx, s.ID, rav, 10, 20, 3, big.NewInt(30)))
+
+	got, err := repo.SessionGet(ctx, s.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.CurrentRAV)
+	assert.Equal(t, 0, big.NewInt(12).Cmp(got.CurrentRAV.Message.ValueAggregate))
+	assert.Equal(t, uint64(10), got.BlocksProcessed)
+	assert.Equal(t, uint64(20), got.BytesTransferred)
+	assert.Equal(t, uint64(3), got.Requests)
+	assert.Equal(t, 0, big.NewInt(30).Cmp(got.TotalCost))
+	assert.Equal(t, uint64(10), got.BaselineBlocks)
+	assert.Equal(t, uint64(20), got.BaselineBytes)
+	assert.Equal(t, uint64(3), got.BaselineReqs)
+	assert.Equal(t, 0, big.NewInt(30).Cmp(got.BaselineCost))
 }
 
 // TestInMemory_SessionDelete and SessionDelete_NotFound removed - SessionDelete method no longer exists
@@ -205,12 +242,52 @@ func TestInMemory_WorkerCreate_Duplicate(t *testing.T) {
 	require.Error(t, repo.WorkerCreate(ctx, w))
 }
 
+func TestInMemory_WorkerCreateAndReserveQuota(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+
+	worker := newTestWorker("worker-atomic-1", "session-atomic-1", "0x1111111111111111111111111111111111111111")
+	quota, err := repo.WorkerCreateAndReserveQuota(ctx, worker, 3)
+	require.NoError(t, err)
+	require.NotNil(t, quota)
+	assert.Equal(t, 1, quota.ActiveWorkers)
+
+	gotWorker, err := repo.WorkerGet(ctx, worker.Key)
+	require.NoError(t, err)
+	assert.Equal(t, worker.Key, gotWorker.Key)
+
+	gotQuota, err := repo.QuotaGet(ctx, worker.Payer)
+	require.NoError(t, err)
+	assert.Equal(t, 1, gotQuota.ActiveWorkers)
+}
+
+func TestInMemory_WorkerCreateAndReserveQuota_DuplicateWorkerDoesNotMutateQuota(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+
+	worker := newTestWorker("worker-atomic-dup", "session-atomic-dup", "0x2222222222222222222222222222222222222222")
+	quota, err := repo.WorkerCreateAndReserveQuota(ctx, worker, 3)
+	require.NoError(t, err)
+	require.NotNil(t, quota)
+	assert.Equal(t, 1, quota.ActiveWorkers)
+
+	quota, err = repo.WorkerCreateAndReserveQuota(ctx, worker, 3)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "already exists")
+	assert.Nil(t, quota)
+
+	gotQuota, err := repo.QuotaGet(ctx, worker.Payer)
+	require.NoError(t, err)
+	assert.Equal(t, 1, gotQuota.ActiveWorkers)
+}
+
 func TestInMemory_WorkerGet_NotFound(t *testing.T) {
 	repo := repository.NewInMemoryRepository()
 	ctx := context.Background()
 
 	_, err := repo.WorkerGet(ctx, "missing")
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, repository.ErrNotFound))
 }
 
 func TestInMemory_WorkerDelete(t *testing.T) {
@@ -239,6 +316,41 @@ func TestInMemory_QuotaGet_NewPayer(t *testing.T) {
 	assert.Equal(t, "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", q.Payer.Pretty())
 	assert.Equal(t, 0, q.ActiveSessions)
 	assert.Equal(t, 0, q.ActiveWorkers)
+}
+
+func TestInMemory_QuotaReserve(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+
+	payer := eth.MustNewAddress("0x1111111111111111111111111111111111111111")
+	quota, err := repo.QuotaReserve(ctx, payer, 3, 1)
+	require.NoError(t, err)
+	assert.Equal(t, 1, quota.ActiveWorkers)
+
+	quota, err = repo.QuotaReserve(ctx, payer, 3, 2)
+	require.NoError(t, err)
+	assert.Equal(t, 3, quota.ActiveWorkers)
+
+	quota, err = repo.QuotaReserve(ctx, payer, 3, 1)
+	require.ErrorIs(t, err, repository.ErrQuotaExceeded)
+	assert.Equal(t, 3, quota.ActiveWorkers)
+}
+
+func TestInMemory_QuotaReserve_ExhaustedDoesNotMutate(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+
+	payer := eth.MustNewAddress("0x2222222222222222222222222222222222222222")
+	_, err := repo.QuotaReserve(ctx, payer, 1, 1)
+	require.NoError(t, err)
+
+	quota, err := repo.QuotaReserve(ctx, payer, 1, 1)
+	require.ErrorIs(t, err, repository.ErrQuotaExceeded)
+	assert.Equal(t, 1, quota.ActiveWorkers)
+
+	got, err := repo.QuotaGet(ctx, payer)
+	require.NoError(t, err)
+	assert.Equal(t, 1, got.ActiveWorkers)
 }
 
 func TestInMemory_QuotaIncrement(t *testing.T) {

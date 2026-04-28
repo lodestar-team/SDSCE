@@ -16,16 +16,6 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 	env := SetupEnv(t)
 	zlog.Info("starting TestAuthorizeSignerFlow", zap.Uint64("chain_id", env.ChainID))
 
-	// Setup escrow, provision, and create a signer key (but don't authorize it yet - we test that below)
-	config := DefaultTestSetupConfig()
-
-	require.NoError(t, callMintGRT(env, env.Payer.Address, config.EscrowAmount), "Failed to mint GRT")
-	require.NoError(t, callApproveGRT(env, config.EscrowAmount), "Failed to approve GRT")
-	require.NoError(t, callDepositEscrow(env, config.EscrowAmount), "Failed to deposit to escrow")
-	require.NoError(t, callSetProvisionTokensRange(env, big.NewInt(0)), "Failed to set provision tokens range")
-	require.NoError(t, callSetProvision(env, config.ProvisionAmount, 0, 0), "Failed to set provision")
-	require.NoError(t, callRegisterWithDataService(env), "Failed to register with data service")
-
 	// Create a signer key (different from payer) - we'll authorize it manually for this test
 	signerKey, err := eth.NewRandomPrivateKey()
 	require.NoError(t, err)
@@ -93,16 +83,6 @@ func TestAuthorizeSignerFlow(t *testing.T) {
 func TestUnauthorizedSignerFails(t *testing.T) {
 	env := SetupEnv(t)
 	zlog.Info("starting TestUnauthorizedSignerFails", zap.Uint64("chain_id", env.ChainID))
-
-	// Setup escrow and provision (but don't authorize a signer)
-	config := DefaultTestSetupConfig()
-
-	require.NoError(t, callMintGRT(env, env.Payer.Address, config.EscrowAmount), "Failed to mint GRT")
-	require.NoError(t, callApproveGRT(env, config.EscrowAmount), "Failed to approve GRT")
-	require.NoError(t, callDepositEscrow(env, config.EscrowAmount), "Failed to deposit to escrow")
-	require.NoError(t, callSetProvisionTokensRange(env, big.NewInt(0)), "Failed to set provision tokens range")
-	require.NoError(t, callSetProvision(env, config.ProvisionAmount, 0, 0), "Failed to set provision")
-	require.NoError(t, callRegisterWithDataService(env), "Failed to register with data service")
 
 	// Create an unauthorized signer key (intentionally not calling callAuthorizeSigner)
 	unauthorizedKey, err := eth.NewRandomPrivateKey()

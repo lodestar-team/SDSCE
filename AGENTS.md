@@ -113,6 +113,33 @@ grt, err := sds.NewGRT(<accepts all types>)
 sds.MustNewGRT(<accepts all types>)
 ```
 
+## MVP Planning References
+
+For MVP-scoped work:
+
+- Use `docs/mvp-scope.md` as the target-state definition.
+- Use `plans/mvp-gap-analysis.md` for current-state assessment.
+- Use `plans/mvp-implementation-backlog.md` as the active execution backlog.
+- Treat `plans/implementation-backlog.md` as historical context unless explicitly requested.
+
+## Runtime Compatibility Workflow
+
+- If a change affects shared SDS runtime/plugin contracts, protobufs, or deployment compatibility for external runtimes such as `firecore`, update the compatibility docs in the same change.
+- Treat `docs/provider-runtime-compatibility.md` as the operator-facing source of truth for supported runtime tuples, known incompatible runtimes, and compatibility assumptions.
+- Call out whether the change is runtime-breaking or backward-compatible for external `firecore` / Substreams deployments.
+- Do not add automatic compatibility probes that create runtime side effects unless the user explicitly asks for that tradeoff; prefer explicit documentation and validated tuples for MVP.
+
+## Commit Messages
+
+- When asked to create a commit, first inspect recent commits with `git log --format='%s%n%b' -n <N>` and follow the prevailing repo style instead of inventing a new format.
+- In this repo, the expected format is:
+  - one short imperative subject line
+  - a blank line
+  - a flat bullet list in the commit body, with each bullet starting with `- `
+- The commit body must contain real newlines. Never pass a single shell-escaped string containing literal `\n` sequences as the body.
+- Prefer either multiple `-m` flags or a temporary commit message file so Git receives the intended paragraph and bullet formatting verbatim.
+- Do not create a commit until `go vet ./...` and `go test ./...` pass unless the user explicitly asks otherwise.
+
 ## Notes
 
 - All builds must pass before committing

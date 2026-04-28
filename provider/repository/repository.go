@@ -16,24 +16,33 @@ import (
 // All repository implementations should return this error for consistency.
 var ErrNotFound = errors.New("not found")
 
+// ErrQuotaExceeded is returned when a quota reservation would exceed the
+// configured limit.
+var ErrQuotaExceeded = errors.New("quota exceeded")
+
 // GlobalRepository provides global state storage for live session/client tracking.
 // All methods are namespaced by domain (Session*, Client*, Quota*, etc.)
-// All implementations must be safe for concurrent use.
+// All implementations must be safe for concurrent use and return independent
+// snapshots from getters rather than live shared pointers.
 type GlobalRepository interface {
 	// Session management
 	SessionCreate(ctx context.Context, session *Session) error
 	SessionGet(ctx context.Context, sessionID string) (*Session, error)
 	SessionUpdate(ctx context.Context, session *Session) error
+	SessionUpdateRAVAndBaseline(ctx context.Context, sessionID string, currentRAV *horizon.SignedRAV, baselineBlocks, baselineBytes, baselineReqs uint64, baselineCost *big.Int) error
+	SessionApplyUsage(ctx context.Context, sessionID string, usage *UsageEvent, cost *big.Int) error
 	SessionList(ctx context.Context, filter SessionFilter) ([]*Session, error)
 	SessionCount(ctx context.Context) int
 
 	// Worker/connection tracking within sessions
 	WorkerCreate(ctx context.Context, worker *Worker) error
+	WorkerCreateAndReserveQuota(ctx context.Context, worker *Worker, maxWorkers int) (*QuotaUsage, error)
 	WorkerGet(ctx context.Context, workerKey string) (*Worker, error)
 	WorkerDelete(ctx context.Context, workerKey string) error
 
 	// Quota tracking
 	QuotaGet(ctx context.Context, payer eth.Address) (*QuotaUsage, error)
+	QuotaReserve(ctx context.Context, payer eth.Address, maxWorkers int, workers int) (*QuotaUsage, error)
 	QuotaIncrement(ctx context.Context, payer eth.Address, sessions int, workers int) error
 	QuotaDecrement(ctx context.Context, payer eth.Address, sessions int, workers int) error
 
@@ -223,6 +232,22 @@ type UsageEvent struct {
 	Blocks    int64
 	Bytes     int64
 	Requests  int64
+}
+
+// SanitizedTotals returns the event counters clamped to non-negative uint64 values.
+func (u *UsageEvent) SanitizedTotals() (blocks, bytes, requests uint64) {
+	if u == nil {
+		return 0, 0, 0
+	}
+
+	return sanitizeUsageMetric(u.Blocks), sanitizeUsageMetric(u.Bytes), sanitizeUsageMetric(u.Requests)
+}
+
+func sanitizeUsageMetric(v int64) uint64 {
+	if v <= 0 {
+		return 0
+	}
+	return uint64(v)
 }
 
 // UsageSummary aggregates total usage across all events for a session.

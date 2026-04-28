@@ -2,12 +2,14 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"net/http"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/alphadose/haxmap"
+	sds "github.com/graphprotocol/substreams-data-service"
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
@@ -53,27 +55,33 @@ type Gateway struct {
 	collectorQuerier sidecar.CollectorAuthorizer
 
 	// Pricing configuration
-	pricingConfig   *sidecar.PricingConfig
-	transportConfig sidecar.ServerTransportConfig
+	pricingConfig       *sidecar.PricingConfig
+	ravRequestThreshold *big.Int
+	dataPlaneEndpoint   string
+	transportConfig     sidecar.ServerTransportConfig
 
 	authCache *haxmap.Map[string, authCacheEntry]
 
 	// Global repository for session/usage state (shared across all components)
 	repo repository.GlobalRepository
+	// runtime owns live PaymentSession stream bindings and provider-originated control dispatch.
+	runtime *runtimeManager
 }
 
 type Config struct {
-	ListenAddr      string
-	ServiceProvider eth.Address
-	Domain          *horizon.Domain
-	CollectorAddr   eth.Address
-	EscrowAddr      eth.Address
-	RPCEndpoint     string
-	PricingConfig   *sidecar.PricingConfig
-	TransportConfig sidecar.ServerTransportConfig
+	ListenAddr          string
+	ServiceProvider     eth.Address
+	Domain              *horizon.Domain
+	CollectorAddr       eth.Address
+	EscrowAddr          eth.Address
+	RPCEndpoint         string
+	PricingConfig       *sidecar.PricingConfig
+	RAVRequestThreshold sds.GRT
+	DataPlaneEndpoint   string
+	TransportConfig     sidecar.ServerTransportConfig
 
-	// Repository provides session/usage state storage.
-	// If nil, an in-memory repository is created.
+	// Repository provides session/usage state storage and must be selected
+	// explicitly by the caller.
 	Repository repository.GlobalRepository
 }
 
@@ -82,7 +90,14 @@ type authCacheEntry struct {
 	expires time.Time
 }
 
-func New(config *Config, logger *zap.Logger) *Gateway {
+func New(config *Config, logger *zap.Logger) (*Gateway, error) {
+	if config == nil {
+		return nil, fmt.Errorf("gateway config must not be nil")
+	}
+	if config.Repository == nil {
+		return nil, fmt.Errorf("gateway repository must be provided explicitly")
+	}
+
 	var escrowQuerier *sidecar.EscrowQuerier
 	if config.RPCEndpoint != "" && config.EscrowAddr != nil {
 		escrowQuerier = sidecar.NewEscrowQuerier(config.RPCEndpoint, config.EscrowAddr)
@@ -97,29 +112,29 @@ func New(config *Config, logger *zap.Logger) *Gateway {
 	if pricingConfig == nil {
 		pricingConfig = sidecar.DefaultPricingConfig()
 	}
-
-	// Use provided repository or create an in-memory one as fallback
-	repo := config.Repository
-	if repo == nil {
-		logger.Info("no repository provided, using in-memory repository")
-		repo = repository.NewInMemoryRepository()
+	ravRequestThreshold := config.RAVRequestThreshold
+	if ravRequestThreshold.IsZero() {
+		ravRequestThreshold = DefaultRAVRequestThreshold()
 	}
 
 	return &Gateway{
-		Shutter:          shutter.New(),
-		listenAddr:       config.ListenAddr,
-		logger:           logger,
-		serviceProvider:  config.ServiceProvider,
-		domain:           config.Domain,
-		collectorAddr:    config.CollectorAddr,
-		escrowAddr:       config.EscrowAddr,
-		escrowQuerier:    escrowQuerier,
-		collectorQuerier: collectorQuerier,
-		pricingConfig:    pricingConfig,
-		transportConfig:  config.TransportConfig,
-		authCache:        haxmap.New[string, authCacheEntry](),
-		repo:             repo,
-	}
+		Shutter:             shutter.New(),
+		listenAddr:          config.ListenAddr,
+		logger:              logger,
+		serviceProvider:     config.ServiceProvider,
+		domain:              config.Domain,
+		collectorAddr:       config.CollectorAddr,
+		escrowAddr:          config.EscrowAddr,
+		escrowQuerier:       escrowQuerier,
+		collectorQuerier:    collectorQuerier,
+		pricingConfig:       pricingConfig,
+		ravRequestThreshold: ravRequestThreshold.BigInt(),
+		dataPlaneEndpoint:   config.DataPlaneEndpoint,
+		transportConfig:     config.TransportConfig,
+		authCache:           haxmap.New[string, authCacheEntry](),
+		repo:                config.Repository,
+		runtime:             newRuntimeManager(),
+	}, nil
 }
 
 // toRepoPricingConfig converts sidecar.PricingConfig to repository.PricingConfig.
@@ -143,6 +158,19 @@ func (s *Gateway) GetEscrowBalance(ctx context.Context, payer eth.Address) (*big
 
 func (s *Gateway) SessionCount() int {
 	return s.repo.SessionCount(context.Background())
+}
+
+func (s *Gateway) OnMeteredUsage(ctx context.Context, sessionID string) error {
+	return s.runtime.onMeteredUsage(ctx, s, sessionID)
+}
+
+func (s *Gateway) shouldRequestRAV(session *repository.Session) bool {
+	if session == nil || session.CurrentRAV == nil || s.ravRequestThreshold == nil {
+		return false
+	}
+
+	_, _, _, deltaCost := session.UsageDeltaSinceBaseline()
+	return deltaCost.Cmp(s.ravRequestThreshold) >= 0
 }
 
 func (s *Gateway) Run() {

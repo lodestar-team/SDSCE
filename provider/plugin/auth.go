@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"strings"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 	sds "github.com/graphprotocol/substreams-data-service"
@@ -91,13 +93,7 @@ func (a *authenticator) Authenticate(ctx context.Context, path string, headers m
 		zap.String("ip", ipAddress),
 	)
 
-	// Convert headers to protobuf format
-	protoHeaders := make(map[string]*authv1.HeaderValues, len(headers))
-	for name, values := range headers {
-		protoHeaders[name] = &authv1.HeaderValues{
-			Values: values,
-		}
-	}
+	protoHeaders := forwardedAuthHeaders(headers, a.logger)
 
 	// Call the provider gateway's AuthService - it will handle all validation logic
 	req := connect.NewRequest(&authv1.ValidateAuthRequest{
@@ -135,4 +131,40 @@ func (a *authenticator) Authenticate(ctx context.Context, path string, headers m
 // Ready implements dauth.Authenticator.
 func (a *authenticator) Ready(ctx context.Context) bool {
 	return true
+}
+
+var forwardedAuthHeaderNames = map[string]struct{}{
+	strings.ToLower(sds.HeaderRAV):       {},
+	strings.ToLower(sds.HeaderSessionID): {},
+	"x-trace-id":                         {},
+}
+
+func forwardedAuthHeaders(headers map[string][]string, logger *zap.Logger) map[string]*authv1.HeaderValues {
+	protoHeaders := make(map[string]*authv1.HeaderValues, len(forwardedAuthHeaderNames))
+
+	for name, values := range headers {
+		lowerName := strings.ToLower(name)
+		if _, ok := forwardedAuthHeaderNames[lowerName]; !ok {
+			continue
+		}
+
+		safeValues := make([]string, 0, len(values))
+		for _, value := range values {
+			if !utf8.ValidString(value) {
+				logger.Debug("dropping non-UTF8 auth header value",
+					zap.String("header_name", lowerName),
+				)
+				continue
+			}
+			safeValues = append(safeValues, value)
+		}
+
+		if len(safeValues) == 0 {
+			continue
+		}
+
+		protoHeaders[lowerName] = &authv1.HeaderValues{Values: safeValues}
+	}
+
+	return protoHeaders
 }

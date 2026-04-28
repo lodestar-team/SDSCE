@@ -2,9 +2,12 @@ package session_test
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
+	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	sessionv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/session/v1"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/graphprotocol/substreams-data-service/provider/session"
@@ -35,10 +38,48 @@ func newTestKeepAliveRequest(msg *sessionv1.KeepAliveRequest) *connect.Request[s
 	return connect.NewRequest(msg)
 }
 
+type quotaReservationFailRepo struct {
+	*repository.InMemoryRepository
+}
+
+func (r *quotaReservationFailRepo) WorkerCreateAndReserveQuota(_ context.Context, worker *repository.Worker, maxWorkers int) (*repository.QuotaUsage, error) {
+	return &repository.QuotaUsage{
+		Payer:         worker.Payer,
+		ActiveWorkers: maxWorkers,
+		LastUpdated:   time.Now(),
+	}, repository.ErrQuotaExceeded
+}
+
+type atomicBorrowFailRepo struct {
+	*repository.InMemoryRepository
+	calls int
+}
+
+func (r *atomicBorrowFailRepo) WorkerCreateAndReserveQuota(_ context.Context, worker *repository.Worker, maxWorkers int) (*repository.QuotaUsage, error) {
+	r.calls++
+	return nil, errors.New("atomic borrow failed")
+}
+
+func mustCreateSession(t *testing.T, repo *repository.InMemoryRepository, sessionID, payer string) *repository.Session {
+	t.Helper()
+
+	sess := &repository.Session{
+		ID:            sessionID,
+		Payer:         eth.MustNewAddress(payer),
+		Status:        repository.SessionStatusActive,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
+		LastKeepAlive: time.Now(),
+	}
+	require.NoError(t, repo.SessionCreate(context.Background(), sess))
+	return sess
+}
+
 // --- BorrowWorker ---
 
 func TestSessionService_BorrowWorker_Success(t *testing.T) {
 	svc, repo := newTestService(nil)
+	mustCreateSession(t, repo, "test-session-001", "0x1111111111111111111111111111111111111111")
 
 	req := newTestRequest(&sessionv1.BorrowWorkerRequest{
 		Service:        "substreams",
@@ -82,8 +123,60 @@ func TestSessionService_BorrowWorker_MissingSessionID(t *testing.T) {
 	require.Error(t, err)
 	var connectErr *connect.Error
 	require.ErrorAs(t, err, &connectErr)
-	assert.Equal(t, connect.CodeInternal, connectErr.Code())
+	assert.Equal(t, connect.CodePermissionDenied, connectErr.Code())
 	assert.Contains(t, connectErr.Message(), "session_id not provided")
+}
+
+func TestSessionService_BorrowWorker_UnknownSession(t *testing.T) {
+	svc, _ := newTestService(nil)
+
+	_, err := svc.BorrowWorker(context.Background(), newTestRequest(&sessionv1.BorrowWorkerRequest{
+		Service:        "substreams",
+		OrganizationId: "0x1111111111111111111111111111111111111111",
+		SessionId:      "trace-unknown",
+	}, "missing-session"))
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodePermissionDenied, connectErr.Code())
+	assert.Contains(t, connectErr.Message(), "session not found")
+}
+
+func TestSessionService_BorrowWorker_InactivePaymentIssueUsesResourceExhausted(t *testing.T) {
+	svc, repo := newTestService(nil)
+	sess := mustCreateSession(t, repo, "terminated-payment-session", "0x1111111111111111111111111111111111111111")
+	sess.End(commonv1.EndReason_END_REASON_PAYMENT_ISSUE)
+	require.NoError(t, repo.SessionUpdate(context.Background(), sess))
+
+	_, err := svc.BorrowWorker(context.Background(), newTestRequest(&sessionv1.BorrowWorkerRequest{
+		Service:        "substreams",
+		OrganizationId: "0x1111111111111111111111111111111111111111",
+		SessionId:      "trace-payment",
+	}, "terminated-payment-session"))
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeResourceExhausted, connectErr.Code())
+}
+
+func TestSessionService_BorrowWorker_InactiveNonPaymentUsesPermissionDenied(t *testing.T) {
+	svc, repo := newTestService(nil)
+	sess := mustCreateSession(t, repo, "terminated-nonpayment-session", "0x1111111111111111111111111111111111111111")
+	sess.End(commonv1.EndReason_END_REASON_CLIENT_DISCONNECT)
+	require.NoError(t, repo.SessionUpdate(context.Background(), sess))
+
+	_, err := svc.BorrowWorker(context.Background(), newTestRequest(&sessionv1.BorrowWorkerRequest{
+		Service:        "substreams",
+		OrganizationId: "0x1111111111111111111111111111111111111111",
+		SessionId:      "trace-disconnect",
+	}, "terminated-nonpayment-session"))
+	require.Error(t, err)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodePermissionDenied, connectErr.Code())
 }
 
 func TestSessionService_BorrowWorker_QuotaExceeded(t *testing.T) {
@@ -93,7 +186,9 @@ func TestSessionService_BorrowWorker_QuotaExceeded(t *testing.T) {
 		DefaultMaxWorkersPerSession:  1,
 		PerPayerOverrides:            make(map[string]*session.PayerQuota),
 	}
-	svc, _ := newTestService(quotas)
+	svc, repo := newTestService(quotas)
+	mustCreateSession(t, repo, "test-session-003", "0x1111111111111111111111111111111111111111")
+	mustCreateSession(t, repo, "test-session-004", "0x1111111111111111111111111111111111111111")
 
 	// Borrow first worker - should succeed.
 	req1 := newTestRequest(&sessionv1.BorrowWorkerRequest{
@@ -116,6 +211,41 @@ func TestSessionService_BorrowWorker_QuotaExceeded(t *testing.T) {
 	assert.Equal(t, sessionv1.BorrowStatus_BORROW_STATUS_RESOURCE_EXHAUSTED, resp2.Msg.Status)
 }
 
+func TestSessionService_BorrowWorker_QuotaReservationFailure_DoesNotCreateWorker(t *testing.T) {
+	spy := &quotaReservationFailRepo{InMemoryRepository: repository.NewInMemoryRepository()}
+	svc := session.NewSessionService(spy, nil)
+	repo := spy.InMemoryRepository
+	mustCreateSession(t, repo, "reservation-failure-session", "0x1111111111111111111111111111111111111111")
+
+	resp, err := svc.BorrowWorker(context.Background(), newTestRequest(&sessionv1.BorrowWorkerRequest{
+		Service:        "substreams",
+		OrganizationId: "0x1111111111111111111111111111111111111111",
+		SessionId:      "trace-reserve-failure",
+	}, "reservation-failure-session"))
+	require.NoError(t, err)
+	assert.Equal(t, sessionv1.BorrowStatus_BORROW_STATUS_RESOURCE_EXHAUSTED, resp.Msg.Status)
+}
+
+func TestSessionService_BorrowWorker_AtomicReserveFailureReturnsInternalError(t *testing.T) {
+	spy := &atomicBorrowFailRepo{InMemoryRepository: repository.NewInMemoryRepository()}
+	svc := session.NewSessionService(spy, nil)
+	repo := spy.InMemoryRepository
+	mustCreateSession(t, repo, "atomic-borrow-failure-session", "0x1111111111111111111111111111111111111111")
+
+	resp, err := svc.BorrowWorker(context.Background(), newTestRequest(&sessionv1.BorrowWorkerRequest{
+		Service:        "substreams",
+		OrganizationId: "0x1111111111111111111111111111111111111111",
+		SessionId:      "trace-atomic-failure",
+	}, "atomic-borrow-failure-session"))
+	require.Error(t, err)
+	require.Nil(t, resp)
+
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeInternal, connectErr.Code())
+	assert.Equal(t, 1, spy.calls)
+}
+
 func TestSessionService_BorrowWorker_PerPayerOverride(t *testing.T) {
 	// Default = 1 worker but payer1 has 5 workers override.
 	quotas := &session.QuotaConfig{
@@ -125,15 +255,17 @@ func TestSessionService_BorrowWorker_PerPayerOverride(t *testing.T) {
 			"0x1111111111111111111111111111111111111111": {MaxConcurrentSessions: 5, MaxWorkersPerSession: 2},
 		},
 	}
-	svc, _ := newTestService(quotas)
+	svc, repo := newTestService(quotas)
 
 	// Should be able to borrow multiple workers for payer1 (10 max).
 	for i := range 5 {
+		sessionID := "test-session-" + string(rune('0'+i))
+		mustCreateSession(t, repo, sessionID, "0x1111111111111111111111111111111111111111")
 		req := newTestRequest(&sessionv1.BorrowWorkerRequest{
 			Service:        "substreams",
 			OrganizationId: "0x1111111111111111111111111111111111111111",
 			SessionId:      "trace-" + string(rune('0'+i)),
-		}, "test-session-"+string(rune('0'+i)))
+		}, sessionID)
 		resp, err := svc.BorrowWorker(context.Background(), req)
 		require.NoError(t, err)
 		assert.Equal(t, sessionv1.BorrowStatus_BORROW_STATUS_BORROWED, resp.Msg.Status)
@@ -144,6 +276,7 @@ func TestSessionService_BorrowWorker_PerPayerOverride(t *testing.T) {
 
 func TestSessionService_ReturnWorker_Success(t *testing.T) {
 	svc, repo := newTestService(nil)
+	mustCreateSession(t, repo, "test-session-return-001", "0x1111111111111111111111111111111111111111")
 
 	borrowReq := newTestRequest(&sessionv1.BorrowWorkerRequest{
 		OrganizationId: "0x1111111111111111111111111111111111111111",
@@ -189,6 +322,7 @@ func TestSessionService_ReturnWorker_UnknownKey(t *testing.T) {
 
 func TestSessionService_KeepAlive_Success(t *testing.T) {
 	svc, repo := newTestService(nil)
+	mustCreateSession(t, repo, "test-session-keepalive-001", "0x1111111111111111111111111111111111111111")
 
 	borrowReq := newTestRequest(&sessionv1.BorrowWorkerRequest{
 		OrganizationId: "0x1111111111111111111111111111111111111111",
@@ -223,13 +357,71 @@ func TestSessionService_KeepAlive_MissingKey(t *testing.T) {
 }
 
 func TestSessionService_KeepAlive_UnknownKey(t *testing.T) {
-	// Unknown key is non-fatal.
 	svc, _ := newTestService(nil)
 
 	_, err := svc.KeepAlive(context.Background(), connect.NewRequest(&sessionv1.KeepAliveRequest{
 		WorkerKey: "unknown-key",
 	}))
-	require.NoError(t, err)
+	require.Error(t, err)
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodePermissionDenied, connectErr.Code())
+}
+
+func TestSessionService_KeepAlive_PaymentIssueReturnsResourceExhausted(t *testing.T) {
+	svc, repo := newTestService(nil)
+	sess := mustCreateSession(t, repo, "payment-ended-session", "0x1111111111111111111111111111111111111111")
+	worker := &repository.Worker{
+		Key:       "payment-worker",
+		SessionID: sess.ID,
+		Payer:     sess.Payer,
+		CreatedAt: time.Now(),
+	}
+	require.NoError(t, repo.WorkerCreate(context.Background(), worker))
+
+	sess.End(commonv1.EndReason_END_REASON_PAYMENT_ISSUE)
+	lastKeepAlive := sess.LastKeepAlive
+	require.NoError(t, repo.SessionUpdate(context.Background(), sess))
+
+	_, err := svc.KeepAlive(context.Background(), connect.NewRequest(&sessionv1.KeepAliveRequest{
+		WorkerKey: worker.Key,
+	}))
+	require.Error(t, err)
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeResourceExhausted, connectErr.Code())
+
+	updated, getErr := repo.SessionGet(context.Background(), sess.ID)
+	require.NoError(t, getErr)
+	assert.Equal(t, lastKeepAlive, updated.LastKeepAlive)
+}
+
+func TestSessionService_KeepAlive_NonPaymentTerminationReturnsPermissionDenied(t *testing.T) {
+	svc, repo := newTestService(nil)
+	sess := mustCreateSession(t, repo, "nonpayment-ended-session", "0x1111111111111111111111111111111111111111")
+	worker := &repository.Worker{
+		Key:       "nonpayment-worker",
+		SessionID: sess.ID,
+		Payer:     sess.Payer,
+		CreatedAt: time.Now(),
+	}
+	require.NoError(t, repo.WorkerCreate(context.Background(), worker))
+
+	sess.End(commonv1.EndReason_END_REASON_CLIENT_DISCONNECT)
+	lastKeepAlive := sess.LastKeepAlive
+	require.NoError(t, repo.SessionUpdate(context.Background(), sess))
+
+	_, err := svc.KeepAlive(context.Background(), connect.NewRequest(&sessionv1.KeepAliveRequest{
+		WorkerKey: worker.Key,
+	}))
+	require.Error(t, err)
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodePermissionDenied, connectErr.Code())
+
+	updated, getErr := repo.SessionGet(context.Background(), sess.ID)
+	require.NoError(t, getErr)
+	assert.Equal(t, lastKeepAlive, updated.LastKeepAlive)
 }
 
 // --- QuotaConfig ---

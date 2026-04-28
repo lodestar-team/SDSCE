@@ -151,6 +151,62 @@ func TestSessionUpdate(t *testing.T) {
 	})
 }
 
+func TestSessionUpdateRAVAndBaseline_PreservesUsageTotals(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+
+		pricingConfig := sds.PricingConfig{
+			PricePerBlock: sds.MustNewGRT(100),
+			PricePerByte:  sds.MustNewGRT(10),
+		}
+
+		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
+		receiver := eth.MustNewAddress("0x2234567890123456789012345678901234567890")
+		dataService := eth.MustNewAddress("0x3234567890123456789012345678901234567890")
+
+		session := repository.NewSession("test-session-rav-baseline", payer, receiver, dataService, pricingConfig)
+		require.NoError(t, db.SessionCreate(ctx, session))
+
+		event := &repository.UsageEvent{
+			Timestamp: time.Now(),
+			Blocks:    100,
+			Bytes:     2000,
+			Requests:  10,
+		}
+		cost := pricingConfig.CalculateUsageCost(100, 2000).BigInt()
+		require.NoError(t, db.SessionApplyUsage(ctx, session.ID, event, cost))
+
+		var sig eth.Signature
+		sig[0] = 1
+
+		signedRAV := &horizon.SignedRAV{
+			Message: &horizon.RAV{
+				CollectionID:    horizon.CollectionID{1},
+				Payer:           payer,
+				ServiceProvider: receiver,
+				DataService:     dataService,
+				TimestampNs:     uint64(time.Now().UnixNano()),
+				ValueAggregate:  big.NewInt(1234),
+			},
+			Signature: sig,
+		}
+		require.NoError(t, db.SessionUpdateRAVAndBaseline(ctx, session.ID, signedRAV, 100, 2000, 10, cost))
+
+		retrieved, err := db.SessionGet(ctx, session.ID)
+		require.NoError(t, err)
+		require.NotNil(t, retrieved.CurrentRAV)
+		assert.Equal(t, 0, big.NewInt(1234).Cmp(retrieved.CurrentRAV.Message.ValueAggregate))
+		assert.Equal(t, uint64(100), retrieved.BlocksProcessed)
+		assert.Equal(t, uint64(2000), retrieved.BytesTransferred)
+		assert.Equal(t, uint64(10), retrieved.Requests)
+		assert.Equal(t, 0, cost.Cmp(retrieved.TotalCost))
+		assert.Equal(t, uint64(100), retrieved.BaselineBlocks)
+		assert.Equal(t, uint64(2000), retrieved.BaselineBytes)
+		assert.Equal(t, uint64(10), retrieved.BaselineReqs)
+		assert.Equal(t, 0, cost.Cmp(retrieved.BaselineCost))
+	})
+}
+
 func TestSessionList(t *testing.T) {
 	withTestDB(t, func(db *Database) {
 		ctx := context.Background()
@@ -252,6 +308,83 @@ func TestWorkerCreateAndGet(t *testing.T) {
 	})
 }
 
+func TestWorkerCreateAndReserveQuota(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+
+		pricingConfig := sds.PricingConfig{
+			PricePerBlock: sds.MustNewGRT(100),
+			PricePerByte:  sds.MustNewGRT(10),
+		}
+
+		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
+		receiver := eth.MustNewAddress("0x2234567890123456789012345678901234567890")
+		dataService := eth.MustNewAddress("0x3234567890123456789012345678901234567890")
+
+		session := repository.NewSession("atomic-worker-session-1", payer, receiver, dataService, pricingConfig)
+		require.NoError(t, db.SessionCreate(ctx, session))
+
+		worker := &repository.Worker{
+			Key:       "atomic-worker-1",
+			SessionID: session.ID,
+			Payer:     payer,
+			CreatedAt: time.Now(),
+			TraceID:   "trace-atomic-1",
+		}
+
+		quota, err := db.WorkerCreateAndReserveQuota(ctx, worker, 3)
+		require.NoError(t, err)
+		require.NotNil(t, quota)
+		assert.Equal(t, 1, quota.ActiveWorkers)
+
+		retrievedWorker, err := db.WorkerGet(ctx, worker.Key)
+		require.NoError(t, err)
+		assert.Equal(t, worker.Key, retrievedWorker.Key)
+
+		currentQuota, err := db.QuotaGet(ctx, payer)
+		require.NoError(t, err)
+		assert.Equal(t, 1, currentQuota.ActiveWorkers)
+	})
+}
+
+func TestWorkerCreateAndReserveQuota_RollsBackOnWorkerCreateFailure(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+
+		pricingConfig := sds.PricingConfig{
+			PricePerBlock: sds.MustNewGRT(100),
+			PricePerByte:  sds.MustNewGRT(10),
+		}
+
+		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
+		receiver := eth.MustNewAddress("0x2234567890123456789012345678901234567890")
+		dataService := eth.MustNewAddress("0x3234567890123456789012345678901234567890")
+
+		session := repository.NewSession("atomic-worker-session-dup", payer, receiver, dataService, pricingConfig)
+		require.NoError(t, db.SessionCreate(ctx, session))
+
+		worker := &repository.Worker{
+			Key:       "atomic-worker-dup",
+			SessionID: session.ID,
+			Payer:     payer,
+			CreatedAt: time.Now(),
+		}
+
+		quota, err := db.WorkerCreateAndReserveQuota(ctx, worker, 3)
+		require.NoError(t, err)
+		require.NotNil(t, quota)
+		assert.Equal(t, 1, quota.ActiveWorkers)
+
+		quota, err = db.WorkerCreateAndReserveQuota(ctx, worker, 3)
+		require.Error(t, err)
+		require.Nil(t, quota)
+
+		currentQuota, err := db.QuotaGet(ctx, payer)
+		require.NoError(t, err)
+		assert.Equal(t, 1, currentQuota.ActiveWorkers)
+	})
+}
+
 func TestWorkerDelete(t *testing.T) {
 	withTestDB(t, func(db *Database) {
 		ctx := context.Background()
@@ -317,6 +450,34 @@ func TestQuotaGetAndIncrement(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 3, quota.ActiveSessions)
 		assert.Equal(t, 8, quota.ActiveWorkers)
+	})
+}
+
+func TestQuotaReserve(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+
+		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
+
+		quota, err := db.QuotaReserve(ctx, payer, 3, 1)
+		require.NoError(t, err)
+		assert.Equal(t, 0, quota.ActiveSessions)
+		assert.Equal(t, 1, quota.ActiveWorkers)
+
+		quota, err = db.QuotaReserve(ctx, payer, 3, 2)
+		require.NoError(t, err)
+		assert.Equal(t, 0, quota.ActiveSessions)
+		assert.Equal(t, 3, quota.ActiveWorkers)
+
+		quota, err = db.QuotaReserve(ctx, payer, 3, 1)
+		require.ErrorIs(t, err, repository.ErrQuotaExceeded)
+		assert.Equal(t, 0, quota.ActiveSessions)
+		assert.Equal(t, 3, quota.ActiveWorkers)
+
+		current, err := db.QuotaGet(ctx, payer)
+		require.NoError(t, err)
+		assert.Equal(t, 0, current.ActiveSessions)
+		assert.Equal(t, 3, current.ActiveWorkers)
 	})
 }
 
@@ -386,6 +547,46 @@ func TestUsageAddAndGetTotal(t *testing.T) {
 
 		// Verify events were added successfully
 		// (UsageGetTotal was removed as unused; we just verify Add works)
+	})
+}
+
+func TestSessionApplyUsage(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+
+		pricingConfig := sds.PricingConfig{
+			PricePerBlock: sds.MustNewGRT(100),
+			PricePerByte:  sds.MustNewGRT(10),
+		}
+
+		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
+		receiver := eth.MustNewAddress("0x2234567890123456789012345678901234567890")
+		dataService := eth.MustNewAddress("0x3234567890123456789012345678901234567890")
+
+		session := repository.NewSession("session-apply-usage", payer, receiver, dataService, pricingConfig)
+		require.NoError(t, db.SessionCreate(ctx, session))
+
+		event := &repository.UsageEvent{
+			Timestamp: time.Now(),
+			Blocks:    100,
+			Bytes:     2000,
+			Requests:  10,
+		}
+		cost := pricingConfig.CalculateUsageCost(100, 2000).BigInt()
+
+		require.NoError(t, db.SessionApplyUsage(ctx, "session-apply-usage", event, cost))
+
+		retrieved, err := db.SessionGet(ctx, "session-apply-usage")
+		require.NoError(t, err)
+		assert.Equal(t, uint64(100), retrieved.BlocksProcessed)
+		assert.Equal(t, uint64(2000), retrieved.BytesTransferred)
+		assert.Equal(t, uint64(10), retrieved.Requests)
+		assert.Equal(t, 0, retrieved.TotalCost.Cmp(cost))
+
+		var usageEventCount int
+		err = db.GetContext(ctx, &usageEventCount, `SELECT COUNT(*) FROM usage_events WHERE session_id = $1`, "session-apply-usage")
+		require.NoError(t, err)
+		assert.Equal(t, 1, usageEventCount)
 	})
 }
 

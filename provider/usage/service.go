@@ -4,6 +4,7 @@ package usage
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"connectrpc.com/connect"
@@ -20,14 +21,25 @@ var zlog, _ = logging.PackageLogger("sds_usage", "github.com/graphprotocol/subst
 // It receives batched metering events from the dmetering plugin and stores
 // them in the GlobalRepository for later aggregation and reporting.
 type UsageService struct {
-	repo repository.GlobalRepository
+	repo          repository.GlobalRepository
+	pricingConfig repository.PricingConfig
+	runtime       RuntimeNotifier
 }
 
 var _ usagev1connect.UsageServiceHandler = (*UsageService)(nil)
 
-// NewUsageService creates a new UsageService backed by the given repository.
-func NewUsageService(repo repository.GlobalRepository) *UsageService {
-	return &UsageService{repo: repo}
+type RuntimeNotifier interface {
+	OnMeteredUsage(context.Context, string) error
+}
+
+// NewUsageService creates a new UsageService backed by the given repository and provider pricing.
+func NewUsageService(repo repository.GlobalRepository, pricingConfig repository.PricingConfig, runtime ...RuntimeNotifier) *UsageService {
+	var notifier RuntimeNotifier
+	if len(runtime) > 0 {
+		notifier = runtime[0]
+	}
+
+	return &UsageService{repo: repo, pricingConfig: pricingConfig, runtime: notifier}
 }
 
 // Report receives a batch of metering events from the dmetering plugin.
@@ -60,14 +72,33 @@ func (s *UsageService) Report(
 		}
 
 		usageEvent := protoEventToUsageEvent(event)
+		blocks, bytes, _ := usageEvent.SanitizedTotals()
+		cost := s.pricingConfig.CalculateUsageCost(blocks, bytes).BigInt()
 
-		if err := s.repo.UsageAdd(ctx, sessionID, usageEvent); err != nil {
+		if err := s.repo.SessionApplyUsage(ctx, sessionID, usageEvent, cost); err != nil {
+			if errors.Is(err, repository.ErrNotFound) {
+				zlog.Warn("usage event references unknown session",
+					zap.String("organization_id", event.OrganizationId),
+					zap.String("session_id", sessionID),
+					zap.Error(err),
+				)
+				continue
+			}
 			zlog.Warn("failed to record usage event",
 				zap.String("organization_id", event.OrganizationId),
 				zap.String("session_id", sessionID),
 				zap.Error(err),
 			)
 			// Non-fatal: continue processing remaining events.
+		}
+
+		if s.runtime != nil {
+			if err := s.runtime.OnMeteredUsage(ctx, sessionID); err != nil {
+				zlog.Warn("failed to evaluate metered runtime payment control",
+					zap.String("session_id", sessionID),
+					zap.Error(err),
+				)
+			}
 		}
 	}
 
@@ -91,9 +122,9 @@ func protoEventToUsageEvent(event *usagev1.Event) *repository.UsageEvent {
 			continue
 		}
 		switch m.Name {
-		case "blocks_count", "blocks":
+		case "blocks_count", "blocks", "block_count", "message_count":
 			ue.Blocks += m.Value
-		case "bytes_count", "bytes":
+		case "bytes_count", "bytes", "egress_bytes":
 			ue.Bytes += m.Value
 		case "requests_count", "requests":
 			ue.Requests += m.Value

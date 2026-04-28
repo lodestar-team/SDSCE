@@ -2,13 +2,16 @@ package usage_test
 
 import (
 	"context"
+	"math/big"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	sds "github.com/graphprotocol/substreams-data-service"
 	usagev1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/usage/v1"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/graphprotocol/substreams-data-service/provider/usage"
+	"github.com/streamingfast/eth-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -18,9 +21,36 @@ func newTestRepo() *repository.InMemoryRepository {
 	return repository.NewInMemoryRepository()
 }
 
+var testPricingConfig = repository.PricingConfig{
+	PricePerBlock: sds.NewGRTFromUint64(2),
+	PricePerByte:  sds.NewGRTFromUint64(3),
+}
+
+type capturingRepo struct {
+	*repository.InMemoryRepository
+	usageBySession map[string][]*repository.UsageEvent
+}
+
+func newCapturingRepo() *capturingRepo {
+	return &capturingRepo{
+		InMemoryRepository: repository.NewInMemoryRepository(),
+		usageBySession:     make(map[string][]*repository.UsageEvent),
+	}
+}
+
+func (r *capturingRepo) UsageAdd(_ context.Context, sessionID string, usage *repository.UsageEvent) error {
+	r.usageBySession[sessionID] = append(r.usageBySession[sessionID], usage)
+	return nil
+}
+
+func (r *capturingRepo) SessionApplyUsage(_ context.Context, sessionID string, usage *repository.UsageEvent, _ *big.Int) error {
+	r.usageBySession[sessionID] = append(r.usageBySession[sessionID], usage)
+	return nil
+}
+
 func TestUsageService_Report_Empty(t *testing.T) {
 	repo := newTestRepo()
-	svc := usage.NewUsageService(repo)
+	svc := usage.NewUsageService(repo, testPricingConfig)
 
 	resp, err := svc.Report(context.Background(), connect.NewRequest(&usagev1.ReportRequest{}))
 	require.NoError(t, err)
@@ -29,7 +59,7 @@ func TestUsageService_Report_Empty(t *testing.T) {
 
 func TestUsageService_Report_SingleEvent(t *testing.T) {
 	repo := newTestRepo()
-	svc := usage.NewUsageService(repo)
+	svc := usage.NewUsageService(repo, testPricingConfig)
 
 	ts := timestamppb.New(time.Now())
 	resp, err := svc.Report(context.Background(), connect.NewRequest(&usagev1.ReportRequest{
@@ -56,7 +86,7 @@ func TestUsageService_Report_SingleEvent(t *testing.T) {
 
 func TestUsageService_Report_MultipleEvents_SamePayer(t *testing.T) {
 	repo := newTestRepo()
-	svc := usage.NewUsageService(repo)
+	svc := usage.NewUsageService(repo, testPricingConfig)
 
 	_, err := svc.Report(context.Background(), connect.NewRequest(&usagev1.ReportRequest{
 		Events: []*usagev1.Event{
@@ -80,7 +110,7 @@ func TestUsageService_Report_MultipleEvents_SamePayer(t *testing.T) {
 
 func TestUsageService_Report_MultipleEvents_DifferentPayers(t *testing.T) {
 	repo := newTestRepo()
-	svc := usage.NewUsageService(repo)
+	svc := usage.NewUsageService(repo, testPricingConfig)
 
 	_, err := svc.Report(context.Background(), connect.NewRequest(&usagev1.ReportRequest{
 		Events: []*usagev1.Event{
@@ -104,7 +134,7 @@ func TestUsageService_Report_MultipleEvents_DifferentPayers(t *testing.T) {
 
 func TestUsageService_Report_SessionId_FallbackToOrganizationId(t *testing.T) {
 	repo := newTestRepo()
-	svc := usage.NewUsageService(repo)
+	svc := usage.NewUsageService(repo, testPricingConfig)
 
 	_, err := svc.Report(context.Background(), connect.NewRequest(&usagev1.ReportRequest{
 		Events: []*usagev1.Event{
@@ -122,7 +152,7 @@ func TestUsageService_Report_SessionId_FallbackToOrganizationId(t *testing.T) {
 
 func TestUsageService_Report_IgnoresInvalidMetrics(t *testing.T) {
 	repo := newTestRepo()
-	svc := usage.NewUsageService(repo)
+	svc := usage.NewUsageService(repo, testPricingConfig)
 
 	_, err := svc.Report(context.Background(), connect.NewRequest(&usagev1.ReportRequest{
 		Events: []*usagev1.Event{
@@ -141,7 +171,7 @@ func TestUsageService_Report_IgnoresInvalidMetrics(t *testing.T) {
 
 func TestUsageService_Report_AllMetrics(t *testing.T) {
 	repo := newTestRepo()
-	svc := usage.NewUsageService(repo)
+	svc := usage.NewUsageService(repo, testPricingConfig)
 
 	_, err := svc.Report(context.Background(), connect.NewRequest(&usagev1.ReportRequest{
 		Events: []*usagev1.Event{
@@ -157,4 +187,66 @@ func TestUsageService_Report_AllMetrics(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	// All metrics are stored (UsageGetTotal removed as unused method)
+}
+
+func TestUsageService_Report_FirehoseCoreMetricNames(t *testing.T) {
+	repo := newCapturingRepo()
+	svc := usage.NewUsageService(repo, testPricingConfig)
+
+	resp, err := svc.Report(context.Background(), connect.NewRequest(&usagev1.ReportRequest{
+		Events: []*usagev1.Event{
+			{
+				OrganizationId: "0xpayer1",
+				SdsSessionId:   "session-1",
+				Metrics: []*usagev1.Metric{
+					{Name: "block_count", Value: 20},
+					{Name: "message_count", Value: 3},
+					{Name: "egress_bytes", Value: 2048},
+				},
+			},
+		},
+	}))
+	require.NoError(t, err)
+	assert.False(t, resp.Msg.Revoked)
+
+	require.Len(t, repo.usageBySession["session-1"], 1)
+	assert.Equal(t, int64(23), repo.usageBySession["session-1"][0].Blocks)
+	assert.Equal(t, int64(2048), repo.usageBySession["session-1"][0].Bytes)
+	assert.Equal(t, int64(0), repo.usageBySession["session-1"][0].Requests)
+}
+
+func TestUsageService_Report_AppliesMeteredUsageToSession(t *testing.T) {
+	repo := newTestRepo()
+	session := repository.NewSession(
+		"session-1",
+		eth.MustNewAddress("0x1111111111111111111111111111111111111111"),
+		eth.MustNewAddress("0x2222222222222222222222222222222222222222"),
+		eth.MustNewAddress("0x3333333333333333333333333333333333333333"),
+		testPricingConfig,
+	)
+	require.NoError(t, repo.SessionCreate(context.Background(), session))
+
+	svc := usage.NewUsageService(repo, testPricingConfig)
+
+	resp, err := svc.Report(context.Background(), connect.NewRequest(&usagev1.ReportRequest{
+		Events: []*usagev1.Event{
+			{
+				SdsSessionId: "session-1",
+				Metrics: []*usagev1.Metric{
+					{Name: "block_count", Value: 4},
+					{Name: "egress_bytes", Value: 5},
+					{Name: "requests_count", Value: 1},
+				},
+			},
+		},
+	}))
+	require.NoError(t, err)
+	assert.False(t, resp.Msg.Revoked)
+
+	updatedSession, err := repo.SessionGet(context.Background(), "session-1")
+	require.NoError(t, err)
+	assert.Equal(t, uint64(4), updatedSession.BlocksProcessed)
+	assert.Equal(t, uint64(5), updatedSession.BytesTransferred)
+	assert.Equal(t, uint64(1), updatedSession.Requests)
+	assert.Equal(t, 0, updatedSession.TotalCost.Cmp(testPricingConfig.CalculateUsageCost(4, 5).BigInt()))
 }

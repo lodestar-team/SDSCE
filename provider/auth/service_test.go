@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"math/big"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	authv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/auth/v1"
 	"github.com/graphprotocol/substreams-data-service/provider/auth"
+	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
 	"github.com/streamingfast/dauth"
 	"github.com/streamingfast/eth-go"
@@ -39,7 +41,7 @@ func newTestKey(seed byte) *eth.PrivateKey {
 }
 
 // buildSignedRAV creates a ValidateAuthRequest with a signed RAV in headers.
-func buildSignedRAV(t *testing.T, payerKey *eth.PrivateKey, signerKey *eth.PrivateKey, serviceProvider eth.Address) *authv1.ValidateAuthRequest {
+func buildSignedRAV(t *testing.T, payerKey *eth.PrivateKey, signerKey *eth.PrivateKey, serviceProvider eth.Address, sessionID string) *authv1.ValidateAuthRequest {
 	t.Helper()
 
 	payerAddr := payerKey.PublicKey().Address()
@@ -70,6 +72,9 @@ func buildSignedRAV(t *testing.T, payerKey *eth.PrivateKey, signerKey *eth.Priva
 	untrustedHeaders := map[string]*authv1.HeaderValues{
 		"x-sds-rav": {Values: []string{ravHeader}},
 	}
+	if sessionID != "" {
+		untrustedHeaders["x-sds-session-id"] = &authv1.HeaderValues{Values: []string{sessionID}}
+	}
 
 	return &authv1.ValidateAuthRequest{
 		UntrustedHeaders: untrustedHeaders,
@@ -78,16 +83,26 @@ func buildSignedRAV(t *testing.T, payerKey *eth.PrivateKey, signerKey *eth.Priva
 	}
 }
 
+func mustCreateAuthSession(t *testing.T, repo *repository.InMemoryRepository, sessionID string, payer eth.Address) {
+	t.Helper()
+
+	sess := repository.NewSession(sessionID, payer, testServiceProvider, testServiceProvider, repository.PricingConfig{})
+	sess.LastKeepAlive = time.Now()
+	require.NoError(t, repo.SessionCreate(context.Background(), sess))
+}
+
 // --- Tests ---
 
 func TestAuthService_ValidateAuth_SelfSigned(t *testing.T) {
 	// When payer == signer no on-chain check is needed.
 	payerKey := newTestKey(0x01)
 	payerAddr := payerKey.PublicKey().Address()
+	repo := repository.NewInMemoryRepository()
+	mustCreateAuthSession(t, repo, "session-self-signed", payerAddr)
 
-	svc := auth.NewAuthService(testServiceProvider, testDomain, nil, nil)
+	svc := auth.NewAuthService(testServiceProvider, testDomain, nil, repo)
 
-	req := buildSignedRAV(t, payerKey, payerKey, testServiceProvider)
+	req := buildSignedRAV(t, payerKey, payerKey, testServiceProvider, "session-self-signed")
 	resp, err := svc.ValidateAuth(context.Background(), connect.NewRequest(req))
 
 	require.NoError(t, err)
@@ -113,11 +128,13 @@ func TestAuthService_ValidateAuth_MissingRAV(t *testing.T) {
 func TestAuthService_ValidateAuth_WrongServiceProvider(t *testing.T) {
 	payerKey := newTestKey(0x02)
 	differentProvider := eth.MustNewAddress("0x9999999999999999999999999999999999999999")
+	repo := repository.NewInMemoryRepository()
+	mustCreateAuthSession(t, repo, "session-wrong-provider", payerKey.PublicKey().Address())
 
-	svc := auth.NewAuthService(testServiceProvider, testDomain, nil, nil)
+	svc := auth.NewAuthService(testServiceProvider, testDomain, nil, repo)
 
 	// Build RAV targeting a *different* service provider.
-	req := buildSignedRAV(t, payerKey, payerKey, differentProvider)
+	req := buildSignedRAV(t, payerKey, payerKey, differentProvider, "session-wrong-provider")
 	_, err := svc.ValidateAuth(context.Background(), connect.NewRequest(req))
 
 	require.Error(t, err)
@@ -133,7 +150,7 @@ func TestAuthService_ValidateAuth_UnauthorizedSigner(t *testing.T) {
 	// collectorQuerier that always returns false (unauthorized).
 	svc := auth.NewAuthService(testServiceProvider, testDomain, &mockAuthorizer{authorized: false}, nil)
 
-	req := buildSignedRAV(t, payerKey, signerKey, testServiceProvider)
+	req := buildSignedRAV(t, payerKey, signerKey, testServiceProvider, "")
 	_, err := svc.ValidateAuth(context.Background(), connect.NewRequest(req))
 
 	require.Error(t, err)
@@ -147,11 +164,13 @@ func TestAuthService_ValidateAuth_AuthorizedDelegateSigner(t *testing.T) {
 	signerKey := newTestKey(0x06) // different from payer but authorized on-chain
 
 	payerAddr := payerKey.PublicKey().Address()
+	repo := repository.NewInMemoryRepository()
+	mustCreateAuthSession(t, repo, "session-authorized-delegate", payerAddr)
 
 	// collectorQuerier that always returns true (authorized).
-	svc := auth.NewAuthService(testServiceProvider, testDomain, &mockAuthorizer{authorized: true}, nil)
+	svc := auth.NewAuthService(testServiceProvider, testDomain, &mockAuthorizer{authorized: true}, repo)
 
-	req := buildSignedRAV(t, payerKey, signerKey, testServiceProvider)
+	req := buildSignedRAV(t, payerKey, signerKey, testServiceProvider, "session-authorized-delegate")
 	resp, err := svc.ValidateAuth(context.Background(), connect.NewRequest(req))
 
 	require.NoError(t, err)
@@ -166,7 +185,7 @@ func TestAuthService_ValidateAuth_NilCollectorQuerier_UnauthorizedSigner(t *test
 
 	svc := auth.NewAuthService(testServiceProvider, testDomain, nil, nil)
 
-	req := buildSignedRAV(t, payerKey, signerKey, testServiceProvider)
+	req := buildSignedRAV(t, payerKey, signerKey, testServiceProvider, "")
 	_, err := svc.ValidateAuth(context.Background(), connect.NewRequest(req))
 
 	require.Error(t, err)
@@ -181,13 +200,27 @@ func TestAuthService_ValidateAuth_AuthorizerError(t *testing.T) {
 
 	svc := auth.NewAuthService(testServiceProvider, testDomain, &mockAuthorizer{err: assert.AnError}, nil)
 
-	req := buildSignedRAV(t, payerKey, signerKey, testServiceProvider)
+	req := buildSignedRAV(t, payerKey, signerKey, testServiceProvider, "")
 	_, err := svc.ValidateAuth(context.Background(), connect.NewRequest(req))
 
 	require.Error(t, err)
 	var connectErr *connect.Error
 	require.ErrorAs(t, err, &connectErr)
 	assert.Equal(t, connect.CodeInternal, connectErr.Code())
+}
+
+func TestAuthService_ValidateAuth_MissingSessionID(t *testing.T) {
+	payerKey := newTestKey(0x0b)
+	svc := auth.NewAuthService(testServiceProvider, testDomain, nil, nil)
+
+	req := buildSignedRAV(t, payerKey, payerKey, testServiceProvider, "")
+	_, err := svc.ValidateAuth(context.Background(), connect.NewRequest(req))
+
+	require.Error(t, err)
+	var connectErr *connect.Error
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, connect.CodeUnauthenticated, connectErr.Code())
+	assert.Contains(t, connectErr.Message(), "x-sds-session-id")
 }
 
 // mockAuthorizer implements auth.CollectorAuthorizer for testing.

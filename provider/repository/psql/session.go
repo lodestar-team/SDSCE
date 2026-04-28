@@ -3,6 +3,8 @@ package psql
 import (
 	"bytes"
 	"context"
+	"math/big"
+	"time"
 
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
@@ -10,9 +12,11 @@ import (
 
 func init() {
 	registerFiles([]string{
+		"session/apply_usage.sql",
 		"session/create.sql",
 		"session/get.sql",
 		"session/update.sql",
+		"session/update_rav_baseline.sql",
 		"session/list.sql",
 		"session/count.sql",
 		"session/get_rav.sql",
@@ -185,6 +189,90 @@ func (r *Database) SessionUpdate(ctx context.Context, session *repository.Sessio
 		if err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// SessionUpdateRAVAndBaseline updates only the accepted RAV and baseline snapshot, preserving current usage aggregates.
+func (r *Database) SessionUpdateRAVAndBaseline(ctx context.Context, sessionID string, currentRAV *horizon.SignedRAV, baselineBlocks, baselineBytes, baselineReqs uint64, baselineCost *big.Int) (err error) {
+	baselineCostVal := mustValue(newGRT(baselineCost))
+
+	tx, err := r.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	sessionRows, err := bindAndQueryxContext(ctx, tx, onDiskStatement("session/update_rav_baseline.sql"), map[string]any{
+		"id":              sessionID,
+		"updated_at":      time.Now(),
+		"baseline_blocks": int64(baselineBlocks),
+		"baseline_bytes":  int64(baselineBytes),
+		"baseline_reqs":   int64(baselineReqs),
+		"baseline_cost":   baselineCostVal,
+	})
+	if err != nil {
+		return err
+	}
+
+	var sessionUpdated bool
+	for sessionRows.Next() {
+		sessionUpdated = true
+	}
+	if err := sessionRows.Err(); err != nil {
+		_ = sessionRows.Close()
+		return err
+	}
+	if closeErr := sessionRows.Close(); closeErr != nil {
+		return closeErr
+	}
+	if !sessionUpdated {
+		return repository.ErrNotFound
+	}
+
+	if currentRAV != nil {
+		ravRw := fromRAV(sessionID, currentRAV)
+
+		collectionIDVal := mustValue(ravRw.CollectionID)
+		ravPayerVal := mustValue(ravRw.Payer)
+		serviceProviderVal := mustValue(ravRw.ServiceProvider)
+		ravDataServiceVal := mustValue(ravRw.DataService)
+		valueAggregateVal := mustValue(ravRw.ValueAggregate)
+		signatureVal := mustValue(ravRw.Signature)
+
+		ravRows, err := bindAndQueryxContext(ctx, tx, onDiskStatement("session/upsert_rav.sql"), map[string]any{
+			"session_id":       ravRw.SessionID,
+			"collection_id":    collectionIDVal,
+			"payer":            ravPayerVal,
+			"service_provider": serviceProviderVal,
+			"data_service":     ravDataServiceVal,
+			"timestamp_ns":     ravRw.TimestampNs,
+			"value_aggregate":  valueAggregateVal,
+			"metadata":         ravRw.Metadata,
+			"signature":        signatureVal,
+			"created_at":       ravRw.CreatedAt,
+		})
+		if err != nil {
+			return err
+		}
+		for ravRows.Next() {
+		}
+		if err := ravRows.Err(); err != nil {
+			_ = ravRows.Close()
+			return err
+		}
+		if closeErr := ravRows.Close(); closeErr != nil {
+			return closeErr
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
 	}
 
 	return nil

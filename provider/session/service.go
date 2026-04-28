@@ -4,10 +4,12 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"connectrpc.com/connect"
+	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	sessionv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/session/v1"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/session/v1/sessionv1connect"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
@@ -38,10 +40,9 @@ func NewSessionService(repo repository.GlobalRepository, quotas *QuotaConfig) *S
 
 // BorrowWorker acquires a worker slot for a new streaming request.
 //
-//   - If the payer has reached max concurrent sessions a new session is
-//     created here (workers and sessions are treated as equivalent in the
-//     in-memory model; the dsession protocol is one worker == one connection).
-//   - Returns RESOURCE_EXHAUSTED if the payer's quota is exceeded.
+// The request must reference a preexisting active SDS session created through
+// the payment gateway flow. This keeps the live plugin path bound to
+// provider-authoritative session state.
 func (s *SessionService) BorrowWorker(
 	ctx context.Context,
 	req *connect.Request[sessionv1.BorrowWorkerRequest],
@@ -60,7 +61,7 @@ func (s *SessionService) BorrowWorker(
 	// Get the SDS session ID from the request (set by session plugin from auth context).
 	sessionID := req.Msg.SessionId
 	if sessionID == "" {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("session_id not provided in request"))
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("session_id not provided in request"))
 	}
 
 	zlog.Debug("BorrowWorker service called",
@@ -69,65 +70,40 @@ func (s *SessionService) BorrowWorker(
 		zap.String("service", req.Msg.Service),
 	)
 
-	// Check current quota usage.
-	quota, err := s.repo.QuotaGet(ctx, payer)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reading quota: %w", err))
+	if _, err := s.authorizeSession(ctx, sessionID, payer); err != nil {
+		return nil, err
 	}
 
 	maxWorkers := s.quotas.MaxWorkersPerSession(payerStr) * s.quotas.MaxConcurrentSessions(payerStr)
 
-	if quota.ActiveWorkers >= maxWorkers {
-		zlog.Warn("quota exceeded for payer",
-			zap.Stringer("payer", payer),
-			zap.Int("active_workers", quota.ActiveWorkers),
-			zap.Int("max_workers", maxWorkers),
-		)
-		return connect.NewResponse(&sessionv1.BorrowWorkerResponse{
-			Status: sessionv1.BorrowStatus_BORROW_STATUS_RESOURCE_EXHAUSTED,
-			WorkerState: &sessionv1.WorkerState{
-				MaxWorkers:    int64(maxWorkers),
-				ActiveWorkers: int64(quota.ActiveWorkers),
-			},
-		}), nil
-	}
-
-	// Ensure session exists.
-	if _, getErr := s.repo.SessionGet(ctx, sessionID); getErr != nil {
-		newSession := &repository.Session{
-			ID:            sessionID,
-			Payer:         payer,
-			Status:        repository.SessionStatusActive,
-			CreatedAt:     time.Now(),
-			LastKeepAlive: time.Now(),
-		}
-		if createErr := s.repo.SessionCreate(ctx, newSession); createErr != nil {
-			// A concurrent BorrowWorker may have created the session first; that's fine.
-			zlog.Debug("session already exists or create failed",
-				zap.String("session_id", sessionID),
-				zap.Error(createErr),
-			)
-		}
-	}
-
-	// Create the worker entry.
+	// Create the worker entry and reserve quota atomically.
 	// Worker key is unique per request, built from payer and timestamp.
-	workerKey := buildWorkerKey(payerStr, sessionID, time.Now())
+	now := time.Now()
+	workerKey := buildWorkerKey(payerStr, sessionID, now)
 	worker := &repository.Worker{
 		Key:       workerKey,
 		SessionID: sessionID,
 		Payer:     payer,
-		CreatedAt: time.Now(),
+		CreatedAt: now,
 		TraceID:   "", // No trace ID - workers are identified by their unique key
 	}
-	if err := s.repo.WorkerCreate(ctx, worker); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("creating worker: %w", err))
-	}
-
-	// Increment quota.
-	if err := s.repo.QuotaIncrement(ctx, payer, 0, 1); err != nil {
-		// Non-fatal: log and continue (quota is eventually consistent in the in-memory model).
-		zlog.Warn("failed to increment quota", zap.Stringer("payer", payer), zap.Error(err))
+	quota, err := s.repo.WorkerCreateAndReserveQuota(ctx, worker, maxWorkers)
+	if err != nil {
+		if errors.Is(err, repository.ErrQuotaExceeded) {
+			zlog.Warn("quota exceeded for payer",
+				zap.Stringer("payer", payer),
+				zap.Int("active_workers", quota.ActiveWorkers),
+				zap.Int("max_workers", maxWorkers),
+			)
+			return connect.NewResponse(&sessionv1.BorrowWorkerResponse{
+				Status: sessionv1.BorrowStatus_BORROW_STATUS_RESOURCE_EXHAUSTED,
+				WorkerState: &sessionv1.WorkerState{
+					MaxWorkers:    int64(maxWorkers),
+					ActiveWorkers: int64(quota.ActiveWorkers),
+				},
+			}), nil
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("creating worker and reserving quota: %w", err))
 	}
 
 	zlog.Debug("worker borrowed",
@@ -141,7 +117,7 @@ func (s *SessionService) BorrowWorker(
 		Status:    sessionv1.BorrowStatus_BORROW_STATUS_BORROWED,
 		WorkerState: &sessionv1.WorkerState{
 			MaxWorkers:    int64(maxWorkers),
-			ActiveWorkers: int64(quota.ActiveWorkers + 1),
+			ActiveWorkers: int64(quota.ActiveWorkers),
 		},
 	}), nil
 }
@@ -217,13 +193,15 @@ func (s *SessionService) KeepAlive(
 
 	worker, err := s.repo.WorkerGet(ctx, workerKey)
 	if err != nil {
-		// Worker not found is non-fatal; the session may have been cleaned up.
-		return connect.NewResponse(&sessionv1.KeepAliveResponse{}), nil
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("worker not found"))
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reading worker: %w", err))
 	}
 
-	session, err := s.repo.SessionGet(ctx, worker.SessionID)
+	session, err := s.authorizeSession(ctx, worker.SessionID, worker.Payer)
 	if err != nil {
-		return connect.NewResponse(&sessionv1.KeepAliveResponse{}), nil
+		return nil, err
 	}
 
 	session.LastKeepAlive = time.Now()
@@ -235,6 +213,39 @@ func (s *SessionService) KeepAlive(
 	}
 
 	return connect.NewResponse(&sessionv1.KeepAliveResponse{}), nil
+}
+
+func (s *SessionService) authorizeSession(ctx context.Context, sessionID string, payer eth.Address) (*repository.Session, error) {
+	session, err := s.repo.SessionGet(ctx, sessionID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("session not found"))
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reading session: %w", err))
+	}
+
+	if session.Payer.Pretty() != payer.Pretty() {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("session payer mismatch"))
+	}
+
+	if !session.IsActive() {
+		return nil, sessionStateError(session)
+	}
+
+	return session, nil
+}
+
+func sessionStateError(session *repository.Session) error {
+	if session != nil && session.EndReason == commonv1.EndReason_END_REASON_PAYMENT_ISSUE {
+		return connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("session ended due to payment issue"))
+	}
+
+	status := repository.SessionStatus("")
+	if session != nil {
+		status = session.Status
+	}
+
+	return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("session is not active (status: %s)", status))
 }
 
 // buildWorkerKey constructs a unique worker key.

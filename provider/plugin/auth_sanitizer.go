@@ -17,18 +17,16 @@ import (
 
 func wrapAuthTransport(next http.Handler, logger *zap.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, changed, err := sanitizeAuthRequestBody(r.Header.Get("Content-Type"), r.Body, logger)
+		body, _, err := sanitizeAuthRequestBody(r.Header.Get("Content-Type"), r.Body, logger)
 		if err != nil {
 			logger.Warn("failed to sanitize auth request body", zap.Error(err))
 			http.Error(w, fmt.Sprintf("invalid auth request: %v", err), http.StatusBadRequest)
 			return
 		}
 
-		if changed {
-			r.Body = io.NopCloser(bytes.NewReader(body))
-			r.ContentLength = int64(len(body))
-			r.Header.Set("Content-Length", strconv.Itoa(len(body)))
-		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		r.ContentLength = int64(len(body))
+		r.Header.Set("Content-Length", strconv.Itoa(len(body)))
 
 		next.ServeHTTP(w, r)
 	})

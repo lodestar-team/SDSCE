@@ -1,10 +1,17 @@
 package plugin
 
 import (
+	"bytes"
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"connectrpc.com/connect"
 	sds "github.com/graphprotocol/substreams-data-service"
 	authv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/auth/v1"
+	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/sds/auth/v1/authv1connect"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -114,6 +121,102 @@ func TestSanitizeValidateAuthMessage_LegacyHeaderEncoding(t *testing.T) {
 	require.NoError(t, proto.Unmarshal(sanitized, &req))
 	require.Equal(t, []string{"rav-value"}, req.GetUntrustedHeaders()["x-sds-rav"].GetValues())
 	require.Equal(t, []string{"session-id"}, req.GetUntrustedHeaders()["x-sds-session-id"].GetValues())
+}
+
+func TestWrapAuthTransport_PreservesReadableBodyForValidRequest(t *testing.T) {
+	logger := zap.NewNop()
+	svc := &captureAuthService{}
+
+	path, authHandler := authv1connect.NewAuthServiceHandler(svc)
+	mux := http.NewServeMux()
+	mux.Handle(path, wrapAuthTransport(authHandler, logger))
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := authv1connect.NewAuthServiceClient(server.Client(), server.URL)
+	_, err := client.ValidateAuth(context.Background(), connect.NewRequest(&authv1.ValidateAuthRequest{
+		UntrustedHeaders: map[string]*authv1.HeaderValues{
+			"x-sds-rav":        {Values: []string{"rav-value"}},
+			"x-sds-session-id": {Values: []string{"session-id"}},
+		},
+		Path:      "/sf.substreams.rpc.v2/Blocks",
+		IpAddress: "127.0.0.1",
+	}))
+	require.NoError(t, err)
+
+	require.Equal(t, 1, svc.calls)
+	require.NotNil(t, svc.req)
+	require.Equal(t, []string{"rav-value"}, svc.req.GetUntrustedHeaders()["x-sds-rav"].GetValues())
+	require.Equal(t, []string{"session-id"}, svc.req.GetUntrustedHeaders()["x-sds-session-id"].GetValues())
+	require.Equal(t, "/sf.substreams.rpc.v2/Blocks", svc.req.GetPath())
+	require.Equal(t, "127.0.0.1", svc.req.GetIpAddress())
+}
+
+func TestWrapAuthTransport_RewritesLegacyPayloadBeforeNextHandler(t *testing.T) {
+	logger := zap.NewNop()
+
+	var (
+		called bool
+		req    authv1.ValidateAuthRequest
+	)
+
+	handler := wrapAuthTransport(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.Equal(t, int64(len(body)), r.ContentLength)
+		require.NoError(t, proto.Unmarshal(body, &req))
+
+		w.WriteHeader(http.StatusNoContent)
+	}), logger)
+
+	raw := encodeLegacyAuthHeader("x-sds-rav", []byte("rav-value"))
+	raw = append(raw, encodeLegacyAuthHeader("x-sds-session-id", []byte("session-id"))...)
+
+	httpReq := httptest.NewRequest(http.MethodPost, authv1connect.AuthServiceValidateAuthProcedure, bytes.NewReader(raw))
+	httpReq.Header.Set("Content-Type", "application/proto")
+	httpReq.ContentLength = int64(len(raw))
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httpReq)
+
+	require.Equal(t, http.StatusNoContent, recorder.Code)
+	require.True(t, called)
+	require.Equal(t, []string{"rav-value"}, req.GetUntrustedHeaders()["x-sds-rav"].GetValues())
+	require.Equal(t, []string{"session-id"}, req.GetUntrustedHeaders()["x-sds-session-id"].GetValues())
+}
+
+func TestWrapAuthTransport_RejectsMalformedPayload(t *testing.T) {
+	logger := zap.NewNop()
+	called := false
+
+	handler := wrapAuthTransport(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}), logger)
+
+	httpReq := httptest.NewRequest(http.MethodPost, authv1connect.AuthServiceValidateAuthProcedure, bytes.NewReader([]byte{0x00, 0x00, 0x00}))
+	httpReq.Header.Set("Content-Type", "application/grpc+proto")
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httpReq)
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	require.False(t, called)
+	require.Contains(t, recorder.Body.String(), "invalid auth request")
+}
+
+type captureAuthService struct {
+	req   *authv1.ValidateAuthRequest
+	calls int
+}
+
+func (s *captureAuthService) ValidateAuth(_ context.Context, req *connect.Request[authv1.ValidateAuthRequest]) (*connect.Response[authv1.ValidateAuthResponse], error) {
+	s.calls++
+	s.req = proto.Clone(req.Msg).(*authv1.ValidateAuthRequest)
+	return connect.NewResponse(&authv1.ValidateAuthResponse{}), nil
 }
 
 func encodeAuthMapEntry(key string, headerValues []byte) []byte {

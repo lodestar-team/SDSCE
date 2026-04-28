@@ -6,58 +6,133 @@ It is meant to help you read the implementation efficiently, not replace reading
 
 It focuses on:
 
-- what each major subsystem does
-- which files and functions are the main entrypoints
-- how consumer, provider, oracle, and plugin pieces interact
-- which files are implementation-critical versus generated or support code
-- where the current implementation is known to be wrong or unstable, based on the current review work
+- the current runtime shape
+- the main entrypoints and ownership boundaries
+- the fastest reading order for understanding the live architecture
+- which parts of the old review drift were fixed in the recent review-fix waves
+- which remaining gaps are still real MVP backlog items rather than stale review bugs
 
-For current product intent, use [docs/mvp-scope.md](./mvp-scope.md).
+For product intent and target-state decisions, start with [docs/mvp-scope.md](./mvp-scope.md).
 
-For current implementation issues and remediation tasks, use:
+For implementation status and remaining MVP work, use:
+
+- [plans/mvp-gap-analysis.md](../plans/mvp-gap-analysis.md)
+- [plans/mvp-implementation-backlog.md](../plans/mvp-implementation-backlog.md)
+
+For provider runtime/state boundaries and external runtime compatibility, also use:
+
+- [docs/provider-persistence-boundary.md](./provider-persistence-boundary.md)
+- [docs/provider-runtime-compatibility.md](./provider-runtime-compatibility.md)
+
+For review rationale, use:
 
 - [plans/current-implementation-review.md](../plans/current-implementation-review.md)
 - [plans/current-implementation-review-tasks/](../plans/current-implementation-review-tasks/)
 
-## 1. Mental Model
+Important context: that review is no longer a reliable list of "current bugs". Much of it was addressed by the four review-fix commits `8de75f3` through `5aad2ab`. Use it as design rationale and historical hardening context, not as a current status snapshot.
 
-The repo implements three main runtime roles plus shared types/helpers:
+## 1. Current Status At A Glance
+
+As of the current tree, the repo already contains the core MVP runtime path:
+
+- standalone oracle discovery
+- consumer sidecar ingress as the SDS-facing Substreams-compatible boundary
+- provider `StartSession` handshake returning the session-specific data-plane endpoint
+- long-lived provider-originated `PaymentSession` control loop
+- real provider-side plugin path (`auth`, `session`, `usage`)
+- shared provider repository state for sessions, usage, workers, quotas, and latest accepted RAV state
+- local-first integration coverage for the real consumer/provider/plugin flow
+
+The most important recent hardening work landed in the four review-fix waves:
+
+- Wave 1
+  - concurrent same-payer sessions are allowed again
+  - consumer network discovery now handles deterministic `Package.Networks` precedence
+  - Plugin Gateway transport is split from Payment Gateway transport
+  - plugin metering shutdown now has explicit timeout/drain behavior
+- Wave 2
+  - plugin session keep-alives are session-owned
+  - plugin release is idempotent
+  - provider runtime-manager bind/unbind and control replay were hardened
+  - in-memory repository now returns snapshots and has stronger mutation semantics
+- Wave 3
+  - provider auth now fails closed when `x-sds-session-id` is missing
+  - worker-plus-quota reservation became atomic in both in-memory and PostgreSQL backends
+  - operator/demo docs were refreshed to the current runtime contract
+- Wave 4
+  - consumer `paymentSessionManager` no longer performs blocking stream sends under the main state mutex
+  - bind-in-flight state and per-generation send serialization are now explicit
+
+The repo is still not MVP-complete. The main remaining gaps are now mostly backlog items, not the old review bugs:
+
+- provider settlement lifecycle persistence and retrieval surfaces
+- operator funding and collection CLI flows
+- authenticated operator/admin APIs
+- TLS-by-default rollout outside local/dev
+- observability/status surface finalization
+- refreshed published external runtime images and tuples
+
+## 2. Mental Model
+
+The repo implements four main runtime roles plus shared protocol/types:
 
 1. Oracle
    - answers "which provider should this consumer use for this network?"
 2. Consumer sidecar
+   - the user-facing SDS boundary
    - exposes a Substreams-compatible ingress
-   - hides SDS-specific discovery, session bootstrap, and payment/control coordination
-3. Provider side
+   - hides provider discovery, `StartSession`, and payment-control coordination
+3. Provider public control plane
    - public Payment Gateway for consumer sidecars
-   - private Plugin Gateway for firehose-core SDS plugins (`auth`, `session`, `usage`)
+   - owns `StartSession`, the `PaymentSession` bidi stream, and live runtime payment decisions
+4. Provider private plugin control plane
+   - private Plugin Gateway for firehose-core / runtime plugins
+   - serves `auth`, `session`, and `usage`
 
 At a high level:
 
 1. A user points Substreams tooling at the consumer sidecar.
-2. The sidecar either:
-   - uses a direct provider endpoint, or
-   - asks the oracle for a provider
-3. The sidecar opens a provider payment session through the Payment Gateway.
-4. The sidecar proxies the Substreams stream to the provider data-plane endpoint, while also maintaining the SDS payment/control loop.
-5. On the provider side, firehose-core plugins call the private Plugin Gateway:
-   - `auth` validates incoming SDS headers
-   - `session` borrows/returns worker capacity
-   - `usage` reports metered usage
-6. Provider-side metering drives provider-authoritative runtime control through the Payment Gateway `PaymentSession` bidi stream.
+2. The sidecar derives or validates the requested network and either:
+   - uses a direct provider override, or
+   - asks the oracle for a recommended provider
+3. The sidecar calls provider `StartSession`.
+4. The provider creates a fresh provider-side session and returns:
+   - `session_id`
+   - session-specific `data_plane_endpoint`
+   - confirmatory pricing
+5. The sidecar opens:
+   - the upstream Substreams data-plane stream to the returned endpoint
+   - the long-lived provider `PaymentSession` control stream
+6. On the provider side, runtime plugins call the private Plugin Gateway:
+   - `auth` validates the signed RAV and required session header
+   - `session` borrows/returns worker capacity for the already-created SDS session
+   - `usage` records metering and notifies the provider runtime manager
+7. The provider runtime manager decides whether to:
+   - do nothing
+   - emit a `RAVRequest`
+   - stop the session for low funds
 
-## 2. Best Reading Order
+The most important architectural boundary is this:
 
-If you want to understand the system with minimal thrash, read in this order:
+- the consumer sidecar owns client-facing ingress/runtime coordination
+- the provider gateway owns provider-authoritative payment/session state
+- the private Plugin Gateway is an internal adapter layer, not the business-logic owner
+- the shared provider repository is the durable runtime state beneath both provider surfaces
+
+## 3. Best Reading Order
+
+If you want to understand the current system with minimal thrash, read in this order:
 
 1. Product/runtime intent
    - [docs/mvp-scope.md](./mvp-scope.md)
-2. CLI wiring
+   - [docs/provider-persistence-boundary.md](./provider-persistence-boundary.md)
+   - [docs/provider-runtime-compatibility.md](./provider-runtime-compatibility.md)
+2. CLI wiring and process topology
    - [cmd/sds/main.go](../cmd/sds/main.go)
    - [cmd/sds/consumer_sidecar.go](../cmd/sds/consumer_sidecar.go)
    - [cmd/sds/impl/provider_gateway.go](../cmd/sds/impl/provider_gateway.go)
    - [cmd/sds/impl/oracle.go](../cmd/sds/impl/oracle.go)
-3. Consumer-side runtime path
+3. Consumer ingress runtime path
    - [consumer/sidecar/sidecar.go](../consumer/sidecar/sidecar.go)
    - [consumer/sidecar/ingress.go](../consumer/sidecar/ingress.go)
    - [consumer/sidecar/managed_session.go](../consumer/sidecar/managed_session.go)
@@ -70,98 +145,105 @@ If you want to understand the system with minimal thrash, read in this order:
    - [provider/gateway/runtime_manager.go](../provider/gateway/runtime_manager.go)
 5. Provider private plugin path
    - [provider/plugin/gateway.go](../provider/plugin/gateway.go)
-   - [provider/auth/service.go](../provider/auth/service.go)
-   - [provider/session/service.go](../provider/session/service.go)
-   - [provider/usage/service.go](../provider/usage/service.go)
    - [provider/plugin/auth.go](../provider/plugin/auth.go)
    - [provider/plugin/session.go](../provider/plugin/session.go)
    - [provider/plugin/metering.go](../provider/plugin/metering.go)
+   - [provider/auth/service.go](../provider/auth/service.go)
+   - [provider/session/service.go](../provider/session/service.go)
+   - [provider/usage/service.go](../provider/usage/service.go)
 6. Storage/state model
    - [provider/repository/repository.go](../provider/repository/repository.go)
    - [provider/repository/inmemory.go](../provider/repository/inmemory.go)
    - [provider/repository/psql/](../provider/repository/psql)
 7. Shared protocol/helpers
-   - [headers.go](../headers.go)
    - [sidecar/endpoint.go](../sidecar/endpoint.go)
+   - [sidecar/server_transport.go](../sidecar/server_transport.go)
    - [sidecar/session.go](../sidecar/session.go)
    - [oracle/oracle.go](../oracle/oracle.go)
    - [oracle/config.go](../oracle/config.go)
+   - [horizon/](../horizon)
+8. The tests for the subtle parts
+   - [test/integration/](../test/integration)
+   - [consumer/sidecar/payment_session_manager_test.go](../consumer/sidecar/payment_session_manager_test.go)
+   - [provider/gateway/runtime_manager_test.go](../provider/gateway/runtime_manager_test.go)
+   - [provider/plugin/metering_test.go](../provider/plugin/metering_test.go)
+   - [provider/plugin/session_test.go](../provider/plugin/session_test.go)
 
-## 3. Repo Layout By Responsibility
+## 4. Repo Layout By Responsibility
 
-### Runtime / server entrypoints
+### Runtime entrypoints
 
 - [cmd/sds/main.go](../cmd/sds/main.go)
   - top-level CLI
 - [cmd/sds/consumer_sidecar.go](../cmd/sds/consumer_sidecar.go)
-  - consumer-side server startup and config validation
+  - consumer-side startup, ingress config validation, transport config
 - [cmd/sds/impl/provider_gateway.go](../cmd/sds/impl/provider_gateway.go)
   - provider startup
-  - wires both Payment Gateway and Plugin Gateway
+  - wires the public Payment Gateway and the private Plugin Gateway
+  - chooses repository backend
 - [cmd/sds/impl/oracle.go](../cmd/sds/impl/oracle.go)
-  - oracle startup
+  - standalone oracle startup
 
 ### Consumer-side runtime
 
 - [consumer/sidecar/](../consumer/sidecar)
   - user-facing SDS boundary
-  - ingress proxy
   - provider discovery
-  - managed local session state
-  - PaymentSession client
+  - session bootstrap
+  - Substreams ingress proxy
+  - provider payment-control client
 
 ### Provider public control plane
 
 - [provider/gateway/](../provider/gateway)
   - consumer-facing provider API
-  - session bootstrap
-  - PaymentSession bidi stream
-  - provider-originated runtime payment control
+  - `StartSession`
+  - `PaymentSession`
+  - live provider-originated payment control
 
 ### Provider private plugin control plane
 
 - [provider/plugin/](../provider/plugin)
-  - firehose-core plugin adapters
-  - private Plugin Gateway
+  - firehose-core plugin adapters and Plugin Gateway
 - [provider/auth/](../provider/auth)
-  - validates RAV/session headers from plugin-auth requests
+  - authoritative validation of signed RAV and session headers
 - [provider/session/](../provider/session)
-  - worker/session slot management
+  - worker/session slot management and quota enforcement
 - [provider/usage/](../provider/usage)
-  - metering ingestion
+  - metering ingestion into repository/runtime state
 
 ### Storage / durable state
 
 - [provider/repository/](../provider/repository)
   - repository interface plus in-memory implementation
 - [provider/repository/psql/](../provider/repository/psql)
-  - PostgreSQL implementation
+  - PostgreSQL implementation, migrations, SQL statements
 
 ### Oracle
 
 - [oracle/](../oracle)
-  - provider catalog
+  - provider catalog parsing
   - network-to-provider discovery
 
 ### Shared protocol and types
 
 - [proto/](../proto)
-  - source protobuf contracts
+  - protobuf source contracts
 - [pb/](../pb)
-  - generated code, generally not hand-edited
+  - generated protobuf/connect code
 - [sidecar/](../sidecar)
-  - shared helpers used by consumer/provider/oracle
+  - shared protocol helpers used by consumer/provider/oracle
 - [horizon/](../horizon)
   - RAV/domain/signature helpers
 
 ### Tests
 
 - [test/integration/](../test/integration)
-  - best place to understand intended end-to-end behavior
+  - best place to see intended end-to-end behavior
 - package-local `*_test.go`
-  - best place to understand smaller service contracts
+  - best place to understand narrower service contracts and hardening work
 
-## 4. Core Runtime Flows
+## 5. Core Runtime Flows
 
 ### A. Oracle discovery flow
 
@@ -175,84 +257,101 @@ Main files:
 Main responsibilities:
 
 - `oracle.LoadCatalog(...)`
-  - loads static provider/network config
+  - loads the curated provider catalog and per-network canonical pricing
+- `Catalog.Discover(...)`
+  - returns the eligible providers and deterministic recommended provider
 - `Oracle.DiscoverProviders(...)`
-  - returns:
-    - canonical pricing
-    - eligible providers
-    - one recommended provider
+  - serves the wire API
+- `resolveRequestedNetwork(...)`
+  - derives the canonical network key from package metadata and/or explicit input
 - `Sidecar.resolveProviderSelection(...)`
-  - uses direct provider override if configured
-  - otherwise resolves network and asks the oracle
+  - chooses direct provider override or oracle-backed discovery
 
 Important current nuance:
 
-- the intended contract says `Package.Networks` should take precedence over top-level `package.network`
-- current code only looks at `pkg.GetNetwork()`
-- that gap is tracked by `CRT-07`
+- the `Package.Networks` precedence contract is now implemented
+- the logic is deterministic:
+  - resolved `Package.Networks` entry wins
+  - top-level `package.network` is fallback within package metadata
+  - explicit input is fallback only when package derivation is unavailable
+  - conflicting explicit/package-derived values fail fast
 
 ### B. Consumer session bootstrap flow
 
 Main files:
 
 - [consumer/sidecar/managed_session.go](../consumer/sidecar/managed_session.go)
-- [consumer/sidecar/discovery.go](../consumer/sidecar/discovery.go)
 - [provider/gateway/handler_start_session.go](../provider/gateway/handler_start_session.go)
 
 Main sequence:
 
-1. Consumer sidecar resolves the provider.
-2. It signs an initial zero-value RAV with `Sidecar.signRAV(...)`.
+1. The sidecar resolves the provider.
+2. It signs the initial zero-value RAV.
 3. It calls provider `StartSession(...)`.
-4. The provider validates the request and creates repository session state.
-5. The provider returns:
+4. The provider validates the escrow account and initial RAV.
+5. The provider creates a fresh repository-backed session.
+6. The provider returns:
    - `session_id`
    - `data_plane_endpoint`
-   - pricing confirmation
-6. The sidecar creates local session state and stores the provider endpoint in `paymentSessionManager`.
+   - confirmatory pricing
+7. The sidecar creates a local session, stores the returned pricing/RAV, and configures the local payment-session client for that provider endpoint.
 
 Main functions to read:
 
 - `Sidecar.bootstrapManagedSession(...)`
 - `Gateway.StartSession(...)`
 
-Important current issue:
+Important current behavior:
 
-- `StartSession(...)` currently force-terminates other active sessions for the same payer on the same instance
-- that is contrary to the intended MVP behavior
-- tracked by `CRT-01`
+- every request/connection creates a fresh SDS payment session
+- concurrent same-payer sessions are allowed on the same provider instance
+- the provider handshake owns the session-specific data-plane endpoint
+- pricing is confirmatory, not negotiable, in the normal MVP flow
 
-### C. Consumer ingress proxy flow
+### C. Consumer ingress runtime flow
 
 Main files:
 
 - [consumer/sidecar/sidecar.go](../consumer/sidecar/sidecar.go)
 - [consumer/sidecar/ingress.go](../consumer/sidecar/ingress.go)
+- [consumer/sidecar/payment_session_manager.go](../consumer/sidecar/payment_session_manager.go)
 
 What the sidecar server does:
 
 - serves:
-  - Connect handler for SDS consumer service
+  - the legacy consumer sidecar Connect service
   - gRPC handlers for Substreams v2/v3/v4 ingress
-- chooses the upstream provider per request
-- injects SDS headers on the upstream provider request
-- proxies provider stream responses back to the client
+- bootstraps a fresh SDS session behind each ingress request
+- connects to the provider data-plane endpoint returned by `StartSession`
+- injects SDS headers (`x-sds-rav`, `x-sds-session-id`) on the upstream request
+- runs the provider `PaymentSession` control loop in parallel with the data-plane stream
+- resolves ambiguous upstream EOF/cancel cases against provider session status
 
 Main functions to read:
 
 - `Sidecar.Run(...)`
-- `ingressV2Server.Blocks(...)`
-- `ingressV3Server.Blocks(...)`
-- `ingressV4Server.Blocks(...)`
-- `Sidecar.proxyV2Stream(...)`
-- `Sidecar.proxyV3Stream(...)`
-- `Sidecar.proxyV4Stream(...)`
+- `prepareIngressRuntime(...)`
+- `runIngressPaymentControl(...)`
+- `resolveIngressStreamTermination(...)`
+- `proxyV2Stream(...)`
+- `proxyV3Stream(...)`
+- `proxyV4Stream(...)`
+- `paymentSessionClient.BindSession(...)`
+- `paymentSessionClient.SendRAVSubmission(...)`
+- `paymentSessionClient.Receive(...)`
 
-Key conceptual point:
+Important current nuance:
 
-- the sidecar is the user-facing runtime boundary
-- the user does not manually drive payment/session RPCs in the intended MVP flow
-- the sidecar hides provider selection, `StartSession`, and `PaymentSession` coordination
+- the consumer `paymentSessionManager` was recently hardened
+- the stream send path is no longer serialized by the main state mutex
+- bind-in-flight state is explicit
+- send serialization is generation-local so a wedged old stream cannot block replacement streams
+
+Also note:
+
+- the intended MVP runtime is the ingress path
+- [consumer/sidecar/handler_init.go](../consumer/sidecar/handler_init.go) and [consumer/sidecar/handler_end_session.go](../consumer/sidecar/handler_end_session.go) still exist, but they are no longer the primary runtime architecture
+- `EndSession` explicitly rejects provider-managed sessions and points callers back to ingress usage
 
 ### D. Provider PaymentSession control loop
 
@@ -260,57 +359,52 @@ Main files:
 
 - [provider/gateway/handler_payment_session.go](../provider/gateway/handler_payment_session.go)
 - [provider/gateway/runtime_manager.go](../provider/gateway/runtime_manager.go)
-- [consumer/sidecar/payment_session_manager.go](../consumer/sidecar/payment_session_manager.go)
+- [provider/usage/service.go](../provider/usage/service.go)
 
 What this path does:
 
-- consumer sidecar opens one long-lived `PaymentSession` bidi stream per SDS session
-- the provider binds that stream to runtime session state
-- provider-originated control messages are sent on that stream:
+- binds one live `PaymentSession` stream to one provider session at a time
+- replays any queued control response on reconnect/bind
+- evaluates metered usage after every usage report
+- emits provider-originated control messages:
   - `rav_request`
   - `need_more_funds`
-  - stop/continue responses
-- consumer sidecar responds with RAV submissions and funds acknowledgments
+  - terminal stop/continue responses
+- validates exact `rav_submission` semantics against the in-flight request
 
 Main functions to read:
 
 - `Gateway.PaymentSession(...)`
 - `runtimeManager.bindSession(...)`
+- `runtimeManager.unbindSession(...)`
 - `runtimeManager.onMeteredUsage(...)`
 - `runtimeManager.evaluateMeteredUsage(...)`
-- `paymentSessionClient.BindSession(...)`
-- `paymentSessionClient.SendRAVSubmission(...)`
-- `paymentSessionClient.Receive(...)`
+- `runtimeManager.dispatch(...)`
+- `Gateway.handleRAVSubmission(...)`
 
-This is one of the most important parts of the codebase.
+Important current nuance:
 
-It is also one of the least settled parts of the implementation right now.
-
-Known current issues here are tracked by:
-
-- `CRT-02`
-- `CRT-03`
-- `CRT-09`
+- runtime dispatch is now best-effort and non-blocking for live stream delivery
+- the latest control response is retained in runtime state for later bind/replay
+- bind failure and unbind cleanup are explicit enough that stale half-bound sessions should not strand the runtime manager
 
 ### E. Provider plugin path from firehose-core
 
 Main files:
 
+- [provider/plugin/gateway.go](../provider/plugin/gateway.go)
 - [provider/plugin/auth.go](../provider/plugin/auth.go)
 - [provider/plugin/session.go](../provider/plugin/session.go)
 - [provider/plugin/metering.go](../provider/plugin/metering.go)
-- [provider/plugin/gateway.go](../provider/plugin/gateway.go)
 - [provider/auth/service.go](../provider/auth/service.go)
 - [provider/session/service.go](../provider/session/service.go)
 - [provider/usage/service.go](../provider/usage/service.go)
 
 This path is easy to misunderstand.
 
-The files in `provider/plugin/` are mostly client adapters loaded by firehose-core through plugin schemes like `sds://...`.
+The files in `provider/plugin/` are mostly plugin adapters and registration code. They are not the core provider payment logic.
 
-They are not the core business logic.
-
-The actual provider logic lives in:
+The core provider business logic lives in:
 
 - `provider/auth/service.go`
 - `provider/session/service.go`
@@ -319,15 +413,23 @@ The actual provider logic lives in:
 Flow by plugin:
 
 - Auth plugin
-  - forwards untrusted headers to provider `AuthService.ValidateAuth(...)`
-  - trusted session metadata comes back from the provider
+  - forwards untrusted headers to `AuthService.ValidateAuth(...)`
+  - requires both a valid signed RAV and `x-sds-session-id`
+  - returns trusted headers for downstream plugin/runtime use
 - Session plugin
-  - borrows/returns worker capacity from `SessionService`
-  - runs keep-alive behavior
+  - borrows/returns worker capacity against the already-created provider session
+  - owns session-scoped keep-alives
+  - has idempotent release semantics
 - Metering plugin
-  - buffers usage events and reports them to `UsageService.Report(...)`
+  - buffers usage events
+  - flushes them to `UsageService.Report(...)`
+  - uses explicit report timeouts and safe shutdown/drain behavior
 
-The private Plugin Gateway exists only to serve those three services internally.
+Transport nuance:
+
+- the Plugin Gateway is a separate private surface from the public Payment Gateway
+- it has its own transport configuration
+- it should only be exposed on localhost or a private network
 
 ### F. Provider auth/session/usage service flow
 
@@ -342,31 +444,31 @@ Responsibilities:
 
 - `AuthService.ValidateAuth(...)`
   - validates `x-sds-rav`
-  - optionally validates `x-sds-session-id`
+  - requires and validates `x-sds-session-id`
   - returns trusted headers to the auth plugin
 - `SessionService.BorrowWorker(...)`
   - authorizes the session
   - enforces payer quota
-  - creates worker entries
+  - atomically creates worker state and reserves quota
 - `SessionService.ReturnWorker(...)`
   - removes worker entries and decrements quota
 - `SessionService.KeepAlive(...)`
-  - refreshes session liveness
+  - refreshes provider-side session liveness
 - `UsageService.Report(...)`
   - records metered usage in the repository
-  - notifies provider runtime so the gateway can decide whether to request a RAV or stop for low funds
+  - notifies the provider runtime manager so the public gateway can emit control decisions
 
-These three services are the provider-side bridge between:
+These three services bridge:
 
 - firehose-core runtime behavior
-- provider repository state
-- the public Payment Gateway control loop
+- durable provider repository state
+- the public Payment Gateway payment-control loop
 
-## 5. State Model
+## 6. State Model
 
-There are two session models in the repo:
+There are three important state layers in the repo:
 
-### Consumer-local session model
+### Consumer-local session state
 
 - [sidecar/session.go](../sidecar/session.go)
 
@@ -376,122 +478,177 @@ Used by:
 
 Purpose:
 
-- track local consumer-side session and RAV state
-- not authoritative for provider billing
+- track consumer-local RAV and usage state for the current runtime session
+- drive the local payment-control client and upstream headers
 
-### Provider repository session model
+This state is convenience/runtime-local. It is not authoritative for provider billing.
+
+### Provider repository runtime state
 
 - [provider/repository/repository.go](../provider/repository/repository.go)
+- [docs/provider-persistence-boundary.md](./provider-persistence-boundary.md)
 
 Used by:
 
 - provider gateway
 - provider auth/session/usage services
+- both in-memory and PostgreSQL backends
 
 Purpose:
 
-- authoritative provider-side session/payment/usage state
+- authoritative provider-side runtime/session/payment state
 
-Other important repository entities:
+Main entities:
 
+- `Session`
+  - provider-authoritative session lifecycle, usage totals, baseline snapshot, current accepted RAV
 - `Worker`
-  - plugin-side runtime worker slot
+  - plugin/runtime worker slot
 - `QuotaUsage`
-  - per-payer active session/worker counts
+  - per-payer worker/session usage
 - `UsageEvent`
-  - metering event accumulated into session usage
+  - metering event history
 
 Important boundary:
 
-- consumer-side session state is convenience/runtime-local
-- provider-side repository state is the authoritative provider payment/runtime state
+- this is the current provider runtime/session model
+- it is not yet the full settlement/collection lifecycle model
+- accepted RAV durability exists
+- collectible/collected transition tracking is still downstream MVP work
 
-## 6. File-Level Guide By Subsystem
+### Provider live in-memory runtime binding state
+
+- [provider/gateway/runtime_manager.go](../provider/gateway/runtime_manager.go)
+
+Purpose:
+
+- track live `PaymentSession` stream bindings
+- keep in-flight `pendingRAV` request state
+- queue the latest provider control response for replay on rebind
+
+This state is intentionally process-local and not a durable settlement record.
+
+## 7. File-Level Guide By Subsystem
 
 ### Consumer sidecar
 
 - [consumer/sidecar/sidecar.go](../consumer/sidecar/sidecar.go)
   - top-level server object
-  - networking/transport setup
-  - gRPC ingress registration
+  - HTTP/2 transport and ingress registration
 - [consumer/sidecar/ingress.go](../consumer/sidecar/ingress.go)
   - actual Substreams proxy runtime
-  - bootstrap, upstream connection, EOF/control resolution
+  - control/data-plane coordination
+  - ambiguous termination resolution
 - [consumer/sidecar/managed_session.go](../consumer/sidecar/managed_session.go)
   - provider selection
   - `StartSession` handshake
   - local session creation
 - [consumer/sidecar/discovery.go](../consumer/sidecar/discovery.go)
   - oracle integration
-  - network normalization and provider selection
+  - network normalization and conflict rules
 - [consumer/sidecar/payment_session_manager.go](../consumer/sidecar/payment_session_manager.go)
-  - one client per SDS session
-  - owns provider PaymentSession client stream
-  - currently has lock-scope problems
+  - one provider control client per SDS session
+  - owns stream lifecycle, bind-in-flight state, per-generation send serialization
 
 ### Provider public gateway
 
 - [provider/gateway/gateway.go](../provider/gateway/gateway.go)
   - gateway construction
-  - transport setup
-  - runtime manager ownership
+  - repository/runtime ownership
+  - explicit repository requirement
 - [provider/gateway/handler_start_session.go](../provider/gateway/handler_start_session.go)
   - session handshake
-  - current same-payer termination bug
+  - initial RAV validation
+  - fresh session creation
 - [provider/gateway/handler_payment_session.go](../provider/gateway/handler_payment_session.go)
-  - bidi stream request/response handling
-  - provider control loop entrypoint
+  - bidi stream lifecycle
+  - exact RAV submission handling
 - [provider/gateway/runtime_manager.go](../provider/gateway/runtime_manager.go)
-  - live runtime binding state
-  - pending RAV request state
-  - metered-usage evaluation and dispatch
+  - live runtime control state
+  - pending-RAV and queued-response ownership
+  - non-blocking control delivery
 
 ### Provider private gateway and plugin adapters
 
 - [provider/plugin/gateway.go](../provider/plugin/gateway.go)
-  - serves Auth/Session/Usage handlers privately
-  - currently hardcoded plaintext
+  - private Auth/Session/Usage serving surface
+  - transport split from public gateway
 - [provider/plugin/auth.go](../provider/plugin/auth.go)
   - auth plugin adapter
 - [provider/plugin/session.go](../provider/plugin/session.go)
   - session plugin adapter
-  - current keep-alive/release ownership problems
+  - session-scoped keep-alives
+  - idempotent release
 - [provider/plugin/metering.go](../provider/plugin/metering.go)
   - metering plugin adapter
-  - current shutdown problems
+  - shutdown, buffering, report timeout policy
 
 ### Provider services
 
 - [provider/auth/service.go](../provider/auth/service.go)
-  - authoritative validation of incoming payment/session headers
+  - authoritative auth/session-header validation
 - [provider/session/service.go](../provider/session/service.go)
   - quota and worker slot service
+  - atomic worker-plus-quota reservation
 - [provider/usage/service.go](../provider/usage/service.go)
-  - metering ingestion to repository/runtime
+  - metering ingestion
+  - provider runtime notification
 
 ### Repository
 
 - [provider/repository/repository.go](../provider/repository/repository.go)
   - storage contract
-  - state shapes
+  - canonical runtime state shapes
 - [provider/repository/inmemory.go](../provider/repository/inmemory.go)
-  - simple local implementation
-  - currently violates some of its own concurrency promises
+  - local/dev implementation
+  - snapshot-returning getters and stronger concurrent mutation behavior
 - [provider/repository/psql/](../provider/repository/psql)
   - database-backed implementation
+  - migrations and SQL statements
 
 ### Shared helpers worth reading
 
 - [sidecar/endpoint.go](../sidecar/endpoint.go)
-  - endpoint parsing and HTTP/GRPC transport clients
+  - endpoint parsing and client transport helpers
 - [sidecar/server_transport.go](../sidecar/server_transport.go)
-  - server-side plaintext/TLS configuration contract
+  - shared TLS/plaintext contract for servers
 - [headers.go](../headers.go)
   - SDS protocol headers
 - [horizon/](../horizon)
-  - typed-data signing and verification helpers
+  - RAV signing, verification, aggregation, EIP-712 helpers
 
-## 7. What Is Generated Vs Hand-Written
+## 8. Best Tests To Read
+
+If you want current intended behavior rather than old architectural speculation, read these tests:
+
+- [test/integration/consumer_ingress_test.go](../test/integration/consumer_ingress_test.go)
+  - real ingress bootstrap/proxy behavior
+- [test/integration/firecore_test.go](../test/integration/firecore_test.go)
+  - local-first external runtime compatibility path
+- [test/integration/payment_session_binding_test.go](../test/integration/payment_session_binding_test.go)
+  - payment-session bind/rebind behavior
+- [test/integration/payment_session_low_funds_test.go](../test/integration/payment_session_low_funds_test.go)
+  - low-funds runtime stop behavior
+- [test/integration/payment_session_rav_request_test.go](../test/integration/payment_session_rav_request_test.go)
+  - provider-originated RAV request flow
+- [test/integration/provider_gateway_auth_test.go](../test/integration/provider_gateway_auth_test.go)
+  - auth/session header expectations
+- [consumer/sidecar/discovery_test.go](../consumer/sidecar/discovery_test.go)
+  - network derivation precedence rules
+- [consumer/sidecar/payment_session_manager_test.go](../consumer/sidecar/payment_session_manager_test.go)
+  - consumer control-stream ownership and wedged-generation recovery
+- [provider/gateway/handler_start_session_test.go](../provider/gateway/handler_start_session_test.go)
+  - same-payer concurrent session regression coverage
+- [provider/gateway/runtime_manager_test.go](../provider/gateway/runtime_manager_test.go)
+  - queued-response replay and non-blocking dispatch
+- [provider/plugin/metering_test.go](../provider/plugin/metering_test.go)
+  - metering shutdown/timeout semantics
+- [provider/plugin/session_test.go](../provider/plugin/session_test.go)
+  - keep-alive ownership and idempotent release
+- [provider/session/service_test.go](../provider/session/service_test.go)
+  - atomic quota reservation behavior
+
+## 9. What Is Generated Vs Hand-Written
 
 Generally hand-written:
 
@@ -501,13 +658,13 @@ Generally hand-written:
 - `oracle/`
 - `sidecar/`
 - `horizon/`
-- `plans/`
 - `docs/`
+- `plans/`
 
 Generally generated or data-only:
 
 - [pb/](../pb)
-  - generated from protobuf
+  - generated protobuf/connect code
 - [contracts/artifacts/](../contracts/artifacts)
   - ABI/artifact JSON
 
@@ -521,190 +678,17 @@ Read the `.proto` files instead if you need the contract:
 - [proto/graph/substreams/data_service/sds/session/v1/session.proto](../proto/graph/substreams/data_service/sds/session/v1/session.proto)
 - [proto/graph/substreams/data_service/sds/usage/v1/usage.proto](../proto/graph/substreams/data_service/sds/usage/v1/usage.proto)
 
-## 8. Where The Current Implementation Is Known To Be Wrong
+## 10. Where To Look For Remaining Work
 
-This section is intentionally direct.
+If you finish reading the implementation and want to know what is still missing, use these documents in this order:
 
-The codebase is already substantial and usable, but several important areas are known to be wrong, misleading, or unstable.
+1. [plans/mvp-gap-analysis.md](../plans/mvp-gap-analysis.md)
+2. [plans/mvp-implementation-backlog.md](../plans/mvp-implementation-backlog.md)
+3. [docs/provider-persistence-boundary.md](./provider-persistence-boundary.md)
+4. [docs/provider-runtime-compatibility.md](./provider-runtime-compatibility.md)
 
-The current review work does not treat these as hypothetical concerns.
+The most important thing to remember is:
 
-They are tracked as concrete remediation tasks.
-
-### Consumer/provider contract issues
-
-- `CRT-01`
-  - [plans/current-implementation-review-tasks/CRT-01.md](../plans/current-implementation-review-tasks/CRT-01.md)
-  - `StartSession(...)` wrongly terminates other active same-payer sessions
-- `CRT-07`
-  - [plans/current-implementation-review-tasks/CRT-07.md](../plans/current-implementation-review-tasks/CRT-07.md)
-  - discovery does not yet implement the intended `Package.Networks` precedence contract
-
-### Provider lifecycle / control-loop issues
-
-- `CRT-02`
-  - [plans/current-implementation-review-tasks/CRT-02.md](../plans/current-implementation-review-tasks/CRT-02.md)
-  - plugin session keep-alive/release ownership is wrong
-- `CRT-03`
-  - [plans/current-implementation-review-tasks/CRT-03.md](../plans/current-implementation-review-tasks/CRT-03.md)
-  - runtime-manager bind/unbind and dispatch behavior is not cleanly owned
-- `CRT-04`
-  - [plans/current-implementation-review-tasks/CRT-04.md](../plans/current-implementation-review-tasks/CRT-04.md)
-  - metering emitter shutdown can panic or hang
-- `CRT-09`
-  - [plans/current-implementation-review-tasks/CRT-09.md](../plans/current-implementation-review-tasks/CRT-09.md)
-  - consumer PaymentSession client sends under lock
-
-### Repository / identity / quota issues
-
-- `CRT-05A`
-  - [plans/current-implementation-review-tasks/CRT-05A.md](../plans/current-implementation-review-tasks/CRT-05A.md)
-  - repository semantics and runtime-construction posture are not honest enough
-- `CRT-05B`
-  - [plans/current-implementation-review-tasks/CRT-05B.md](../plans/current-implementation-review-tasks/CRT-05B.md)
-  - auth/session identity and quota enforcement contract is inconsistent
-
-### Transport / operator guidance issues
-
-- `CRT-06`
-  - [plans/current-implementation-review-tasks/CRT-06.md](../plans/current-implementation-review-tasks/CRT-06.md)
-  - Plugin Gateway transport is effectively plaintext-only today
-- `CRT-08`
-  - [plans/current-implementation-review-tasks/CRT-08.md](../plans/current-implementation-review-tasks/CRT-08.md)
-  - operator/demo docs and generated commands have drifted from the actual runtime shape
-
-## 9. Suggested Manual Reading Passes
-
-If you want to review the code manually without drowning in it, do it in passes:
-
-### Pass 1: Runtime intent and top-level wiring
-
-Read:
-
-- [docs/mvp-scope.md](./mvp-scope.md)
-- [cmd/sds/main.go](../cmd/sds/main.go)
-- [cmd/sds/consumer_sidecar.go](../cmd/sds/consumer_sidecar.go)
-- [cmd/sds/impl/provider_gateway.go](../cmd/sds/impl/provider_gateway.go)
-- [cmd/sds/impl/oracle.go](../cmd/sds/impl/oracle.go)
-
-Goal:
-
-- understand which binaries/servers exist
-- understand public vs private surfaces
-
-### Pass 2: Consumer request path
-
-Read:
-
-- [consumer/sidecar/discovery.go](../consumer/sidecar/discovery.go)
-- [consumer/sidecar/managed_session.go](../consumer/sidecar/managed_session.go)
-- [consumer/sidecar/ingress.go](../consumer/sidecar/ingress.go)
-- [consumer/sidecar/payment_session_manager.go](../consumer/sidecar/payment_session_manager.go)
-
-Goal:
-
-- understand how a user request becomes:
-  - provider selection
-  - provider session bootstrap
-  - upstream streaming
-  - provider control coordination
-
-### Pass 3: Provider public gateway path
-
-Read:
-
-- [provider/gateway/handler_start_session.go](../provider/gateway/handler_start_session.go)
-- [provider/gateway/handler_payment_session.go](../provider/gateway/handler_payment_session.go)
-- [provider/gateway/runtime_manager.go](../provider/gateway/runtime_manager.go)
-
-Goal:
-
-- understand provider session creation
-- understand how metering-driven runtime control is supposed to work
-
-### Pass 4: Provider plugin path
-
-Read:
-
-- [provider/plugin/gateway.go](../provider/plugin/gateway.go)
-- [provider/auth/service.go](../provider/auth/service.go)
-- [provider/session/service.go](../provider/session/service.go)
-- [provider/usage/service.go](../provider/usage/service.go)
-- [provider/plugin/auth.go](../provider/plugin/auth.go)
-- [provider/plugin/session.go](../provider/plugin/session.go)
-- [provider/plugin/metering.go](../provider/plugin/metering.go)
-
-Goal:
-
-- understand how firehose-core reaches SDS logic
-- distinguish adapters from business logic
-
-### Pass 5: State and persistence
-
-Read:
-
-- [provider/repository/repository.go](../provider/repository/repository.go)
-- [provider/repository/inmemory.go](../provider/repository/inmemory.go)
-- a few files in [provider/repository/psql/](../provider/repository/psql)
-
-Goal:
-
-- understand which state is authoritative
-- understand where concurrency/persistence semantics matter
-
-### Pass 6: Review the known wrong parts
-
-Read:
-
-- [plans/current-implementation-review.md](../plans/current-implementation-review.md)
-- each `CRT-*` doc relevant to the area you just read
-
-Goal:
-
-- avoid mistaking current behavior for intended design
-
-## 10. Tests Worth Reading
-
-If you want examples of intended behavior, these are high-value:
-
-- [test/integration/consumer_ingress_test.go](../test/integration/consumer_ingress_test.go)
-- [test/integration/payment_session_binding_test.go](../test/integration/payment_session_binding_test.go)
-- [test/integration/payment_session_low_funds_test.go](../test/integration/payment_session_low_funds_test.go)
-- [test/integration/payment_session_rav_request_test.go](../test/integration/payment_session_rav_request_test.go)
-- [test/integration/firecore_test.go](../test/integration/firecore_test.go)
-- [consumer/sidecar/discovery_test.go](../consumer/sidecar/discovery_test.go)
-- [provider/session/service_test.go](../provider/session/service_test.go)
-- [provider/plugin/session_test.go](../provider/plugin/session_test.go)
-- [provider/gateway/repository_test.go](../provider/gateway/repository_test.go)
-
-Use tests for two things:
-
-- to see what the code is trying to guarantee
-- to notice where coverage is still missing around the currently known bad areas
-
-## 11. Practical Advice While Reading
-
-- Do not assume current code always matches the intended contract.
-- Treat `plans/current-implementation-review.md` as the correction layer while reading.
-- When reading a plugin file under `provider/plugin/`, ask whether it is:
-  - an adapter loaded by firehose-core, or
-  - actual provider business logic
-- When reading session state, always ask whether it is:
-  - consumer-local convenience state, or
-  - provider-authoritative repository state
-- When reading transport code, distinguish:
-  - public Payment Gateway
-  - private Plugin Gateway
-  - user-facing consumer sidecar ingress
-  - oracle
-
-The main implementation complexity today is not in isolated algorithms.
-
-It is in ownership boundaries:
-
-- who owns session lifetime
-- who owns bidi stream lifetime
-- where metering becomes runtime control
-- where storage contracts are relied on as atomic or concurrency-safe
-
-That is also why most of the current remediation tasks are about lifecycle, synchronization, and contract correctness, not missing raw functionality.
+- the old current-implementation review mostly explains why the recent hardening work happened
+- the MVP backlog explains what still remains
+- the current code and tests are the source of truth for current behavior

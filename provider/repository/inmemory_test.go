@@ -416,6 +416,23 @@ func TestInMemory_WorkerGet_NotFound(t *testing.T) {
 	assert.True(t, errors.Is(err, repository.ErrNotFound))
 }
 
+func TestInMemory_WorkerCountBySession(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+
+	require.NoError(t, repo.WorkerCreate(ctx, newTestWorker("w1", "s1", "0x1111111111111111111111111111111111111111")))
+	require.NoError(t, repo.WorkerCreate(ctx, newTestWorker("w2", "s1", "0x1111111111111111111111111111111111111111")))
+	require.NoError(t, repo.WorkerCreate(ctx, newTestWorker("w3", "s2", "0x1111111111111111111111111111111111111111")))
+
+	count, err := repo.WorkerCountBySession(ctx, "s1")
+	require.NoError(t, err)
+	assert.Equal(t, 2, count)
+
+	count, err = repo.WorkerCountBySession(ctx, "missing")
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+}
+
 func TestInMemory_WorkerDelete(t *testing.T) {
 	repo := repository.NewInMemoryRepository()
 	ctx := context.Background()

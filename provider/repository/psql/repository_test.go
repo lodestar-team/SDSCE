@@ -579,6 +579,38 @@ func TestWorkerDelete(t *testing.T) {
 	})
 }
 
+func TestWorkerCountBySession(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+
+		pricingConfig := sds.PricingConfig{
+			PricePerBlock: sds.MustNewGRT(100),
+			PricePerByte:  sds.MustNewGRT(10),
+		}
+
+		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
+		receiver := eth.MustNewAddress("0x2234567890123456789012345678901234567890")
+		dataService := eth.MustNewAddress("0x3234567890123456789012345678901234567890")
+
+		session1 := repository.NewSession("worker-count-session-1", payer, receiver, dataService, pricingConfig)
+		session2 := repository.NewSession("worker-count-session-2", payer, receiver, dataService, pricingConfig)
+		require.NoError(t, db.SessionCreate(ctx, session1))
+		require.NoError(t, db.SessionCreate(ctx, session2))
+
+		require.NoError(t, db.WorkerCreate(ctx, &repository.Worker{Key: "worker-count-1", SessionID: session1.ID, Payer: payer, CreatedAt: time.Now()}))
+		require.NoError(t, db.WorkerCreate(ctx, &repository.Worker{Key: "worker-count-2", SessionID: session1.ID, Payer: payer, CreatedAt: time.Now()}))
+		require.NoError(t, db.WorkerCreate(ctx, &repository.Worker{Key: "worker-count-3", SessionID: session2.ID, Payer: payer, CreatedAt: time.Now()}))
+
+		count, err := db.WorkerCountBySession(ctx, session1.ID)
+		require.NoError(t, err)
+		assert.Equal(t, 2, count)
+
+		count, err = db.WorkerCountBySession(ctx, "missing")
+		require.NoError(t, err)
+		assert.Equal(t, 0, count)
+	})
+}
+
 func TestQuotaGetAndIncrement(t *testing.T) {
 	withTestDB(t, func(db *Database) {
 		ctx := context.Background()

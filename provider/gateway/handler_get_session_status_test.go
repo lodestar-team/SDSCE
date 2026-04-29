@@ -48,3 +48,42 @@ func TestGetSessionStatus_ReportsPaymentControlPendingForQueuedRuntimeRAV(t *tes
 	require.NoError(t, err)
 	require.True(t, resp.Msg.GetPaymentControlPending())
 }
+
+func TestGetSessionStatus_ReportsPaymentControlPendingForActiveWorker(t *testing.T) {
+	ctx := context.Background()
+	sessionID := "session-status-active-worker"
+
+	payer := eth.MustNewAddress("0x1111111111111111111111111111111111111111")
+	serviceProvider := eth.MustNewAddress("0x2222222222222222222222222222222222222222")
+	dataService := eth.MustNewAddress("0x3333333333333333333333333333333333333333")
+
+	repo := repository.NewInMemoryRepository()
+	session := repository.NewSession(sessionID, payer, serviceProvider, dataService, repository.PricingConfig{})
+	session.CurrentRAV = &horizon.SignedRAV{
+		Message: &horizon.RAV{
+			Payer:           payer,
+			ServiceProvider: serviceProvider,
+			DataService:     dataService,
+			ValueAggregate:  big.NewInt(0),
+		},
+	}
+	require.NoError(t, repo.SessionCreate(ctx, session))
+	require.NoError(t, repo.WorkerCreate(ctx, &repository.Worker{
+		Key:       "worker-active",
+		SessionID: sessionID,
+		Payer:     payer,
+	}))
+
+	gateway := &Gateway{
+		logger:              zap.NewNop(),
+		repo:                repo,
+		runtime:             newRuntimeManager(),
+		ravRequestThreshold: big.NewInt(100),
+	}
+
+	resp, err := gateway.GetSessionStatus(ctx, connect.NewRequest(&providerv1.GetSessionStatusRequest{
+		SessionId: sessionID,
+	}))
+	require.NoError(t, err)
+	require.True(t, resp.Msg.GetPaymentControlPending())
+}

@@ -40,6 +40,7 @@ type GlobalRepository interface {
 	WorkerCreate(ctx context.Context, worker *Worker) error
 	WorkerCreateAndReserveQuota(ctx context.Context, worker *Worker, maxWorkers int) (*QuotaUsage, error)
 	WorkerGet(ctx context.Context, workerKey string) (*Worker, error)
+	WorkerCountBySession(ctx context.Context, sessionID string) (int, error)
 	WorkerDelete(ctx context.Context, workerKey string) error
 
 	// Quota tracking

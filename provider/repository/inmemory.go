@@ -289,6 +289,18 @@ func (r *InMemoryRepository) WorkerGet(_ context.Context, workerKey string) (*Wo
 	return cloneWorker(w), nil
 }
 
+// WorkerCountBySession returns the number of active worker rows for a session.
+func (r *InMemoryRepository) WorkerCountBySession(_ context.Context, sessionID string) (int, error) {
+	count := 0
+	r.workers.ForEach(func(_ string, worker *Worker) bool {
+		if worker != nil && worker.SessionID == sessionID {
+			count++
+		}
+		return true
+	})
+	return count, nil
+}
+
 // WorkerDelete removes a worker by its key.
 func (r *InMemoryRepository) WorkerDelete(_ context.Context, workerKey string) error {
 	r.mu.Lock()

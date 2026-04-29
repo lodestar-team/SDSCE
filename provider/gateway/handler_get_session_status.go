@@ -25,6 +25,11 @@ func (s *Gateway) GetSessionStatus(
 		return nil, connect.NewError(connect.CodeNotFound, err)
 	}
 
+	activeWorkers, err := s.repo.WorkerCountBySession(ctx, sessionID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+
 	cur := big.NewInt(0)
 	if session.CurrentRAV != nil && session.CurrentRAV.Message != nil && session.CurrentRAV.Message.ValueAggregate != nil {
 		cur = session.CurrentRAV.Message.ValueAggregate
@@ -36,9 +41,11 @@ func (s *Gateway) GetSessionStatus(
 	}
 
 	resp := &providerv1.GetSessionStatusResponse{
-		Active:                session.IsActive(),
-		EndReason:             commonv1.EndReason_END_REASON_UNSPECIFIED,
-		PaymentControlPending: session.IsActive() && (s.runtime.hasPendingPaymentControl(sessionID) || s.shouldRequestRAV(session)),
+		Active:    session.IsActive(),
+		EndReason: commonv1.EndReason_END_REASON_UNSPECIFIED,
+		// An active Firecore worker can still emit final metering that triggers
+		// payment control, even before a RAV request is visible locally.
+		PaymentControlPending: session.IsActive() && (activeWorkers > 0 || s.runtime.hasPendingPaymentControl(sessionID) || s.shouldRequestRAV(session)),
 		PaymentStatus: &commonv1.PaymentStatus{
 			CurrentRavValue:       commonv1.GRTFromBigInt(cur),
 			AccumulatedUsageValue: commonv1.GRTFromBigInt(acc),

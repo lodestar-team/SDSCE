@@ -12,6 +12,7 @@ func init() {
 	registerFiles([]string{
 		"worker/create.sql",
 		"worker/get.sql",
+		"worker/count_by_session.sql",
 		"worker/delete.sql",
 	})
 }
@@ -171,6 +172,17 @@ func (r *Database) WorkerGet(ctx context.Context, workerKey string) (*repository
 	}
 
 	return row.toRepository(), nil
+}
+
+// WorkerCountBySession returns the number of active worker rows for a session.
+func (r *Database) WorkerCountBySession(ctx context.Context, sessionID string) (int, error) {
+	count, err := getOne[int](ctx, r, "worker/count_by_session.sql", map[string]any{
+		"session_id": sessionID,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return *count, nil
 }
 
 // WorkerDelete deletes a worker by key

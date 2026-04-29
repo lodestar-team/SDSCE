@@ -36,8 +36,9 @@ func (s *Gateway) GetSessionStatus(
 	}
 
 	resp := &providerv1.GetSessionStatusResponse{
-		Active:    session.IsActive(),
-		EndReason: commonv1.EndReason_END_REASON_UNSPECIFIED,
+		Active:                session.IsActive(),
+		EndReason:             commonv1.EndReason_END_REASON_UNSPECIFIED,
+		PaymentControlPending: session.IsActive() && (s.runtime.hasPendingPaymentControl(sessionID) || s.shouldRequestRAV(session)),
 		PaymentStatus: &commonv1.PaymentStatus{
 			CurrentRavValue:       commonv1.GRTFromBigInt(cur),
 			AccumulatedUsageValue: commonv1.GRTFromBigInt(acc),

@@ -204,8 +204,7 @@ func (s *SessionService) KeepAlive(
 		return nil, err
 	}
 
-	session.LastKeepAlive = time.Now()
-	if updateErr := s.repo.SessionUpdate(ctx, session); updateErr != nil {
+	if updateErr := s.repo.SessionTouch(ctx, session.ID, time.Now()); updateErr != nil {
 		zlog.Warn("failed to update session keep-alive",
 			zap.String("session_id", session.ID),
 			zap.Error(updateErr),

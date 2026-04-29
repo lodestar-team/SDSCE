@@ -1,6 +1,6 @@
 # Substreams Data Service — MVP Implementation Backlog
 
-_Last updated: 2026-04-02_
+_Last updated: 2026-04-29_
 
 This document translates [docs/mvp-scope.md](../docs/mvp-scope.md) into concrete implementation tasks for the MVP.
 
@@ -286,6 +286,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
       - gateway integration with that repository
       - repository test coverage
     - Remaining work is to close the gap between existing runtime persistence and the MVP durability scenarios.
+    - Recent payment-session hardening advanced this task by making runtime-state writes narrower, keepalive/runtime lifecycle updates monotonic, and accepted RAV plus baseline commits explicit and atomic. It does not yet close the restart-focused acceptance proof for durable provider state.
   - Assumptions:
     - `A3`
     - `A6`
@@ -295,11 +296,12 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - The task no longer includes collection lifecycle state, which remains tracked under MVP-029.
   - Verify:
     - Add or unskip a restart-focused integration or persistence test that validates accepted state survives process restart using the durable repository path.
+    - Existing supporting coverage now includes field-specific repository updates, monotonic keepalive/runtime lifecycle behavior, and accepted RAV plus baseline commit semantics across in-memory and PostgreSQL paths.
 
 - [ ] MVP-009 Expose provider inspection and settlement-data retrieval APIs for accepted and collectible RAV state.
   - Context:
     - CLI inspection and manual collection require a provider-side way to retrieve settlement-relevant data.
-    - Current `GetSessionStatus` is useful runtime scaffolding, but not sufficient settlement inspection coverage.
+    - Current `GetSessionStatus` is useful runtime scaffolding and now exposes provider-side payment-control pending state, but it is still not sufficient settlement inspection coverage.
   - Assumptions:
     - `A3`
     - `A5`
@@ -490,6 +492,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - `A3`
   - Done when:
     - The sidecar ingress resolves data-plane completion versus provider payment-control termination through explicit control-plane/lifecycle coordination against provider-persisted session end state rather than a fixed timing heuristic.
+    - Expected finite EOF also checks explicit provider-reported payment-control pending state before returning cleanly, so a final provider RAV/control request is not lost just because the local control goroutine has not observed it yet.
     - Provider low-funds or terminal payment-control decisions deterministically win over competing upstream EOF timing when both refer to the same live session.
     - The solution does not require changing the Substreams data-plane response shape or adding SDS-specific payloads to proxied stream messages.
   - Verify:
@@ -501,7 +504,9 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - `go test ./...`
     - `go vet ./...`
     - Implemented in `consumer/sidecar/ingress.go` by keeping the fast path for expected finite EOF, then resolving ambiguous upstream EOF/internal-cancel termination against provider-persisted session end state via `GetSessionStatus.end_reason` within `payment-session-roundtrip-timeout`.
-    - Added focused unit coverage in `consumer/sidecar/ingress_test.go` for end-reason mapping, timeout/error handling, and coordinator preemption.
+    - Expected finite EOF now waits only when local payment-control state or provider `GetSessionStatus.payment_control_pending` reports explicit pending work; it no longer relies on an unconditional finite-EOF sleep.
+    - Added `GetSessionStatusResponse.payment_control_pending` as an additive provider control-plane field so the sidecar can distinguish clean finite completion from outstanding provider-side payment control.
+    - Added focused unit coverage in `consumer/sidecar/ingress_test.go` for end-reason mapping, timeout/error handling, coordinator preemption, prompt finite EOF without pending control, local pending control, and provider-reported pending control.
     - Added focused integration coverage in `test/integration/consumer_ingress_test.go` for delayed provider stop after upstream end, prompt finite EOF without teardown-delay regression, and the status-driven payment-issue resolution case where the provider `PaymentSession` stream does not deliver the terminal semantic before ingress sees EOF.
 
 - [x] MVP-041 Define and enforce exact response semantics for provider-originated `RavRequest` handling in the long-lived `PaymentSession` loop.
@@ -525,9 +530,11 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Re-run `go test ./test/integration -run 'TestPaymentSession_ProviderRequestsRAVOnUsage|TestPaymentSession_AcceptedRAVResetsThresholdWindow|TestFirecore' -count=1 -v` and confirm the accepted-RAV path remains stable without relying on moving-delta validation.
   - Implemented:
     - Provider runtime state now stores the authoritative in-flight `RavRequest` snapshot and validates `PaymentSession` `rav_submission` messages against that exact request rather than a moving live usage delta.
-    - Accepted runtime responses advance the session baseline only to the requested snapshot, then immediately re-evaluate later accrued usage for the next provider-originated request.
+    - Accepted runtime responses commit the signed RAV and covered usage baseline after validation with a bounded provider-owned context, so peer disconnect after acceptance cannot cancel the accounting write.
+    - Accepted runtime responses advance the session baseline only to the requested snapshot, then best-effort re-evaluate later accrued usage for the next provider-originated request without turning a committed RAV into a `STOP` solely because the refresh failed.
     - Provider-managed runtime requests are now explicit `PaymentSession`-only behavior; unary `SubmitRAV` is documented and enforced as a deprecated legacy/manual surface for non-runtime flows when a live runtime request is outstanding.
     - Added integration coverage for delayed exact-snapshot acceptance, exact-only rejection of overpaying stream responses, and unary `SubmitRAV` rejection while a live provider-issued request is in flight.
+    - Added focused gateway coverage for post-disconnect RAV persistence, preserving pending state on commit failure, and treating post-commit runtime refresh failure as best-effort after the accepted RAV is durably stored.
 
 ## Operator Tooling Tasks
 
@@ -614,6 +621,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Recent README, config, and firecore test scaffolding identify the target runtime more clearly.
     - MVP-014 uncovered a concrete compatibility failure in the prebuilt `dummy-blockchain:v1.7.7` image: its embedded `firecore` binary links an older SDS snapshot and therefore speaks older auth/session/usage plugin contracts than the current provider/plugin gateway.
     - A strong runtime compatibility probe is not currently available without exercising auth/session/usage behavior that can create runtime side effects against the underlying provider stack.
+    - Recent additive provider payment control-plane fields such as `GetSessionStatusResponse.end_reason` and `payment_control_pending` are documented as backward-compatible for external `firecore` / Substreams runtime tuples because they do not change the auth/session/usage plugin surfaces.
   - Assumptions:
     - `A5`
   - Done when:
@@ -631,6 +639,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - MVP-014 is now validated through the local-first runtime workflow using `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-local`.
     - The published `ghcr.io/streamingfast/dummy-blockchain:v1.7.7` image is still stale and embeds a `firecore` binary linked against an older SDS snapshot.
     - Until refreshed upstream images exist, the repo-local default integration path still depends on local retagging and override-based validation.
+    - The local rebuild should include the current generated provider gateway protos so finite EOF/payment-control status validation exercises `GetSessionStatusResponse.payment_control_pending`.
   - Assumptions:
     - `A5`
   - Done when:
@@ -667,6 +676,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 - [ ] MVP-032 Expose operator runtime/session/payment inspection APIs and CLI/status flows.
   - Context:
     - The MVP scope requires operators to inspect session, payment, and collection state, not only settlement-ready records.
+    - `GetSessionStatus` now exposes whether provider-side runtime payment control is pending, which is useful runtime scaffolding for this task but does not replace authenticated operator inspection APIs or CLI/status flows.
   - Assumptions:
     - `A4`
     - `A5`

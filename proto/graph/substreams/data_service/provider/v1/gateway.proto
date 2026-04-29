@@ -42,6 +42,9 @@ message GetSessionStatusResponse {
   common.v1.PaymentStatus payment_status = 2;
   // Persisted terminal reason once the session is no longer active.
   common.v1.EndReason end_reason = 3;
+  // Whether provider-side runtime state has payment control work that should be
+  // resolved before a finite consumer ingress returns cleanly.
+  bool payment_control_pending = 4;
 }
 
 message StartSessionRequest {

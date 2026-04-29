@@ -73,6 +73,12 @@ In the current PostgreSQL implementation, that concrete shape is represented by:
 
 The `ravs` table should be interpreted as durable runtime state that preserves the latest accepted RAV needed after restart. It is not, by itself, a complete settlement lifecycle model.
 
+Recent payment-session hardening keeps that runtime model narrow:
+
+- keepalive writes update liveness without overwriting usage aggregates
+- runtime lifecycle/metadata writes cannot regress a terminated session back to active
+- accepted RAV writes move the signed RAV and covered usage baseline together as one accounting commit
+
 ## Why The Shared Runtime Repository Exists
 
 The shared repository model exists because the private plugin-facing services and the public payment/session gateway are cooperating on the same provider-authoritative runtime payment state machine.
@@ -105,6 +111,7 @@ That lifecycle is settlement state, not runtime session state. It exists so oper
 ## Boundary Rules
 
 - Provider restart must preserve accepted RAV state needed for post-restart inspection and settlement.
+- Once a runtime RAV submission passes provider validation, the provider must persist the accepted RAV and covered baseline even if the consumer disconnects before receiving the follow-up response.
 - Fresh reconnects create new SDS payment sessions and do not reuse prior runtime session identity or payment lineage.
 - Runtime session records may reference settlement-relevant accepted state, but they do not define collection progress.
 - For MVP, the public/private provider split is a boundary between API surfaces and trust zones, not a commitment that those two surfaces are independently deployable without further internal runtime decoupling work.

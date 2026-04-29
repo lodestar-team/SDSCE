@@ -207,6 +207,165 @@ func TestSessionUpdateRAVAndBaseline_PreservesUsageTotals(t *testing.T) {
 	})
 }
 
+func TestSessionTouch_PreservesUsageTotals(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+
+		pricingConfig := sds.PricingConfig{
+			PricePerBlock: sds.MustNewGRT(100),
+			PricePerByte:  sds.MustNewGRT(10),
+		}
+
+		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
+		receiver := eth.MustNewAddress("0x2234567890123456789012345678901234567890")
+		dataService := eth.MustNewAddress("0x3234567890123456789012345678901234567890")
+
+		session := repository.NewSession("test-session-touch", payer, receiver, dataService, pricingConfig)
+		require.NoError(t, db.SessionCreate(ctx, session))
+
+		cost := big.NewInt(5000)
+		require.NoError(t, db.SessionApplyUsage(ctx, session.ID, &repository.UsageEvent{
+			Timestamp: time.Now(),
+			Blocks:    100,
+			Bytes:     2000,
+			Requests:  10,
+		}, cost))
+
+		touchedAt := time.Now().Add(time.Minute)
+		require.NoError(t, db.SessionTouch(ctx, session.ID, touchedAt))
+
+		retrieved, err := db.SessionGet(ctx, session.ID)
+		require.NoError(t, err)
+		assert.Equal(t, touchedAt.Unix(), retrieved.LastKeepAlive.Unix())
+		assert.Equal(t, uint64(100), retrieved.BlocksProcessed)
+		assert.Equal(t, uint64(2000), retrieved.BytesTransferred)
+		assert.Equal(t, uint64(10), retrieved.Requests)
+		assert.Equal(t, 0, cost.Cmp(retrieved.TotalCost))
+	})
+}
+
+func TestSessionTouch_IsMonotonic(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+
+		pricingConfig := sds.PricingConfig{
+			PricePerBlock: sds.MustNewGRT(100),
+			PricePerByte:  sds.MustNewGRT(10),
+		}
+
+		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
+		receiver := eth.MustNewAddress("0x2234567890123456789012345678901234567890")
+		dataService := eth.MustNewAddress("0x3234567890123456789012345678901234567890")
+
+		session := repository.NewSession("test-session-touch-monotonic", payer, receiver, dataService, pricingConfig)
+		require.NoError(t, db.SessionCreate(ctx, session))
+
+		newer := time.Now().Add(time.Minute).UTC().Truncate(time.Second)
+		older := newer.Add(-time.Hour)
+		require.NoError(t, db.SessionTouch(ctx, session.ID, newer))
+		afterNewer, err := db.SessionGet(ctx, session.ID)
+		require.NoError(t, err)
+		require.NoError(t, db.SessionTouch(ctx, session.ID, older))
+
+		retrieved, err := db.SessionGet(ctx, session.ID)
+		require.NoError(t, err)
+		assert.Equal(t, newer.Unix(), retrieved.LastKeepAlive.Unix())
+		assert.Equal(t, afterNewer.UpdatedAt.UnixNano(), retrieved.UpdatedAt.UnixNano())
+	})
+}
+
+func TestSessionTouch_NotFound(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		err := db.SessionTouch(context.Background(), "missing", time.Now())
+		require.ErrorIs(t, err, repository.ErrNotFound)
+	})
+}
+
+func TestSessionUpdateRuntimeState_PreservesUsageTotals(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+
+		pricingConfig := sds.PricingConfig{
+			PricePerBlock: sds.MustNewGRT(100),
+			PricePerByte:  sds.MustNewGRT(10),
+		}
+
+		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
+		receiver := eth.MustNewAddress("0x2234567890123456789012345678901234567890")
+		dataService := eth.MustNewAddress("0x3234567890123456789012345678901234567890")
+
+		session := repository.NewSession("test-session-runtime-state", payer, receiver, dataService, pricingConfig)
+		require.NoError(t, db.SessionCreate(ctx, session))
+
+		cost := big.NewInt(5000)
+		require.NoError(t, db.SessionApplyUsage(ctx, session.ID, &repository.UsageEvent{
+			Timestamp: time.Now(),
+			Blocks:    100,
+			Bytes:     2000,
+			Requests:  10,
+		}, cost))
+
+		endedAt := time.Now().Add(time.Minute)
+		metadata := map[string]string{"funds_check_error": "timeout"}
+		require.NoError(t, db.SessionUpdateRuntimeState(ctx, session.ID, repository.SessionStatusTerminated, metadata, &endedAt, commonv1.EndReason_END_REASON_PAYMENT_ISSUE, endedAt))
+
+		retrieved, err := db.SessionGet(ctx, session.ID)
+		require.NoError(t, err)
+		assert.Equal(t, repository.SessionStatusTerminated, retrieved.Status)
+		assert.Equal(t, metadata, retrieved.Metadata)
+		require.NotNil(t, retrieved.EndedAt)
+		assert.Equal(t, endedAt.Unix(), retrieved.EndedAt.Unix())
+		assert.Equal(t, commonv1.EndReason_END_REASON_PAYMENT_ISSUE, retrieved.EndReason)
+		assert.Equal(t, uint64(100), retrieved.BlocksProcessed)
+		assert.Equal(t, uint64(2000), retrieved.BytesTransferred)
+		assert.Equal(t, uint64(10), retrieved.Requests)
+		assert.Equal(t, 0, cost.Cmp(retrieved.TotalCost))
+	})
+}
+
+func TestSessionUpdateRuntimeState_DoesNotRegressTerminatedSession(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+
+		pricingConfig := sds.PricingConfig{
+			PricePerBlock: sds.MustNewGRT(100),
+			PricePerByte:  sds.MustNewGRT(10),
+		}
+
+		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
+		receiver := eth.MustNewAddress("0x2234567890123456789012345678901234567890")
+		dataService := eth.MustNewAddress("0x3234567890123456789012345678901234567890")
+
+		session := repository.NewSession("test-session-runtime-state-monotonic", payer, receiver, dataService, pricingConfig)
+		endedAt := time.Now().UTC().Truncate(time.Second)
+		session.Status = repository.SessionStatusTerminated
+		session.EndedAt = &endedAt
+		session.EndReason = commonv1.EndReason_END_REASON_PAYMENT_ISSUE
+		session.Metadata = map[string]string{"state": "terminated"}
+		require.NoError(t, db.SessionCreate(ctx, session))
+		before, err := db.SessionGet(ctx, session.ID)
+		require.NoError(t, err)
+
+		require.NoError(t, db.SessionUpdateRuntimeState(ctx, session.ID, repository.SessionStatusActive, map[string]string{"state": "active"}, nil, commonv1.EndReason_END_REASON_UNSPECIFIED, endedAt.Add(time.Minute)))
+
+		retrieved, err := db.SessionGet(ctx, session.ID)
+		require.NoError(t, err)
+		assert.Equal(t, repository.SessionStatusTerminated, retrieved.Status)
+		assert.Equal(t, map[string]string{"state": "terminated"}, retrieved.Metadata)
+		require.NotNil(t, retrieved.EndedAt)
+		assert.Equal(t, endedAt.Unix(), retrieved.EndedAt.Unix())
+		assert.Equal(t, commonv1.EndReason_END_REASON_PAYMENT_ISSUE, retrieved.EndReason)
+		assert.Equal(t, before.UpdatedAt.UnixNano(), retrieved.UpdatedAt.UnixNano())
+	})
+}
+
+func TestSessionUpdateRuntimeState_NotFound(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		err := db.SessionUpdateRuntimeState(context.Background(), "missing", repository.SessionStatusActive, nil, nil, commonv1.EndReason_END_REASON_UNSPECIFIED, time.Now())
+		require.ErrorIs(t, err, repository.ErrNotFound)
+	})
+}
+
 func TestSessionList(t *testing.T) {
 	withTestDB(t, func(db *Database) {
 		ctx := context.Background()

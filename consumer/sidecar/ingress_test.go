@@ -154,3 +154,83 @@ func TestAwaitAmbiguousIngressTerminationResolution_CoordinatorSemanticStopPreem
 	require.Equal(t, codes.ResourceExhausted, status.Code(err))
 	require.Contains(t, err.Error(), "need more funds")
 }
+
+func TestAwaitFiniteIngressPostStreamControl_ReturnsPromptlyWithoutPendingControl(t *testing.T) {
+	t.Parallel()
+
+	coordinator := newIngressTerminationCoordinator(func() {})
+
+	start := time.Now()
+	err := awaitFiniteIngressPostStreamControl(context.Background(), "session-1", time.Second, coordinator, nil, func(context.Context, string) (*providerv1.GetSessionStatusResponse, error) {
+		return &providerv1.GetSessionStatusResponse{Active: true}, nil
+	})
+	require.NoError(t, err)
+	require.Less(t, time.Since(start), 100*time.Millisecond)
+}
+
+func TestAwaitFiniteIngressPostStreamControl_WaitsForPendingControlResolution(t *testing.T) {
+	t.Parallel()
+
+	coordinator := newIngressTerminationCoordinator(func() {})
+	coordinator.setPaymentControlPending(true)
+
+	go func() {
+		time.Sleep(25 * time.Millisecond)
+		coordinator.setPaymentControlPending(false)
+	}()
+
+	err := awaitFiniteIngressPostStreamControl(context.Background(), "session-1", time.Second, coordinator, nil, func(context.Context, string) (*providerv1.GetSessionStatusResponse, error) {
+		return &providerv1.GetSessionStatusResponse{Active: true}, nil
+	})
+	require.NoError(t, err)
+}
+
+func TestAwaitFiniteIngressPostStreamControl_PendingSemanticStopWins(t *testing.T) {
+	t.Parallel()
+
+	coordinator := newIngressTerminationCoordinator(func() {})
+	coordinator.setPaymentControlPending(true)
+
+	go func() {
+		time.Sleep(25 * time.Millisecond)
+		coordinator.setSemanticStop(status.Error(codes.ResourceExhausted, "need more funds"))
+	}()
+
+	err := awaitFiniteIngressPostStreamControl(context.Background(), "session-1", time.Second, coordinator, nil, func(context.Context, string) (*providerv1.GetSessionStatusResponse, error) {
+		return &providerv1.GetSessionStatusResponse{Active: true}, nil
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.ResourceExhausted, status.Code(err))
+}
+
+func TestAwaitFiniteIngressPostStreamControl_TimesOutWhenPendingControlDoesNotResolve(t *testing.T) {
+	t.Parallel()
+
+	coordinator := newIngressTerminationCoordinator(func() {})
+	coordinator.setPaymentControlPending(true)
+
+	err := awaitFiniteIngressPostStreamControl(context.Background(), "session-1", 25*time.Millisecond, coordinator, nil, func(context.Context, string) (*providerv1.GetSessionStatusResponse, error) {
+		return &providerv1.GetSessionStatusResponse{Active: true, PaymentControlPending: true}, nil
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.Unavailable, status.Code(err))
+	require.Contains(t, err.Error(), "payment control remained pending")
+}
+
+func TestAwaitFiniteIngressPostStreamControl_WaitsForProviderPendingControl(t *testing.T) {
+	t.Parallel()
+
+	coordinator := newIngressTerminationCoordinator(func() {})
+	statusPending := make(chan struct{})
+
+	err := awaitFiniteIngressPostStreamControl(context.Background(), "session-1", time.Second, coordinator, nil, func(context.Context, string) (*providerv1.GetSessionStatusResponse, error) {
+		select {
+		case <-statusPending:
+			return &providerv1.GetSessionStatusResponse{Active: true}, nil
+		default:
+			close(statusPending)
+			return &providerv1.GetSessionStatusResponse{Active: true, PaymentControlPending: true}, nil
+		}
+	})
+	require.NoError(t, err)
+}

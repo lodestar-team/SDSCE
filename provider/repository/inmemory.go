@@ -9,6 +9,7 @@ import (
 
 	"github.com/alphadose/haxmap"
 	"github.com/graphprotocol/substreams-data-service/horizon"
+	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	"github.com/streamingfast/eth-go"
 )
 
@@ -84,6 +85,53 @@ func (r *InMemoryRepository) SessionUpdate(_ context.Context, session *Session) 
 			return fmt.Errorf("session %q not found", session.ID)
 		}
 		if r.sessions.CompareAndSwap(session.ID, current, next) {
+			return nil
+		}
+	}
+}
+
+// SessionTouch updates only the last keep-alive timestamp for the stored session.
+func (r *InMemoryRepository) SessionTouch(_ context.Context, sessionID string, lastKeepAlive time.Time) error {
+	for {
+		session, ok := r.sessions.Get(sessionID)
+		if !ok {
+			return fmt.Errorf("session %q: %w", sessionID, ErrNotFound)
+		}
+
+		next := cloneSession(session)
+		if lastKeepAlive.After(next.LastKeepAlive) {
+			next.LastKeepAlive = lastKeepAlive
+		}
+		if next.LastKeepAlive.After(next.UpdatedAt) {
+			next.UpdatedAt = next.LastKeepAlive
+		}
+
+		if r.sessions.CompareAndSwap(sessionID, session, next) {
+			return nil
+		}
+	}
+}
+
+// SessionUpdateRuntimeState updates only lifecycle and runtime metadata fields.
+func (r *InMemoryRepository) SessionUpdateRuntimeState(_ context.Context, sessionID string, status SessionStatus, metadata map[string]string, endedAt *time.Time, endReason commonv1.EndReason, updatedAt time.Time) error {
+	for {
+		session, ok := r.sessions.Get(sessionID)
+		if !ok {
+			return fmt.Errorf("session %q: %w", sessionID, ErrNotFound)
+		}
+
+		next := cloneSession(session)
+		if next.Status != SessionStatusTerminated {
+			next.Status = status
+			next.Metadata = cloneStringMap(metadata)
+			next.EndedAt = cloneTimePtr(endedAt)
+			next.EndReason = endReason
+			if updatedAt.After(next.UpdatedAt) {
+				next.UpdatedAt = updatedAt
+			}
+		}
+
+		if r.sessions.CompareAndSwap(sessionID, session, next) {
 			return nil
 		}
 	}

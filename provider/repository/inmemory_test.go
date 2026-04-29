@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/graphprotocol/substreams-data-service/horizon"
+	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/streamingfast/eth-go"
 	"github.com/stretchr/testify/assert"
@@ -142,6 +143,131 @@ func TestInMemory_SessionUpdateRAVAndBaseline_PreservesUsageTotals(t *testing.T)
 	assert.Equal(t, uint64(20), got.BaselineBytes)
 	assert.Equal(t, uint64(3), got.BaselineReqs)
 	assert.Equal(t, 0, big.NewInt(30).Cmp(got.BaselineCost))
+}
+
+func TestInMemory_SessionTouch_PreservesUsageTotals(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+
+	s := newTestSession("s1", "0x1111111111111111111111111111111111111111")
+	s.BlocksProcessed = 10
+	s.BytesTransferred = 20
+	s.Requests = 3
+	s.TotalCost = big.NewInt(30)
+	require.NoError(t, repo.SessionCreate(ctx, s))
+
+	touchedAt := time.Now().Add(time.Minute)
+	require.NoError(t, repo.SessionTouch(ctx, s.ID, touchedAt))
+
+	got, err := repo.SessionGet(ctx, s.ID)
+	require.NoError(t, err)
+	assert.Equal(t, touchedAt, got.LastKeepAlive)
+	assert.Equal(t, uint64(10), got.BlocksProcessed)
+	assert.Equal(t, uint64(20), got.BytesTransferred)
+	assert.Equal(t, uint64(3), got.Requests)
+	assert.Equal(t, 0, big.NewInt(30).Cmp(got.TotalCost))
+}
+
+func TestInMemory_SessionTouch_IsMonotonic(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+
+	s := newTestSession("s1", "0x1111111111111111111111111111111111111111")
+	require.NoError(t, repo.SessionCreate(ctx, s))
+
+	newer := time.Now().Add(time.Minute)
+	older := newer.Add(-time.Hour)
+	require.NoError(t, repo.SessionTouch(ctx, s.ID, newer))
+	require.NoError(t, repo.SessionTouch(ctx, s.ID, older))
+
+	got, err := repo.SessionGet(ctx, s.ID)
+	require.NoError(t, err)
+	assert.Equal(t, newer, got.LastKeepAlive)
+	assert.Equal(t, newer, got.UpdatedAt)
+}
+
+func TestInMemory_SessionTouch_NotFound(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+
+	err := repo.SessionTouch(context.Background(), "missing", time.Now())
+	require.ErrorIs(t, err, repository.ErrNotFound)
+}
+
+func TestInMemory_SessionUpdateRuntimeState_PreservesUsageTotals(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+
+	s := newTestSession("s1", "0x1111111111111111111111111111111111111111")
+	s.BlocksProcessed = 10
+	s.BytesTransferred = 20
+	s.Requests = 3
+	s.TotalCost = big.NewInt(30)
+	require.NoError(t, repo.SessionCreate(ctx, s))
+
+	endedAt := time.Now().Add(time.Minute)
+	metadata := map[string]string{"funds_check_error": "timeout"}
+	require.NoError(t, repo.SessionUpdateRuntimeState(ctx, s.ID, repository.SessionStatusTerminated, metadata, &endedAt, commonv1.EndReason_END_REASON_PAYMENT_ISSUE, endedAt))
+
+	got, err := repo.SessionGet(ctx, s.ID)
+	require.NoError(t, err)
+	assert.Equal(t, repository.SessionStatusTerminated, got.Status)
+	assert.Equal(t, metadata, got.Metadata)
+	require.NotNil(t, got.EndedAt)
+	assert.Equal(t, endedAt, *got.EndedAt)
+	assert.Equal(t, commonv1.EndReason_END_REASON_PAYMENT_ISSUE, got.EndReason)
+	assert.Equal(t, uint64(10), got.BlocksProcessed)
+	assert.Equal(t, uint64(20), got.BytesTransferred)
+	assert.Equal(t, uint64(3), got.Requests)
+	assert.Equal(t, 0, big.NewInt(30).Cmp(got.TotalCost))
+}
+
+func TestInMemory_SessionUpdateRuntimeState_DoesNotRegressTerminatedSession(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+
+	s := newTestSession("s1", "0x1111111111111111111111111111111111111111")
+	endedAt := time.Now()
+	s.Status = repository.SessionStatusTerminated
+	s.UpdatedAt = endedAt
+	s.EndedAt = &endedAt
+	s.EndReason = commonv1.EndReason_END_REASON_PAYMENT_ISSUE
+	s.Metadata = map[string]string{"state": "terminated"}
+	require.NoError(t, repo.SessionCreate(ctx, s))
+
+	require.NoError(t, repo.SessionUpdateRuntimeState(ctx, s.ID, repository.SessionStatusActive, map[string]string{"state": "active"}, nil, commonv1.EndReason_END_REASON_UNSPECIFIED, endedAt.Add(time.Minute)))
+
+	got, err := repo.SessionGet(ctx, s.ID)
+	require.NoError(t, err)
+	assert.Equal(t, repository.SessionStatusTerminated, got.Status)
+	assert.Equal(t, map[string]string{"state": "terminated"}, got.Metadata)
+	require.NotNil(t, got.EndedAt)
+	assert.Equal(t, endedAt, *got.EndedAt)
+	assert.Equal(t, commonv1.EndReason_END_REASON_PAYMENT_ISSUE, got.EndReason)
+	assert.Equal(t, endedAt, got.UpdatedAt)
+}
+
+func TestInMemory_SessionUpdateRuntimeState_DoesNotMoveUpdatedAtBackwards(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+
+	s := newTestSession("s1", "0x1111111111111111111111111111111111111111")
+	newer := time.Now().Add(time.Minute)
+	s.UpdatedAt = newer
+	require.NoError(t, repo.SessionCreate(ctx, s))
+
+	older := newer.Add(-time.Hour)
+	require.NoError(t, repo.SessionUpdateRuntimeState(ctx, s.ID, repository.SessionStatusActive, nil, nil, commonv1.EndReason_END_REASON_UNSPECIFIED, older))
+
+	got, err := repo.SessionGet(ctx, s.ID)
+	require.NoError(t, err)
+	assert.Equal(t, newer, got.UpdatedAt)
+}
+
+func TestInMemory_SessionUpdateRuntimeState_NotFound(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+
+	err := repo.SessionUpdateRuntimeState(context.Background(), "missing", repository.SessionStatusActive, nil, nil, commonv1.EndReason_END_REASON_UNSPECIFIED, time.Now())
+	require.ErrorIs(t, err, repository.ErrNotFound)
 }
 
 // TestInMemory_SessionDelete and SessionDelete_NotFound removed - SessionDelete method no longer exists

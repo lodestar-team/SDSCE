@@ -1,6 +1,7 @@
 # Provider Runtime Compatibility
 
 Drafted: 2026-04-01
+Revised: 2026-04-29
 
 ## Purpose
 
@@ -34,7 +35,7 @@ In practice, this means:
 - protobuf or contract changes to SDS auth/session/usage plugin surfaces may be runtime-breaking even when endpoint names remain the same
 - older `firecore` or embedded plugin binaries may become incompatible with newer SDS provider/plugin gateways
 - compatibility should be treated as an explicit release/deployment concern, not something inferred from "starts successfully"
-- the additive `MVP-040` change to `provider.v1.GetSessionStatusResponse` (`end_reason`) is control-plane-only and backward-compatible for external `firecore` / Substreams runtime tuples because it does not modify the auth/session/usage plugin surfaces
+- the additive `MVP-040` changes to `provider.v1.GetSessionStatusResponse` (`end_reason`, `payment_control_pending`) are payment control-plane only and backward-compatible for external `firecore` / Substreams runtime tuples because they do not modify the auth/session/usage plugin surfaces
 
 ## Supported MVP Deployment Shape
 
@@ -118,6 +119,7 @@ Examples of changes that may require compatibility updates:
 - changes to auth/session/usage plugin request or response semantics
 - changes to required plugin configuration or `sds://` URI behavior
 - changes that rely on newer embedded SDS plugin binaries in external runtimes
+- payment gateway control-plane protobuf changes such as `GetSessionStatusResponse` fields are normally backward-compatible for `firecore` when plugin surfaces are unchanged, but generated clients, tests, and compatibility docs should still be refreshed in the same change
 
 ## Non-Goals
 

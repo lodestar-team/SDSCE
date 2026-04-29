@@ -119,7 +119,7 @@ func (m *runtimeManager) evaluateMeteredUsage(ctx context.Context, gateway *Gate
 		session.End(commonv1.EndReason_END_REASON_PAYMENT_ISSUE)
 	}
 
-	if err := gateway.repo.SessionUpdate(ctx, session); err != nil {
+	if err := gateway.repo.SessionUpdateRuntimeState(ctx, sessionID, session.Status, session.Metadata, session.EndedAt, session.EndReason, session.UpdatedAt); err != nil {
 		return err
 	}
 
@@ -216,6 +216,14 @@ func (m *runtimeManager) hasPendingRAV(sessionID string) bool {
 
 	current := m.sessions[sessionID]
 	return current != nil && current.pendingRAV != nil
+}
+
+func (m *runtimeManager) hasPendingPaymentControl(sessionID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	current := m.sessions[sessionID]
+	return current != nil && (current.pendingRAV != nil || current.queuedResponse != nil)
 }
 
 func (m *runtimeManager) withSessionEval(sessionID string, fn func(state *runtimeSessionState) error) error {

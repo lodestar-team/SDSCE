@@ -46,7 +46,7 @@ reflex -c .reflex.oracle
 
 The default `.reflex` flow uses the deterministic demo signer that `sds devenv` authorizes automatically. It also passes `--plaintext` explicitly for the local/demo sidecar<->gateway path, while the provider gateway's private Plugin Gateway inherits that local transport unless you override it with the plugin-specific flags added in the CLI. Outside local/demo usage, configure TLS certificate/key files instead of relying on plaintext defaults.
 
-The consumer sidecar `--payment-session-roundtrip-timeout` also bounds how long ingress will wait to resolve an ambiguous upstream EOF against the provider `PaymentSession` control loop before classifying the end of stream as an unresolved transport/control failure.
+The consumer sidecar `--payment-session-roundtrip-timeout` also bounds how long ingress will wait to resolve ambiguous upstream EOF or explicit pending payment-control work against provider session status before classifying the end of stream as an unresolved transport/control failure.
 
 Local endpoints exposed by the direct-provider stack:
 

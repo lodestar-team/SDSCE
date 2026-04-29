@@ -1,7 +1,7 @@
 # MVP Gap Analysis
 
-Drafted: 2026-03-12  
-Revised: 2026-04-01
+Drafted: 2026-03-12
+Revised: 2026-04-29
 
 This document maps the current repository state against the MVP defined in `docs/mvp-scope.md`.
 
@@ -104,6 +104,7 @@ What already exists:
 - provider-originated RAV requests and low-funds control propagated through that ingress/runtime path
 - startup-driven ingress config via CLI/YAML, with oracle-first discovery and direct provider override as explicit bypass
 - low-funds termination now resolves ambiguous ingress EOF against provider-persisted session end state, so provider payment issues surface through the client-facing ingress as runtime `ResourceExhausted` without relying on control-loop timing heuristics
+- expected finite EOF now also checks explicit provider-reported payment-control pending state before returning cleanly, so final provider RAV/control work is not hidden by upstream stream completion timing
 - the wrapper-era `ReportUsage` runtime path has been removed, and the remaining manual `Init` / `EndSession` RPC surfaces are not part of the supported runtime flow
 
 What is still missing for MVP:
@@ -138,6 +139,8 @@ What already exists:
 - repository-backed session state foundation
 - provider-originated `rav_request`, `need_more_funds`, and session-control flow over the long-lived `PaymentSession` stream
 - runtime `rav_request` responses are now validated against the exact in-flight request snapshot on `PaymentSession`, while unary `SubmitRAV` remains only as a deprecated legacy/manual surface for non-runtime flows
+- `GetSessionStatus` exposes active/end/payment status plus provider-side payment-control pending state for runtime coordination
+- accepted runtime RAV responses commit the signed RAV and covered usage baseline after validation even if the consumer disconnects; post-commit metering refresh is best-effort and does not invalidate the committed RAV
 
 What is still missing for MVP:
 
@@ -192,7 +195,7 @@ What already exists:
 Notes:
 
 - Oracle governance remains deployment-managed internal config for MVP; no writable admin API is required yet.
-- Standalone oracle service plus consumer-side oracle discovery are now both implemented, and scenario A remains partial only because of the remaining runtime compatibility/published-image work tracked under `MVP-030` and `MVP-036`.
+- Standalone oracle service plus consumer-side oracle discovery are now both implemented, and scenario A remains partial only because of the remaining published-image work tracked under `MVP-036`.
 
 ### Provider Persistence
 
@@ -205,6 +208,8 @@ Current state:
 - the provider gateway can instantiate repositories via DSN
 - migrations and repository tests exist
 - the current durable model already covers runtime/session state plus the latest accepted RAV snapshot for a session
+- narrow repository updates preserve usage aggregates while independently updating keepalive, runtime lifecycle/metadata, or accepted RAV plus baseline state
+- keepalive and runtime lifecycle updates are monotonic and non-regressive across in-memory and PostgreSQL backends
 
 Evidence:
 
@@ -358,6 +363,10 @@ The most important recent status changes versus the original draft are:
 - Consumer-side MVP UX is materially closer to the revised scope.
   - The sidecar now exposes a Substreams-compatible ingress and runs the provider-originated payment/control loop through that path.
   - The legacy wrapper-era usage-report surfaces have been removed under `MVP-038`; they are no longer part of the supported runtime architecture.
+- Payment-session hardening has closed the main follow-up issues from the runtime-payment lane.
+  - Finite EOF handling is now driven by local and provider-reported payment-control pending state, not a fixed delay.
+  - Accepted runtime RAV persistence is separated from peer disconnect and post-commit refresh failure.
+  - Repository updates for keepalive/runtime/RAV state are narrower and monotonic, reducing stale-write lost-update risk while leaving restart-focused durable acceptance proof under `MVP-008`.
 
 ## Remaining Backlog Alignment
 
@@ -366,12 +375,11 @@ The remaining MVP gaps now align with the rewritten MVP backlog as follows.
 Oracle, consumer ingress, and runtime compatibility:
 
 - `MVP-006`
-- `MVP-030`
 - `MVP-036`
 
 Provider runtime hardening and cleanup:
 
-- `MVP-041`
+- No separate runtime-payment hardening task remains open after `MVP-040` and `MVP-041`; remaining related work is tracked through provider-state durability (`MVP-008`), runtime compatibility/published images (`MVP-036`), and operator visibility (`MVP-032`).
 
 Persistence and settlement:
 

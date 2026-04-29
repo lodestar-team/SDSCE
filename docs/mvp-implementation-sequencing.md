@@ -166,16 +166,17 @@ Notes:
   - The prebuilt published `dummy-blockchain` image remains stale and still embeds an older SDS-compatible runtime snapshot, so publishing refreshed upstream images is tracked separately under `MVP-036`.
 - `MVP-011` is now complete enough to treat as closed for sequencing purposes.
   - Current status: the sidecar now exposes a real Substreams ingress, owns provider discovery/session bootstrap, and surfaces low-funds termination through the real client-facing path as runtime `ResourceExhausted`.
-  - The ingress termination-ordering follow-up tracked under `MVP-040` is now closed by resolving ambiguous upstream EOF against provider-persisted session end state via `GetSessionStatus.end_reason` instead of relying on control-loop timing alone.
+  - The ingress termination-ordering follow-up tracked under `MVP-040` is now closed by resolving ambiguous upstream EOF against provider-persisted session end state via `GetSessionStatus.end_reason` and by checking provider-reported `payment_control_pending` before treating finite EOF as clean.
 - `MVP-031` is now complete enough to treat as closed for sequencing purposes.
   - Current status: provider-side metering now drives the long-lived `PaymentSession` control loop behind the sidecar ingress, including provider-originated RAV requests and low-funds stop behavior.
   - `MVP-041` is now complete:
     - provider-issued runtime `RavRequest` responses are validated against the exact in-flight request snapshot rather than a moving live delta
+    - accepted stream RAVs commit the signed RAV and covered baseline before pending state clears, and post-commit runtime refresh failure no longer turns an accepted RAV into a `STOP`
     - live runtime responses are explicit `PaymentSession`-only behavior, while unary `SubmitRAV` remains deprecated legacy/manual surface area for non-runtime use
 - `MVP-040` is now complete.
-  - Current status: the sidecar still lets live `PaymentSession` semantics win immediately when available, but ambiguous upstream EOF/internal-cancel termination now falls back to provider-persisted session status instead of a control-loop timeout heuristic.
-  - The additive provider control-plane change is limited to `GetSessionStatus.end_reason`; `PaymentSession` message shapes and the auth/session/usage plugin contracts remain unchanged.
-  - Focused ingress coverage now includes the case where upstream ends first and the sidecar resolves the final client-visible result from provider session status rather than a terminal `PaymentSession` message arriving in time.
+  - Current status: the sidecar still lets live `PaymentSession` semantics win immediately when available, ambiguous upstream EOF/internal-cancel termination falls back to provider-persisted session status, and expected finite EOF waits only while local or provider-reported payment-control work is explicitly pending.
+  - The additive provider control-plane changes are limited to `GetSessionStatus.end_reason` and `payment_control_pending`; `PaymentSession` message shapes and the auth/session/usage plugin contracts remain unchanged.
+  - Focused ingress coverage now includes the case where upstream ends first and the sidecar resolves the final client-visible result from provider session status rather than a terminal `PaymentSession` message arriving in time, plus finite EOF cases with no pending work, local pending work, semantic stop, timeout, and provider-reported pending work.
 - `MVP-037` is now complete.
   - Current status: stateful runtime tests that depend on exact escrow/provision behavior now use fresh payer/provider identities plus explicit pre-state guards, and the Firecore/Postgres-backed low-funds path asserts zero pre-existing provider-runtime evidence for the test tuple before execution.
 - `MVP-038` is now complete.
@@ -202,6 +203,7 @@ Recommended sequence:
 Notes:
 
 - `MVP-008` and `MVP-029` can begin in parallel once `MVP-003` and `MVP-027` are stable enough.
+- Recent payment-session hardening advances `MVP-008` by making narrow runtime-state writes monotonic and accepted RAV plus baseline commits explicit, but restart-safe durable acceptance proof still remains before `MVP-008` can close.
 - `MVP-003` should freeze the runtime-versus-settlement boundary before either downstream task broadens its scope.
 - `MVP-009` depends on `MVP-029`, so this part of the sequence is required by the backlog rather than just recommended.
 - `MVP-018` comes late because the current backlog explicitly ties it to operator runtime/low-funds inspection surfaces.
@@ -236,12 +238,11 @@ Recommended sequence:
 1. `MVP-021` Make TLS the default non-dev runtime posture for oracle, sidecar, and provider integration paths
 2. `MVP-006` Add admin-only oracle whitelist/provider metadata management workflow for the curated MVP provider set
 3. `MVP-022` Add authentication and authorization to provider admin/operator APIs
-4. `MVP-030` Add runtime compatibility and preflight checks for real provider/plugin deployments
 
 Notes:
 
 - `MVP-021` can proceed relatively early even though it has no hard dependency on `MVP-028`.
-- `MVP-030` overlaps discovery and runtime work and should land once the real deployment path is concrete enough to validate.
+- `MVP-030` is already complete for sequencing purposes: the repo documents the runtime compatibility contract and intentionally avoids side-effectful automatic startup probes until a true read-only handshake exists.
 
 ### Lane F: Observability, Validation, And Docs
 

@@ -130,9 +130,12 @@ type GetSessionStatusResponse struct {
 	// Payment status snapshot (best-effort).
 	PaymentStatus *v1.PaymentStatus `protobuf:"bytes,2,opt,name=payment_status,json=paymentStatus,proto3" json:"payment_status,omitempty"`
 	// Persisted terminal reason once the session is no longer active.
-	EndReason     v1.EndReason `protobuf:"varint,3,opt,name=end_reason,json=endReason,proto3,enum=graph.substreams.data_service.common.v1.EndReason" json:"end_reason,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	EndReason v1.EndReason `protobuf:"varint,3,opt,name=end_reason,json=endReason,proto3,enum=graph.substreams.data_service.common.v1.EndReason" json:"end_reason,omitempty"`
+	// Whether provider-side runtime state has payment control work that should be
+	// resolved before a finite consumer ingress returns cleanly.
+	PaymentControlPending bool `protobuf:"varint,4,opt,name=payment_control_pending,json=paymentControlPending,proto3" json:"payment_control_pending,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *GetSessionStatusResponse) Reset() {
@@ -184,6 +187,13 @@ func (x *GetSessionStatusResponse) GetEndReason() v1.EndReason {
 		return x.EndReason
 	}
 	return v1.EndReason(0)
+}
+
+func (x *GetSessionStatusResponse) GetPaymentControlPending() bool {
+	if x != nil {
+		return x.PaymentControlPending
+	}
+	return false
 }
 
 type StartSessionRequest struct {
@@ -963,12 +973,13 @@ const file_graph_substreams_data_service_provider_v1_gateway_proto_rawDesc = "" 
 	"7graph/substreams/data_service/provider/v1/gateway.proto\x12)graph.substreams.data_service.provider.v1\x1a3graph/substreams/data_service/common/v1/types.proto\"8\n" +
 	"\x17GetSessionStatusRequest\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x01 \x01(\tR\tsessionId\"\xe4\x01\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"\x9c\x02\n" +
 	"\x18GetSessionStatusResponse\x12\x16\n" +
 	"\x06active\x18\x01 \x01(\bR\x06active\x12]\n" +
 	"\x0epayment_status\x18\x02 \x01(\v26.graph.substreams.data_service.common.v1.PaymentStatusR\rpaymentStatus\x12Q\n" +
 	"\n" +
-	"end_reason\x18\x03 \x01(\x0e22.graph.substreams.data_service.common.v1.EndReasonR\tendReason\"\xc9\x01\n" +
+	"end_reason\x18\x03 \x01(\x0e22.graph.substreams.data_service.common.v1.EndReasonR\tendReason\x126\n" +
+	"\x17payment_control_pending\x18\x04 \x01(\bR\x15paymentControlPending\"\xc9\x01\n" +
 	"\x13StartSessionRequest\x12]\n" +
 	"\x0eescrow_account\x18\x01 \x01(\v26.graph.substreams.data_service.common.v1.EscrowAccountR\rescrowAccount\x12S\n" +
 	"\vinitial_rav\x18\x02 \x01(\v22.graph.substreams.data_service.common.v1.SignedRAVR\n" +

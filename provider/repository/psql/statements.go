@@ -106,6 +106,9 @@ func execOne[T any](ctx context.Context, db *Database, statement string, args an
 	var model T
 	err := stmt.GetContext(ctx, &model, args)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, repository.ErrNotFound
+		}
 		return nil, fmt.Errorf("failed %s: %w", strings.ReplaceAll(statement, "_", " "), err)
 	}
 	return &model, nil

@@ -3,10 +3,12 @@ package psql
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"math/big"
 	"time"
 
 	"github.com/graphprotocol/substreams-data-service/horizon"
+	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
 )
 
@@ -16,6 +18,8 @@ func init() {
 		"session/create.sql",
 		"session/get.sql",
 		"session/update.sql",
+		"session/touch.sql",
+		"session/update_runtime_state.sql",
 		"session/update_rav_baseline.sql",
 		"session/list.sql",
 		"session/count.sql",
@@ -189,6 +193,63 @@ func (r *Database) SessionUpdate(ctx context.Context, session *repository.Sessio
 		if err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// SessionTouch updates only the keep-alive timestamp, preserving all usage aggregates.
+func (r *Database) SessionTouch(ctx context.Context, sessionID string, lastKeepAlive time.Time) error {
+	type idRow struct {
+		ID string `db:"id"`
+	}
+
+	row, err := execOne[idRow](ctx, r, "session/touch.sql", map[string]any{
+		"id":              sessionID,
+		"updated_at":      lastKeepAlive,
+		"last_keep_alive": lastKeepAlive,
+	})
+	if err != nil {
+		return err
+	}
+	if row == nil {
+		return repository.ErrNotFound
+	}
+
+	return nil
+}
+
+// SessionUpdateRuntimeState updates only lifecycle and runtime metadata fields, preserving usage aggregates.
+func (r *Database) SessionUpdateRuntimeState(ctx context.Context, sessionID string, status repository.SessionStatus, metadata map[string]string, endedAt *time.Time, endReason commonv1.EndReason, updatedAt time.Time) error {
+	metadataVal := mustValue(jsonbMap(metadata))
+
+	var endedAtVal sql.NullTime
+	if endedAt != nil {
+		endedAtVal = sql.NullTime{Time: *endedAt, Valid: true}
+	}
+
+	var endReasonVal sql.NullInt32
+	if endReason != commonv1.EndReason_END_REASON_UNSPECIFIED {
+		endReasonVal = sql.NullInt32{Int32: int32(endReason), Valid: true}
+	}
+
+	type idRow struct {
+		ID string `db:"id"`
+	}
+
+	row, err := execOne[idRow](ctx, r, "session/update_runtime_state.sql", map[string]any{
+		"id":         sessionID,
+		"updated_at": updatedAt,
+		"status":     string(status),
+		"metadata":   metadataVal,
+		"ended_at":   endedAtVal,
+		"end_reason": endReasonVal,
+	})
+	if err != nil {
+		return err
+	}
+	if row == nil {
+		return repository.ErrNotFound
 	}
 
 	return nil

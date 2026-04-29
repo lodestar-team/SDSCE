@@ -65,8 +65,10 @@ type ingressControlResult struct {
 type ingressTerminationCoordinator struct {
 	cancel context.CancelFunc
 
-	mu     sync.Mutex
-	result ingressControlResult
+	mu                    sync.Mutex
+	result                ingressControlResult
+	paymentControlPending bool
+	changed               chan struct{}
 }
 
 type ingressStreamProgress struct {
@@ -79,7 +81,10 @@ type ingressSessionStatusGetter func(context.Context, string) (*providerv1.GetSe
 const ambiguousIngressStatusPollInterval = 50 * time.Millisecond
 
 func newIngressTerminationCoordinator(cancel context.CancelFunc) *ingressTerminationCoordinator {
-	return &ingressTerminationCoordinator{cancel: cancel}
+	return &ingressTerminationCoordinator{
+		cancel:  cancel,
+		changed: make(chan struct{}),
+	}
 }
 
 func (c *ingressTerminationCoordinator) setResult(kind ingressControlResultKind, err error, cancelRuntime bool) {
@@ -113,6 +118,25 @@ func (c *ingressTerminationCoordinator) setControlFailure(err error) {
 
 func (c *ingressTerminationCoordinator) setCanceled() {
 	c.setResult(ingressControlResultCanceled, context.Canceled, false)
+}
+
+func (c *ingressTerminationCoordinator) setPaymentControlPending(pending bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.paymentControlPending == pending {
+		return
+	}
+
+	c.paymentControlPending = pending
+	close(c.changed)
+	c.changed = make(chan struct{})
+}
+
+func (c *ingressTerminationCoordinator) paymentControlState() (bool, <-chan struct{}) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.paymentControlPending, c.changed
 }
 
 func (c *ingressTerminationCoordinator) currentResult() ingressControlResult {
@@ -442,6 +466,7 @@ func (s *Sidecar) runIngressPaymentControl(
 		}
 
 		if ravReq := msg.GetRavRequest(); ravReq != nil {
+			coordinator.setPaymentControlPending(true)
 			signed, err := s.signRAVForRequest(session, ravReq)
 			if err != nil {
 				coordinator.setControlFailure(status.Errorf(codes.Internal, "sign RAV for provider request: %v", err))
@@ -494,6 +519,7 @@ func (s *Sidecar) runIngressPaymentControl(
 					session.SetRAV(pendingRAV)
 					pendingRAV = nil
 				}
+				coordinator.setPaymentControlPending(false)
 				continue
 			}
 
@@ -532,7 +558,7 @@ func (s *Sidecar) resolveIngressStreamTermination(
 
 	if errors.Is(upstreamErr, io.EOF) {
 		if expectedEOF {
-			return nil
+			return s.awaitFiniteIngressPostStreamControl(clientCtx, sessionID, coordinator, controlDone)
 		}
 
 		return s.awaitAmbiguousIngressTerminationResolution(clientCtx, sessionID, coordinator, controlDone)
@@ -551,6 +577,88 @@ func (s *Sidecar) resolveIngressStreamTermination(
 	}
 
 	return nil
+}
+
+func (s *Sidecar) awaitFiniteIngressPostStreamControl(
+	clientCtx context.Context,
+	sessionID string,
+	coordinator *ingressTerminationCoordinator,
+	controlDone <-chan struct{},
+) error {
+	if coordinator == nil {
+		return nil
+	}
+
+	client := s.paymentSessions.Get(sessionID)
+	if client == nil {
+		return status.Error(codes.Unavailable, "provider payment session client is not configured")
+	}
+
+	return awaitFiniteIngressPostStreamControl(
+		clientCtx,
+		sessionID,
+		s.paymentSessionRoundtripTimeout,
+		coordinator,
+		controlDone,
+		client.GetSessionStatus,
+	)
+}
+
+func awaitFiniteIngressPostStreamControl(
+	clientCtx context.Context,
+	sessionID string,
+	timeout time.Duration,
+	coordinator *ingressTerminationCoordinator,
+	controlDone <-chan struct{},
+	getStatus ingressSessionStatusGetter,
+) error {
+	deadlineCtx, cancel := context.WithTimeout(clientCtx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(ambiguousIngressStatusPollInterval)
+	defer ticker.Stop()
+
+	var lastStatusErr error
+
+	for {
+		if resultErr := coordinator.currentError(); resultErr != nil {
+			return resultErr
+		}
+
+		localPending, changed := coordinator.paymentControlState()
+		statusResp, err := getStatus(deadlineCtx, sessionID)
+		if err == nil {
+			resolved, resolvedErr := resolveAmbiguousIngressSessionStatus(statusResp)
+			if resolved {
+				return resolvedErr
+			}
+			if !localPending && !statusResp.GetPaymentControlPending() {
+				return nil
+			}
+		} else {
+			lastStatusErr = err
+		}
+
+		select {
+		case <-clientCtx.Done():
+			if resultErr := coordinator.currentError(); resultErr != nil {
+				return resultErr
+			}
+			return clientCtx.Err()
+		case <-deadlineCtx.Done():
+			if resultErr := coordinator.currentError(); resultErr != nil {
+				return resultErr
+			}
+			if lastStatusErr != nil {
+				return status.Errorf(codes.Unavailable, "finite upstream Substreams stream ended before provider payment control status resolved the session: %v", lastStatusErr)
+			}
+			return status.Errorf(codes.Unavailable, "finite upstream Substreams stream ended while provider payment control remained pending for %s", timeout)
+		case <-changed:
+		case <-ticker.C:
+		case <-controlDone:
+			controlDone = nil
+		}
+	}
 }
 
 func isAmbiguousIngressUpstreamError(err error) bool {

@@ -323,8 +323,7 @@ func (s *AuthService) validateSession(ctx context.Context, sessionID, organizati
 	}
 
 	// Update LastKeepAlive to keep the session active
-	sess.LastKeepAlive = time.Now()
-	if err := s.repository.SessionUpdate(ctx, sess); err != nil {
+	if err := s.repository.SessionTouch(ctx, sessionID, time.Now()); err != nil {
 		logging.Warn(ctx, zlog, "failed to update session LastKeepAlive", zap.String("session_id", sessionID), zap.Error(err))
 		// Don't fail the auth request if we can't update the timestamp - just log it
 	}

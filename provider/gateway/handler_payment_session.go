@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/graphprotocol/substreams-data-service/horizon"
@@ -21,6 +22,8 @@ type paymentSessionRequestResult struct {
 	msg *providerv1.PaymentSessionRequest
 	err error
 }
+
+const acceptedRAVPersistenceTimeout = 5 * time.Second
 
 // PaymentSession is a bidirectional stream for ongoing payment negotiation.
 // The stream binds to exactly one session and receives provider-originated
@@ -277,15 +280,17 @@ func (s *Gateway) handleRAVSubmission(
 			return nil
 		}
 
-		if err := s.repo.SessionUpdateRAVAndBaseline(
-			ctx,
+		// Once validation reaches the accepted-RAV boundary, complete the
+		// accounting commit even if the peer has already disconnected.
+		commitCtx, cancelCommit := context.WithTimeout(context.WithoutCancel(ctx), acceptedRAVPersistenceTimeout)
+		err = s.commitAcceptedRAV(
+			commitCtx,
 			sessionID,
 			signedRAV,
-			pending.baselineBlocks,
-			pending.baselineBytes,
-			pending.baselineReqs,
-			pending.baselineCost,
-		); err != nil {
+			pending,
+		)
+		cancelCommit()
+		if err != nil {
 			s.logger.Warn("failed to update session", zap.String("session_id", sessionID), zap.Error(err))
 			resp = stopPaymentSessionResponse("failed to update session state")
 			return nil
@@ -293,10 +298,11 @@ func (s *Gateway) handleRAVSubmission(
 
 		state.pendingRAV = nil
 		state.queuedResponse = nil
-		if err := s.runtime.evaluateMeteredUsage(ctx, s, sessionID); err != nil {
+
+		evalCtx, cancelEval := context.WithTimeout(context.WithoutCancel(ctx), acceptedRAVPersistenceTimeout)
+		defer cancelEval()
+		if err := s.runtime.evaluateMeteredUsage(evalCtx, s, sessionID); err != nil {
 			s.logger.Warn("failed to re-evaluate metered usage after RAV acceptance", zap.String("session_id", sessionID), zap.Error(err))
-			resp = stopPaymentSessionResponse("failed to refresh runtime payment state")
-			return nil
 		}
 
 		resp = continuePaymentSessionResponse()
@@ -321,6 +327,22 @@ func (s *Gateway) handleRAVSubmission(
 	)
 
 	return resp
+}
+
+func (s *Gateway) commitAcceptedRAV(ctx context.Context, sessionID string, signedRAV *horizon.SignedRAV, pending *pendingRAVRequest) error {
+	if pending == nil {
+		return fmt.Errorf("pending RAV request is required")
+	}
+
+	return s.repo.SessionUpdateRAVAndBaseline(
+		ctx,
+		sessionID,
+		signedRAV,
+		pending.baselineBlocks,
+		pending.baselineBytes,
+		pending.baselineReqs,
+		pending.baselineCost,
+	)
 }
 
 func (s *Gateway) handleFundsAcknowledgment(

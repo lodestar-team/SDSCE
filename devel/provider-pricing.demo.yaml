@@ -1,0 +1,3 @@
+price_per_block: "0.000115 GRT"
+price_per_byte: "0.0000000061 GRT"
+rav_request_threshold: "0.02 GRT"

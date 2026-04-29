@@ -1,0 +1,43 @@
+-r "^$" -s -R "devel/.*" -- sh -c \
+    'echo "Starting Docker Compose (PostgreSQL, Redis, pgweb)..." && \
+    docker compose up -d && \
+    sleep 3 && \
+    echo "Applying database migrations..." && \
+    (echo "y" | ./devel/migrate.sh up || echo "Migrations already up to date") && \
+    echo "" && \
+    echo "Starting Devenv..." && \
+    DLOG="${DLOG:-warn}" ./devel/sds devenv'
+
+-r "(\.(go|sql)$|devel/consumer-sidecar\.direct\.yaml$)" -s -R "devel/.*" -- sh -c \
+   'echo "Starting Consumer Sidecar (direct provider ingress) ..." && \
+   DLOG=".*=debug" ./devel/sds consumer sidecar \
+       --grpc-listen-addr=:9002 \
+       --config=devel/consumer-sidecar.direct.yaml \
+       --plaintext \
+       --signer-private-key=0x0bba7d355d1750fce9756af7887e826e8071a56d9d8e327f546b1f34c78f9281 \
+       --collector-address=0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9'
+
+-r "(\.(go|sql)$|devel/provider-pricing\.demo\.yaml$)" -s -R "devel/.*" -- sh -c \
+    'echo "Starting Provider Gateway (with PostgreSQL, demo pricing)..." && \
+    head -c 8 /dev/urandom | xxd -p -c 16 > ./devel/.provider-gateway && \
+    DLOG=".*=debug" ./devel/sds provider gateway \
+        --repository-dsn="psql://dev-node:changeme@localhost:5432/dev-node?sslmode=disable" \
+        --grpc-listen-addr=:9001 \
+        --plugin-listen-addr=:9003 \
+        --plaintext \
+        --pricing-config=devel/provider-pricing.demo.yaml \
+        --service-provider=0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
+        --collector-address=0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9 \
+        --escrow-address=0xfc7487a37ca8eac2e64cba61277aa109e9b8631e \
+        --rpc-endpoint=http://localhost:58545 \
+        --data-plane-endpoint="https://localhost:10016?insecure=true"'
+
+-r "devel/(\.provider-gateway|firecore\.config\.yaml)$" -s -R "devel/.firehose" -- sh -c \
+    'echo "Restarting firehose-core instance..." && \
+    rm -rf ./devel/.firehose && \
+    echo "Starting Firehose Core" && \
+    echo " Consumer sidecar ingress: http://localhost:9002" && \
+    echo " Provider control plane:   http://localhost:9001" && \
+    echo " Substreams tier1:         https://localhost:10016?insecure=true" && \
+    echo "" && \
+    DLOG="${DLOG:-error}" firecore -c devel/firecore.config.yaml -d ./devel/.firehose start'

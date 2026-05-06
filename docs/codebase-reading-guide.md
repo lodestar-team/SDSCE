@@ -68,8 +68,8 @@ The repo is still not MVP-complete. The main remaining gaps are now mostly backl
 - provider settlement lifecycle persistence and retrieval surfaces
 - operator funding and collection CLI flows
 - authenticated operator/admin APIs
-- TLS-by-default rollout outside local/dev
-- observability/status surface finalization
+- TLS-by-default validation and non-dev operator guidance
+- basic metrics plus operator observability/status implementation
 - refreshed published external runtime images and tuples
 
 ## 2. Mental Model

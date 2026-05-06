@@ -14,7 +14,9 @@ This contract applies to provider-side operator/admin surfaces, including:
 - collection lifecycle inspection
 - future mutating provider operator/admin actions
 
-For MVP, the current `GetSessionStatus` endpoint should be treated as an `operator.read` surface.
+For MVP, the existing minimal `GetSessionStatus` endpoint may remain a runtime-coordination surface used by the consumer sidecar. It should stay intentionally narrow: active state, terminal reason, payment-control pending state, and coarse payment values needed to resolve runtime behavior.
+
+Richer provider inspection/status APIs should be separate authenticated operator surfaces. If `GetSessionStatus` grows into that richer inspection role, it should either require `operator.read` authentication or be split so consumer runtime coordination does not require operator credentials.
 
 This contract does not apply to the public runtime payment protocol:
 

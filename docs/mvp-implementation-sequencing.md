@@ -66,14 +66,13 @@ The grouping is recommended because these tasks have broad downstream impact. It
 - `MVP-001` Freeze the pricing exposure contract between oracle metadata and provider handshake
   - Primarily blocks discovery/oracle integration where pricing semantics could drift.
   - Some oracle work can proceed if pricing remains explicitly non-authoritative or advisory.
-- `MVP-023` Define the final MVP observability floor beyond structured logs and status tooling
-  - Primarily blocks final observability closure, not all operator visibility work.
 
 ### Guidance
 
 - Start MVP execution by resolving as many hard blockers as possible.
 - Do not require all soft blockers to be fully closed before any implementation begins.
-- For `MVP-001` and `MVP-023`, allow limited implementation so long as the current assumptions remain explicit and no irreversible semantics are baked into code.
+- `MVP-023` is now resolved: basic Prometheus-style metrics are part of the MVP floor, while distributed tracing remains post-MVP.
+- For `MVP-001`, allow limited implementation so long as the current assumptions remain explicit and no irreversible semantics are baked into code.
 - `MVP-033` is already resolved enough for downstream discovery and client-integration work to rely on its contract.
 
 ## Phase 1: Lane Unlocks
@@ -193,11 +192,11 @@ Recommended sequence:
 1. `MVP-003` Define and document the provider-side runtime persistence boundary and settlement lifecycle ownership
 2. `MVP-008` Add durable provider storage for sessions, usage, and latest accepted RAV runtime state
 3. `MVP-029` Implement provider collection lifecycle transitions and update surfaces for `collectible`, `collect_pending`, `collected`, and retryable collection state
-4. `MVP-009` Expose provider inspection and settlement-data retrieval APIs for accepted/collectible RAV state
-5. `MVP-022` Add authentication and authorization to provider admin/operator APIs
-6. `MVP-019` Implement provider inspection CLI flows for collectible/accepted RAV data
-7. `MVP-020` Implement manual collection CLI flow that crafts/signs/submits collect transactions locally
-8. `MVP-032` Expose operator runtime/session/payment inspection APIs and CLI/status flows
+4. `MVP-022` Add authentication and authorization to provider admin/operator APIs
+5. `MVP-009` Expose authenticated provider inspection and settlement-data retrieval APIs for accepted/collectible RAV state
+6. `MVP-032` Expose authenticated operator runtime/session/payment inspection APIs and CLI/status flows
+7. `MVP-019` Implement provider inspection CLI flows for collectible/accepted RAV data
+8. `MVP-020` Implement manual collection CLI flow that crafts/signs/submits collect transactions locally
 9. `MVP-018` Implement operator funding CLI flows for approve/deposit/top-up beyond local demo assumptions
 
 Notes:
@@ -205,7 +204,8 @@ Notes:
 - `MVP-008` and `MVP-029` can begin in parallel once `MVP-003` and `MVP-027` are stable enough.
 - Recent payment-session hardening advances `MVP-008` by making narrow runtime-state writes monotonic and accepted RAV plus baseline commits explicit, but restart-safe durable acceptance proof still remains before `MVP-008` can close.
 - `MVP-003` should freeze the runtime-versus-settlement boundary before either downstream task broadens its scope.
-- `MVP-009` depends on `MVP-029`, so this part of the sequence is required by the backlog rather than just recommended.
+- `MVP-022` can be implemented before concrete retrieval APIs, because the bearer-token role contract is already frozen under `MVP-028`.
+- `MVP-009` depends on `MVP-022` and `MVP-029`, so authenticated retrieval should wait until both auth enforcement and lifecycle semantics are stable.
 - `MVP-018` comes late because the current backlog explicitly ties it to operator runtime/low-funds inspection surfaces.
 
 ### Lane D: Post-MVP Reconnect And Resume
@@ -236,29 +236,29 @@ Minimum prerequisites:
 Recommended sequence:
 
 1. `MVP-021` Make TLS the default non-dev runtime posture for oracle, sidecar, and provider integration paths
-2. `MVP-006` Add admin-only oracle whitelist/provider metadata management workflow for the curated MVP provider set
-3. `MVP-022` Add authentication and authorization to provider admin/operator APIs
+2. `MVP-022` Add authentication and authorization to provider admin/operator APIs
 
 Notes:
 
 - `MVP-021` can proceed relatively early even though it has no hard dependency on `MVP-028`.
+- `MVP-006` is now complete for MVP: oracle governance is deployment-managed YAML config, not a public writable admin API.
 - `MVP-030` is already complete for sequencing purposes: the repo documents the runtime compatibility contract and intentionally avoids side-effectful automatic startup probes until a true read-only handshake exists.
 
 ### Lane F: Observability, Validation, And Docs
 
 Minimum prerequisites:
 
-- `MVP-023` for final observability scope
+- `MVP-023` is complete and defines the final MVP observability floor
 
 Recommended sequence:
 
-1. `MVP-024` Implement basic operator-facing inspection/status surfaces and log correlation
+1. `MVP-024` Implement basic operator-facing inspection/status surfaces, metrics, and log correlation
 2. `MVP-025` Add MVP acceptance coverage for the primary end-to-end scenarios in docs/tests/manual verification
 3. `MVP-026` Refresh protocol/runtime docs so they match the MVP architecture and explicit open questions
 
 Notes:
 
-- `MVP-024` can begin in a limited way before `MVP-023` is fully closed if it stays within the current “basic visibility” assumption.
+- `MVP-024` should implement structured log correlation, basic Prometheus-style metrics, and operator status/inspection visibility without requiring distributed tracing.
 - `MVP-025` should be updated incrementally throughout implementation, but its final closure belongs near the end.
 - `MVP-026` should be completed after the key open-question outputs it depends on are stable.
 
@@ -270,7 +270,7 @@ It is a recommended rollout sequence, not a canonical priority order embedded in
 
 ### Phase 0: Resolve Or Narrow Shared Contracts
 
-- `MVP-023`
+No open shared-contract blockers remain for the current MVP scope.
 
 Already resolved:
 
@@ -279,15 +279,27 @@ Already resolved:
 - `MVP-003`
 - `MVP-004`
 - `MVP-005`
+- `MVP-006`
 - `MVP-007`
 - `MVP-010`
+- `MVP-011`
 - `MVP-012`
 - `MVP-014`
 - `MVP-015`
 - `MVP-016`
+- `MVP-017`
 - `MVP-028`
 - `MVP-027`
+- `MVP-030`
+- `MVP-031`
 - `MVP-033`
+- `MVP-034`
+- `MVP-035`
+- `MVP-037`
+- `MVP-038`
+- `MVP-040`
+- `MVP-041`
+- `MVP-023`
 
 ### Phase 1: Start The First Implementable Lanes
 
@@ -296,27 +308,27 @@ Already resolved:
   - `MVP-029`
 - Security foundation:
   - `MVP-021`
+- Runtime compatibility:
+  - `MVP-036`
+- Observability implementation:
+  - `MVP-024`
 
 ### Phase 2: Integrate Runtime And Retrieval Paths
 
-- `MVP-009`
 - `MVP-022`
+- `MVP-009`
+- `MVP-032`
 
-### Phase 3: Complete Runtime Control And Operator Flows
+### Phase 3: Complete Operator Flows
 
-- `MVP-006`
 - `MVP-019`
 - `MVP-020`
-- `MVP-032`
 - `MVP-018`
-- `MVP-037`
 
 ### Phase 4: Finalize Visibility, Acceptance, And Documentation
 
-- `MVP-024`
 - `MVP-025`
 - `MVP-026`
-- `MVP-038`
 
 ## Tasks That Can Safely Start Before Every Open Question Is Closed
 
@@ -329,14 +341,9 @@ This section is interpretive guidance based on the assumptions register and depe
 - `MVP-021`
   - TLS default posture is broadly independent of most unresolved protocol questions.
 - `MVP-024`
-  - Basic log correlation and status surfaces can begin before observability scope is finalized.
+  - Basic log correlation, metrics, and status surfaces can proceed because `MVP-023` is now resolved.
 - `MVP-025`
   - Acceptance coverage scaffolding can be built incrementally while implementation proceeds.
-
-### Safe To Start If Assumptions Remain Explicit
-
-- `MVP-024`
-  - Can proceed in a reduced/basic form before `MVP-023` is fully closed.
 
 ### Should Usually Wait
 

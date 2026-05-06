@@ -1,7 +1,7 @@
 # Substreams Data Service MVP Scope
 
 Drafted: 2026-03-12  
-Revised: 2026-04-01
+Revised: 2026-05-06
 
 ## Purpose
 
@@ -59,7 +59,7 @@ However, the current repo does not yet constitute the MVP. Major remaining gaps 
 - authenticated admin/operator surfaces
 - runtime compatibility hardening and refreshed published firecore/dummy-blockchain images
 - TLS-by-default rollout outside local/dev usage
-- finalization of observability scope
+- basic metrics and operator visibility implementation
 
 The legacy wrapper-era runtime usage-report flow is removed. The remaining manual `Init` / `EndSession` RPCs are not part of the intended MVP runtime architecture.
 
@@ -295,7 +295,8 @@ That is a materially larger distributed-state problem than the session-local MVP
 
 - Sufficient operational visibility for MVP
 - Structured logs and status/inspection tools are required
-- Richer metrics/tracing strategy remains open
+- Basic Prometheus-style metrics endpoints are required
+- Richer distributed tracing and backend-specific observability hardening are post-MVP unless required by a named target provider environment
 
 ## Operational Deliverables
 
@@ -391,7 +392,7 @@ The scenarios below are the primary definition of done for the MVP.
 
 ## Open Questions
 
-- Should simple observability for MVP include metrics endpoints, or are structured logs plus inspection/status tooling sufficient?
+- None currently identified for MVP scope.
 
 ## References
 

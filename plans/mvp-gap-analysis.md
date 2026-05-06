@@ -1,7 +1,7 @@
 # MVP Gap Analysis
 
 Drafted: 2026-03-12
-Revised: 2026-04-29
+Revised: 2026-05-06
 
 This document maps the current repository state against the MVP defined in `docs/mvp-scope.md`.
 
@@ -49,7 +49,7 @@ The biggest remaining MVP gaps are now:
 - refreshed published firecore/dummy-blockchain images
 - operator funding and collection tooling
 - authenticated admin/operator surfaces
-- finalized observability floor
+- basic metrics and operator observability implementation
 
 ## Acceptance Scenario Status
 
@@ -325,7 +325,7 @@ What already exists:
 
 What is still missing for MVP:
 
-- finalized secure deployment defaults across all relevant surfaces
+- validated and documented secure deployment posture across all relevant surfaces
 - authenticated admin/operator surfaces
 - validated TLS-by-default posture for the full MVP deployment shape
 
@@ -341,7 +341,7 @@ What already exists:
 
 What is still missing for MVP:
 
-- final MVP decision on metrics endpoints
+- basic Prometheus-style metrics endpoints
 - better operator-facing inspection for payment, runtime, and collection state
 
 ## Current Implementation Highlights
@@ -367,6 +367,11 @@ The most important recent status changes versus the original draft are:
   - Finite EOF handling is now driven by local and provider-reported payment-control pending state, not a fixed delay.
   - Accepted runtime RAV persistence is separated from peer disconnect and post-commit refresh failure.
   - Repository updates for keepalive/runtime/RAV state are narrower and monotonic, reducing stale-write lost-update risk while leaving restart-focused durable acceptance proof under `MVP-008`.
+  - Active Firecore workers now keep provider payment-control status pending, so finite sidecar ingress completion waits for possible final metering before returning cleanly.
+- Security and observability contracts are now narrower.
+  - Oracle whitelist/provider metadata governance is deployment-managed YAML for MVP, not a public writable admin API.
+  - The provider operator bearer-token role contract exists, but richer provider operator APIs still need enforcement.
+  - The MVP observability floor is structured logs, operator inspection/status tooling, and basic Prometheus-style metrics; distributed tracing remains post-MVP.
 
 ## Remaining Backlog Alignment
 
@@ -374,7 +379,6 @@ The remaining MVP gaps now align with the rewritten MVP backlog as follows.
 
 Oracle, consumer ingress, and runtime compatibility:
 
-- `MVP-006`
 - `MVP-036`
 
 Provider runtime hardening and cleanup:
@@ -398,7 +402,6 @@ Security and observability:
 
 - `MVP-021`
 - `MVP-022`
-- `MVP-023`
 - `MVP-024`
 
 Validation and docs:
@@ -411,13 +414,12 @@ The gap analysis and the backlog now agree that:
 - pricing authority is resolved for MVP
 - reconnect/payment-session reuse is not an MVP target
 - shared-state runtime hardening now relies on isolated per-test payer/provider identities with explicit pre-state guards; explicit `RavRequest` response semantics are now implemented
-- the remaining open question is observability
+- oracle governance is config-managed for MVP
+- the observability floor is resolved for MVP
 
 ## Open Questions Carrying Risk
 
-These are no longer architecture-blocking for the main SDS flow, but they do still block clean closure of the security/admin and observability parts of MVP.
-
-- metrics endpoints vs logs-plus-status-only for MVP observability
+None currently identified.
 
 ## Recommended Usage
 

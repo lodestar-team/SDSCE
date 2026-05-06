@@ -1,6 +1,6 @@
 # Substreams Data Service — MVP Implementation Backlog
 
-_Last updated: 2026-04-29_
+_Last updated: 2026-05-06_
 
 This document translates [docs/mvp-scope.md](../docs/mvp-scope.md) into concrete implementation tasks for the MVP.
 
@@ -62,11 +62,14 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - No RAV or payment-session reuse occurs across reconnects.
   - Any Substreams cursor/block continuation remains a normal data-plane concern, not an SDS payment-session recovery flow.
 
-- `A4` Observability scope beyond logs/status tooling is still open.
-  - MVP work should implement structured logging and inspection/status surfaces without forcing a final metrics/tracing backend choice.
+- `A4` Observability floor is frozen for MVP.
+  - MVP work should include structured logs, operator inspection/status tooling, and basic Prometheus-style metrics endpoints.
+  - Full distributed tracing and backend-specific observability hardening remain post-MVP unless required by a named target provider environment.
 
-- `A5` Admin/operator authentication mechanism is still open.
-  - MVP work should require authentication and keep the implementation pluggable enough to avoid boxing in the final auth choice.
+- `A5` Admin/operator authentication contract is frozen, with implementation still pending for provider operator APIs.
+  - MVP work should require authentication using the shared bearer-token role contract from `MVP-028`.
+  - Minimal runtime-coordination status used by the consumer sidecar may remain separate from richer operator inspection APIs.
+  - Rich provider operator/admin inspection and mutation APIs must use the shared bearer-token role contract from `MVP-028`.
 
 - `A6` MVP funding-control logic is intentionally session-local.
   - Do not require aggregate concurrent-stream liability tracking to complete MVP.
@@ -93,10 +96,10 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-003 | `done` | protocol | `A3`, `A6` | `MVP-027` | `D`, `F` | Define and document the provider-side runtime persistence model and its boundary with settlement lifecycle tracking |
 | MVP-004 | `done` | protocol | `A2`, `A3` | none | `A`, `C` | Define and document the real runtime payment contract used by the public payment gateway, private plugin gateway, and consumer/provider payment loop |
 | MVP-005 | `done` | oracle | `A1`, `A2`, `A5` | `MVP-033` | `A` | Implement a standalone oracle service with manual whitelist, canonical pricing, recommended-provider response, and control-plane endpoint return |
-| MVP-006 | `not_started` | oracle | `A5` | `MVP-028` | `A`, `G` | Add admin-only oracle whitelist/provider metadata management workflow for the curated MVP provider set |
+| MVP-006 | `done` | oracle | `A5` | `MVP-028` | `A`, `G` | Add admin-only oracle whitelist/provider metadata management workflow for the curated MVP provider set |
 | MVP-007 | `done` | consumer | `A1`, `A2`, `A3` | `MVP-005`, `MVP-033` | `A` | Integrate consumer sidecar with oracle discovery while preserving direct-provider fallback and provider-returned data-plane resolution |
 | MVP-008 | `in_progress` | provider-state | `A3`, `A6` | `MVP-003` | `D`, `F` | Complete durable provider runtime storage for sessions, usage, and accepted RAV state, distinct from collection lifecycle tracking |
-| MVP-009 | `not_started` | provider-state | `A3`, `A5` | `MVP-003`, `MVP-022`, `MVP-029` | `D`, `F` | Expose provider inspection and settlement-data retrieval APIs for accepted and collectible RAV state |
+| MVP-009 | `not_started` | provider-state | `A3`, `A5` | `MVP-003`, `MVP-022`, `MVP-029` | `D`, `F` | Expose authenticated provider inspection and settlement-data retrieval APIs for accepted and collectible RAV state |
 | MVP-010 | `done` | funding-control | `A6` | `MVP-004` | `C` | Implement session-local low-funds detection and provider terminal stop behavior during streaming |
 | MVP-011 | `done` | funding-control | `A6` | `MVP-010` | `C` | Propagate provider low-funds stop decisions through consumer sidecar into the real ingress/client path |
 | MVP-012 | `done` | funding-control | none | `MVP-004` | `A`, `C` | Add deterministic cost-based RAV issuance thresholds suitable for real runtime behavior |
@@ -108,18 +111,18 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-018 | `not_started` | tooling | none | `MVP-032` | `E` | Implement operator funding CLI flows for approve/deposit/top-up beyond local demo assumptions |
 | MVP-019 | `not_started` | tooling | `A5` | `MVP-009`, `MVP-022` | `D`, `F` | Implement provider inspection CLI flows for accepted and collectible RAV data |
 | MVP-020 | `not_started` | tooling | `A5` | `MVP-009`, `MVP-022`, `MVP-029` | `F` | Implement manual collection CLI flow that fetches provider settlement state and crafts/signs/submits collect transactions locally |
-| MVP-021 | `not_started` | security | `A5` | none | `G` | Make TLS the default non-dev runtime posture for oracle, sidecar, and provider integration paths |
-| MVP-022 | `not_started` | security | `A5` | `MVP-009`, `MVP-028` | `D`, `F`, `G` | Add authentication and authorization to provider admin/operator APIs using the shared bearer-token role contract from MVP-028 |
-| MVP-023 | `open_question` | observability | `A4` | none | `A`, `C`, `D`, `F`, `G` | Define the final MVP observability floor beyond structured logs and status tooling |
-| MVP-024 | `not_started` | observability | `A4` | `MVP-023` | `C`, `D`, `F`, `G` | Implement basic operator-facing inspection/status surfaces and log correlation |
+| MVP-021 | `in_progress` | security | `A5` | none | `G` | Make TLS the default non-dev runtime posture for oracle, sidecar, and provider integration paths |
+| MVP-022 | `not_started` | security | `A5` | `MVP-028` | `D`, `F`, `G` | Add authentication and authorization to provider admin/operator APIs using the shared bearer-token role contract from MVP-028 |
+| MVP-023 | `done` | observability | `A4` | none | `A`, `C`, `D`, `F`, `G` | Define the final MVP observability floor beyond structured logs and status tooling |
+| MVP-024 | `in_progress` | observability | `A4` | `MVP-023` | `C`, `D`, `F`, `G` | Implement basic operator-facing inspection/status surfaces, metrics, and log correlation |
 | MVP-025 | `in_progress` | validation | none | none | `A`, `B`, `C`, `D`, `E`, `F`, `G` | Add MVP acceptance coverage for the primary end-to-end scenarios in docs/tests/manual verification |
 | MVP-026 | `in_progress` | docs | `A1`, `A4`, `A5` | `MVP-023`, `MVP-028`, `MVP-033` | `A`, `B`, `C`, `D`, `E`, `F`, `G` | Refresh protocol/runtime docs so they match the revised MVP architecture and remaining open questions |
 | MVP-027 | `done` | protocol | `A3` | none | `B`, `D`, `F` | Freeze MVP payment/session identity semantics for fresh sessions and non-reused collection/payment lineage |
 | MVP-028 | `done` | security | `A5` | none | `G` | Define the MVP authentication and authorization contract for provider operator APIs and future oracle admin surfaces |
-| MVP-029 | `not_started` | provider-state | `A3`, `A5` | `MVP-003`, `MVP-022` | `D`, `F` | Implement provider collection lifecycle transitions and update surfaces for `collectible`, `collect_pending`, `collected`, and retryable collection state |
+| MVP-029 | `not_started` | provider-state | `A3`, `A5` | `MVP-003` | `D`, `F` | Implement provider collection lifecycle transitions and update surfaces for `collectible`, `collect_pending`, `collected`, and retryable collection state |
 | MVP-030 | `done` | provider-integration | `A5` | `MVP-014`, `MVP-017` | `A`, `G` | Define and document the MVP runtime-compatibility contract for real provider/plugin deployments without side-effectful automatic probes |
 | MVP-031 | `done` | runtime-payment | `A2`, `A3` | `MVP-004`, `MVP-012`, `MVP-014`, `MVP-017` | `A`, `C` | Wire the long-lived provider-originated payment-control loop behind the consumer-sidecar ingress path used by real runtime traffic |
-| MVP-032 | `not_started` | operations | `A4`, `A5`, `A6` | `MVP-008`, `MVP-010`, `MVP-022` | `C`, `D`, `F`, `G` | Expose operator runtime/session/payment inspection APIs and CLI/status flows |
+| MVP-032 | `not_started` | operations | `A4`, `A5`, `A6` | `MVP-008`, `MVP-010`, `MVP-022` | `C`, `D`, `F`, `G` | Expose authenticated operator runtime/session/payment inspection APIs and CLI/status flows |
 | MVP-033 | `done` | protocol | `A1` | none | `A` | Freeze the chain/network discovery input contract across client, sidecar, and oracle |
 | MVP-034 | `done` | validation | none | none | none | Fix repository PostgreSQL tests so migrations resolve from repo-relative state rather than a machine-specific absolute path |
 | MVP-035 | `done` | validation | none | none | none | Make integration devenv startup resilient to local fixed-port collisions so the shared test environment is reproducible |
@@ -236,10 +239,11 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Add tests for whitelist lookup, response validation, and deterministic recommendation behavior.
     - Review [proto/graph/substreams/data_service/oracle/v1/oracle.proto](../proto/graph/substreams/data_service/oracle/v1/oracle.proto), [oracle/config.go](../oracle/config.go), [oracle/oracle.go](../oracle/oracle.go), and [cmd/sds/impl/oracle.go](../cmd/sds/impl/oracle.go).
 
-- [ ] MVP-006 Add admin-only oracle whitelist/provider metadata management workflow for the curated MVP provider set.
+- [x] MVP-006 Add admin-only oracle whitelist/provider metadata management workflow for the curated MVP provider set.
   - Context:
     - Oracle governance must not rely on a public writable surface in MVP.
     - The curated whitelist is temporary MVP machinery and may remain deployment-managed internal config.
+    - Decision on 2026-05-06: deployment-managed YAML config is sufficient for MVP oracle governance.
   - Assumptions:
     - `A5`
   - Done when:
@@ -298,15 +302,16 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Add or unskip a restart-focused integration or persistence test that validates accepted state survives process restart using the durable repository path.
     - Existing supporting coverage now includes field-specific repository updates, monotonic keepalive/runtime lifecycle behavior, and accepted RAV plus baseline commit semantics across in-memory and PostgreSQL paths.
 
-- [ ] MVP-009 Expose provider inspection and settlement-data retrieval APIs for accepted and collectible RAV state.
+- [ ] MVP-009 Expose authenticated provider inspection and settlement-data retrieval APIs for accepted and collectible RAV state.
   - Context:
     - CLI inspection and manual collection require a provider-side way to retrieve settlement-relevant data.
-    - Current `GetSessionStatus` is useful runtime scaffolding and now exposes provider-side payment-control pending state, but it is still not sufficient settlement inspection coverage.
+    - Current `GetSessionStatus` is useful runtime-coordination scaffolding and now exposes provider-side payment-control pending state, but it is intentionally not the richer operator inspection surface.
+    - Richer provider status/inspection APIs should be authenticated and can expose more settlement/payment detail than the minimal runtime coordination status.
   - Assumptions:
     - `A3`
     - `A5`
   - Done when:
-    - Provider exposes APIs for listing and fetching accepted and collectible payment state.
+    - Provider exposes authenticated APIs for listing and fetching accepted and collectible payment state.
     - The returned data is sufficient for operator inspection and CLI-based collection.
     - The API shape is stable enough for MVP-019 and MVP-020 without direct backend reads.
   - Verify:
@@ -594,6 +599,8 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 - [ ] MVP-021 Make TLS the default non-dev runtime posture for oracle, sidecar, and provider integration paths.
   - Context:
     - The MVP requires real transport security without forcing a perfect production-hardening story.
+    - Shared server transport validation and explicit plaintext/TLS config now exist for oracle, consumer sidecar, provider payment gateway, and provider plugin gateway.
+    - Remaining work is non-dev validation, documentation convergence, and operator-facing startup guidance.
   - Assumptions:
     - `A5`
   - Done when:
@@ -606,10 +613,13 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 - [ ] MVP-022 Add authentication and authorization to provider admin/operator APIs.
   - Context:
     - Provider-side operator actions must not rely on open or anonymous admin APIs.
+    - The existing `GetSessionStatus` surface is a minimal runtime coordination helper used by the consumer sidecar; if it remains minimal, it can stay separate from richer authenticated operator inspection APIs.
+    - If `GetSessionStatus` grows into a richer inspection surface, it should either be authenticated or split so the sidecar keeps only the minimal runtime status it needs.
   - Assumptions:
     - `A5`
   - Done when:
     - Provider inspection and settlement-retrieval APIs require authentication and authorization according to the shared bearer-token role contract from MVP-028.
+    - Rich operator runtime/session/payment inspection APIs require `operator.read`; mutating provider admin actions require `admin.write`.
     - The implementation rejects unauthenticated or unauthorized access to operator-only provider actions.
   - Verify:
     - Add tests for authenticated success and unauthenticated rejection.
@@ -650,24 +660,28 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Build and publish refreshed upstream images from the validated source tuple or a newer compatible tuple.
     - Run `go test ./test/integration -run TestFirecore -v -count=1` against the published image path without `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE` and confirm it passes without skip.
 
-- [ ] MVP-023 Define the final MVP observability floor beyond structured logs and status tooling.
+- [x] MVP-023 Define the final MVP observability floor beyond structured logs and status tooling.
   - Context:
-    - MVP requires operational visibility, but metrics/tracing depth is still open.
+    - MVP requires operational visibility beyond logs alone.
+    - Decision on 2026-05-06: the MVP observability floor includes structured logs, operator inspection/status tooling, and basic Prometheus-style metrics endpoints.
+    - Distributed tracing and richer backend-specific observability remain post-MVP unless required by a named target provider environment.
   - Assumptions:
     - `A4`
   - Done when:
     - The repo has a documented observability floor for MVP.
-    - It is clear whether metrics endpoints are part of MVP or not.
+    - It is clear that basic metrics endpoints are part of MVP, while distributed tracing is not required for MVP.
   - Verify:
     - Update [docs/mvp-scope.md](../docs/mvp-scope.md) and narrow the open question if a decision is made.
 
-- [ ] MVP-024 Implement basic operator-facing inspection/status surfaces and log correlation.
+- [ ] MVP-024 Implement basic operator-facing inspection/status surfaces, metrics, and log correlation.
   - Context:
-    - Even if metrics remain open, operators need enough visibility to debug runtime/payment issues.
+    - Operators need enough visibility to debug runtime/payment issues.
+    - The MVP observability floor now includes structured logs, basic Prometheus-style metrics, and operator inspection/status tooling.
   - Assumptions:
     - `A4`
   - Done when:
     - Logs provide enough correlation to understand session/payment events.
+    - Basic metrics cover active sessions/workers, session starts/ends by reason, RAV request/accept/reject outcomes, low-funds stops, metered usage, payment-control pending state, and key request latency/error counts where practical.
     - Provider/operator tooling exposes basic status views and correlation aids without assuming a finalized metrics/tracing backend.
     - This task complements MVP-032 rather than replacing concrete runtime/session/payment inspection APIs.
   - Verify:

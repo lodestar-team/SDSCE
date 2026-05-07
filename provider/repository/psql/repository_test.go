@@ -110,6 +110,17 @@ func TestSessionWithRAV(t *testing.T) {
 		assert.Equal(t, session.CurrentRAV.Message.CollectionID, retrieved.CurrentRAV.Message.CollectionID)
 		assert.Equal(t, session.CurrentRAV.Message.ValueAggregate, retrieved.CurrentRAV.Message.ValueAggregate)
 		assert.Equal(t, session.CurrentRAV.Signature, retrieved.CurrentRAV.Signature)
+
+		record, err := db.CollectionGet(ctx, repository.CollectionKey{
+			SessionID:       session.ID,
+			CollectionID:    session.CurrentRAV.Message.CollectionID,
+			Payer:           session.CurrentRAV.Message.Payer,
+			ServiceProvider: session.CurrentRAV.Message.ServiceProvider,
+			DataService:     session.CurrentRAV.Message.DataService,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, repository.CollectionStateCollectible, record.State)
+		assert.Equal(t, 0, session.CurrentRAV.Message.ValueAggregate.Cmp(record.ValueAggregate))
 	})
 }
 
@@ -149,6 +160,56 @@ func TestSessionUpdate(t *testing.T) {
 		assert.NotNil(t, retrieved.EndedAt)
 		assert.Equal(t, commonv1.EndReason_END_REASON_CLIENT_DISCONNECT, retrieved.EndReason)
 	})
+}
+
+func createTestCollectionSession(t *testing.T, ctx context.Context, db *Database, sessionID string) *repository.Session {
+	t.Helper()
+
+	pricingConfig := sds.PricingConfig{
+		PricePerBlock: sds.MustNewGRT(100),
+		PricePerByte:  sds.MustNewGRT(10),
+	}
+	payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
+	receiver := eth.MustNewAddress("0x2234567890123456789012345678901234567890")
+	dataService := eth.MustNewAddress("0x3234567890123456789012345678901234567890")
+	session := repository.NewSession(sessionID, payer, receiver, dataService, pricingConfig)
+	require.NoError(t, db.SessionCreate(ctx, session))
+	return session
+}
+
+func newPSQLCollectionRAV(payer, receiver, dataService eth.Address, value *big.Int) *horizon.SignedRAV {
+	var sig eth.Signature
+	for i := range sig {
+		sig[i] = byte(i + 1)
+	}
+
+	return &horizon.SignedRAV{
+		Message: &horizon.RAV{
+			CollectionID: horizon.CollectionID{
+				0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+				0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+				0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+				0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
+			},
+			Payer:           payer,
+			ServiceProvider: receiver,
+			DataService:     dataService,
+			TimestampNs:     uint64(time.Now().UnixNano()),
+			ValueAggregate:  new(big.Int).Set(value),
+			Metadata:        []byte("collection-test"),
+		},
+		Signature: sig,
+	}
+}
+
+func psqlCollectionKeyForRAV(sessionID string, rav *horizon.SignedRAV) repository.CollectionKey {
+	return repository.CollectionKey{
+		SessionID:       sessionID,
+		CollectionID:    rav.Message.CollectionID,
+		Payer:           rav.Message.Payer,
+		ServiceProvider: rav.Message.ServiceProvider,
+		DataService:     rav.Message.DataService,
+	}
 }
 
 func TestSessionUpdateRAVAndBaseline_PreservesUsageTotals(t *testing.T) {
@@ -196,6 +257,16 @@ func TestSessionUpdateRAVAndBaseline_PreservesUsageTotals(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, retrieved.CurrentRAV)
 		assert.Equal(t, 0, big.NewInt(1234).Cmp(retrieved.CurrentRAV.Message.ValueAggregate))
+		record, err := db.CollectionGet(ctx, repository.CollectionKey{
+			SessionID:       session.ID,
+			CollectionID:    signedRAV.Message.CollectionID,
+			Payer:           signedRAV.Message.Payer,
+			ServiceProvider: signedRAV.Message.ServiceProvider,
+			DataService:     signedRAV.Message.DataService,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, repository.CollectionStateCollectible, record.State)
+		assert.Equal(t, 0, big.NewInt(1234).Cmp(record.ValueAggregate))
 		assert.Equal(t, uint64(100), retrieved.BlocksProcessed)
 		assert.Equal(t, uint64(2000), retrieved.BytesTransferred)
 		assert.Equal(t, uint64(10), retrieved.Requests)
@@ -204,6 +275,202 @@ func TestSessionUpdateRAVAndBaseline_PreservesUsageTotals(t *testing.T) {
 		assert.Equal(t, uint64(2000), retrieved.BaselineBytes)
 		assert.Equal(t, uint64(10), retrieved.BaselineReqs)
 		assert.Equal(t, 0, cost.Cmp(retrieved.BaselineCost))
+	})
+}
+
+func TestSessionUpdateRAVAndBaseline_SurvivesRepositoryRestart(t *testing.T) {
+	withTestDBSchema(t, func(db *Database, dsn string, schema string) {
+		ctx := context.Background()
+
+		pricingConfig := sds.PricingConfig{
+			PricePerBlock: sds.MustNewGRT(100),
+			PricePerByte:  sds.MustNewGRT(10),
+		}
+
+		payer := eth.MustNewAddress("0x1234567890123456789012345678901234567890")
+		receiver := eth.MustNewAddress("0x2234567890123456789012345678901234567890")
+		dataService := eth.MustNewAddress("0x3234567890123456789012345678901234567890")
+
+		session := repository.NewSession("test-session-rav-restart", payer, receiver, dataService, pricingConfig)
+		session.Metadata["runtime"] = "postgres"
+		require.NoError(t, db.SessionCreate(ctx, session))
+
+		cost := pricingConfig.CalculateUsageCost(125, 4096).BigInt()
+		require.NoError(t, db.SessionApplyUsage(ctx, session.ID, &repository.UsageEvent{
+			Timestamp: time.Now(),
+			Blocks:    125,
+			Bytes:     4096,
+			Requests:  7,
+		}, cost))
+
+		collectionID := horizon.CollectionID{
+			0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+			0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+			0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+			0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
+		}
+		var sig eth.Signature
+		for i := range sig {
+			sig[i] = byte(i + 1)
+		}
+
+		acceptedRAV := &horizon.SignedRAV{
+			Message: &horizon.RAV{
+				CollectionID:    collectionID,
+				Payer:           payer,
+				ServiceProvider: receiver,
+				DataService:     dataService,
+				TimestampNs:     uint64(time.Now().UnixNano()),
+				ValueAggregate:  cost,
+				Metadata:        []byte("accepted-after-metering"),
+			},
+			Signature: sig,
+		}
+		require.NoError(t, db.SessionUpdateRAVAndBaseline(ctx, session.ID, acceptedRAV, 125, 4096, 7, cost))
+		require.NoError(t, db.Close())
+
+		restarted := reopenTestRepository(t, dsn, schema)
+		defer restarted.Close()
+
+		retrieved, err := restarted.SessionGet(ctx, session.ID)
+		require.NoError(t, err)
+		require.NotNil(t, retrieved.CurrentRAV)
+
+		rav := retrieved.CurrentRAV
+		assert.Equal(t, collectionID, rav.Message.CollectionID)
+		assert.Equal(t, payer.Pretty(), rav.Message.Payer.Pretty())
+		assert.Equal(t, receiver.Pretty(), rav.Message.ServiceProvider.Pretty())
+		assert.Equal(t, dataService.Pretty(), rav.Message.DataService.Pretty())
+		assert.Equal(t, acceptedRAV.Message.TimestampNs, rav.Message.TimestampNs)
+		assert.Equal(t, 0, cost.Cmp(rav.Message.ValueAggregate))
+		assert.Equal(t, acceptedRAV.Message.Metadata, rav.Message.Metadata)
+		assert.Equal(t, sig, rav.Signature)
+
+		assert.Equal(t, repository.SessionStatusActive, retrieved.Status)
+		assert.Equal(t, session.Metadata, retrieved.Metadata)
+		assert.Equal(t, uint64(125), retrieved.BlocksProcessed)
+		assert.Equal(t, uint64(4096), retrieved.BytesTransferred)
+		assert.Equal(t, uint64(7), retrieved.Requests)
+		assert.Equal(t, 0, cost.Cmp(retrieved.TotalCost))
+		assert.Equal(t, uint64(125), retrieved.BaselineBlocks)
+		assert.Equal(t, uint64(4096), retrieved.BaselineBytes)
+		assert.Equal(t, uint64(7), retrieved.BaselineReqs)
+		assert.Equal(t, 0, cost.Cmp(retrieved.BaselineCost))
+	})
+}
+
+func TestCollectionLifecycleTransitions(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+		session := createTestCollectionSession(t, ctx, db, "test-collection-lifecycle")
+		rav := newPSQLCollectionRAV(session.Payer, session.Receiver, session.DataService, big.NewInt(100))
+
+		record, err := db.CollectionCreateOrUpdateCollectible(ctx, session.ID, rav)
+		require.NoError(t, err)
+		assert.Equal(t, repository.CollectionStateCollectible, record.State)
+		assert.Equal(t, 0, big.NewInt(100).Cmp(record.ValueAggregate))
+		assert.Equal(t, 0, record.AttemptCount)
+
+		pendingAt := time.Now().Add(time.Minute).UTC().Truncate(time.Second)
+		record, err = db.CollectionMarkPending(ctx, record.Key, big.NewInt(100), "0xabc", pendingAt)
+		require.NoError(t, err)
+		assert.Equal(t, repository.CollectionStateCollectPending, record.State)
+		assert.Equal(t, 1, record.AttemptCount)
+		assert.Equal(t, "0xabc", record.LastTxHash)
+
+		record, err = db.CollectionMarkFailedRetryable(ctx, record.Key, big.NewInt(100), "0xabc", "receipt timeout", pendingAt.Add(time.Minute))
+		require.NoError(t, err)
+		assert.Equal(t, repository.CollectionStateCollectFailedRetryable, record.State)
+		assert.Equal(t, "receipt timeout", record.LastError)
+
+		record, err = db.CollectionMarkPending(ctx, record.Key, big.NewInt(100), "0xdef", pendingAt.Add(2*time.Minute))
+		require.NoError(t, err)
+		assert.Equal(t, repository.CollectionStateCollectPending, record.State)
+		assert.Equal(t, 2, record.AttemptCount)
+		assert.Empty(t, record.LastError)
+
+		record, err = db.CollectionMarkCollected(ctx, record.Key, big.NewInt(100), "0xdef", big.NewInt(95), pendingAt.Add(3*time.Minute))
+		require.NoError(t, err)
+		assert.Equal(t, repository.CollectionStateCollected, record.State)
+		assert.Equal(t, 0, big.NewInt(95).Cmp(record.CollectedAmount))
+		assert.Equal(t, "0xdef", record.LastTxHash)
+
+		got, err := db.CollectionGet(ctx, record.Key)
+		require.NoError(t, err)
+		assert.Equal(t, repository.CollectionStateCollected, got.State)
+		assert.Equal(t, rav.Signature, got.SignedRAV.Signature)
+		assert.Equal(t, rav.Message.CollectionID, got.SignedRAV.Message.CollectionID)
+
+		state := repository.CollectionStateCollected
+		listed, err := db.CollectionList(ctx, repository.CollectionFilter{State: &state})
+		require.NoError(t, err)
+		require.Len(t, listed, 1)
+		assert.Equal(t, record.Key.SessionID, listed[0].Key.SessionID)
+	})
+}
+
+func TestCollectionLifecycleRejectsStaleAndBackwardsTransitions(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+		session := createTestCollectionSession(t, ctx, db, "test-collection-invalid")
+		rav := newPSQLCollectionRAV(session.Payer, session.Receiver, session.DataService, big.NewInt(100))
+
+		record, err := db.CollectionCreateOrUpdateCollectible(ctx, session.ID, rav)
+		require.NoError(t, err)
+
+		_, err = db.CollectionMarkPending(ctx, record.Key, big.NewInt(99), "0xabc", time.Now())
+		require.ErrorIs(t, err, repository.ErrCollectionConflict)
+
+		record, err = db.CollectionMarkPending(ctx, record.Key, big.NewInt(100), "0xabc", time.Now())
+		require.NoError(t, err)
+		record, err = db.CollectionMarkCollected(ctx, record.Key, big.NewInt(100), "0xabc", big.NewInt(100), time.Now())
+		require.NoError(t, err)
+
+		_, err = db.CollectionMarkPending(ctx, record.Key, big.NewInt(100), "0xdef", time.Now())
+		require.ErrorIs(t, err, repository.ErrInvalidCollectionTransition)
+
+		same, err := db.CollectionCreateOrUpdateCollectible(ctx, session.ID, rav)
+		require.NoError(t, err)
+		assert.Equal(t, repository.CollectionStateCollected, same.State)
+
+		lower := newPSQLCollectionRAV(session.Payer, session.Receiver, session.DataService, big.NewInt(90))
+		_, err = db.CollectionCreateOrUpdateCollectible(ctx, session.ID, lower)
+		require.ErrorIs(t, err, repository.ErrCollectionConflict)
+
+		higher := newPSQLCollectionRAV(session.Payer, session.Receiver, session.DataService, big.NewInt(110))
+		updated, err := db.CollectionCreateOrUpdateCollectible(ctx, session.ID, higher)
+		require.NoError(t, err)
+		assert.Equal(t, repository.CollectionStateCollectible, updated.State)
+		assert.Equal(t, 0, big.NewInt(110).Cmp(updated.ValueAggregate))
+	})
+}
+
+func TestSessionUpdate_DoesNotCommitRAVOnLifecycleConflict(t *testing.T) {
+	withTestDB(t, func(db *Database) {
+		ctx := context.Background()
+		session := createTestCollectionSession(t, ctx, db, "test-session-update-conflict")
+		initial := newPSQLCollectionRAV(session.Payer, session.Receiver, session.DataService, big.NewInt(100))
+		session.CurrentRAV = initial
+		require.NoError(t, db.SessionUpdate(ctx, session))
+
+		record, err := db.CollectionMarkPending(ctx, psqlCollectionKeyForRAV(session.ID, initial), big.NewInt(100), "0xabc", time.Now())
+		require.NoError(t, err)
+		require.Equal(t, repository.CollectionStateCollectPending, record.State)
+
+		conflicting := newPSQLCollectionRAV(session.Payer, session.Receiver, session.DataService, big.NewInt(110))
+		session.CurrentRAV = conflicting
+		err = db.SessionUpdate(ctx, session)
+		require.ErrorIs(t, err, repository.ErrCollectionConflict)
+
+		got, err := db.SessionGet(ctx, session.ID)
+		require.NoError(t, err)
+		require.NotNil(t, got.CurrentRAV)
+		assert.Equal(t, 0, big.NewInt(100).Cmp(got.CurrentRAV.Message.ValueAggregate))
+
+		gotRecord, err := db.CollectionGet(ctx, psqlCollectionKeyForRAV(session.ID, initial))
+		require.NoError(t, err)
+		assert.Equal(t, repository.CollectionStateCollectPending, gotRecord.State)
+		assert.Equal(t, 0, big.NewInt(100).Cmp(gotRecord.ValueAggregate))
 	})
 }
 

@@ -66,7 +66,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - MVP work should include structured logs, operator inspection/status tooling, and basic Prometheus-style metrics endpoints.
   - Full distributed tracing and backend-specific observability hardening remain post-MVP unless required by a named target provider environment.
 
-- `A5` Admin/operator authentication contract is frozen, with implementation still pending for provider operator APIs.
+- `A5` Admin/operator authentication contract is frozen, with provider gateway auth wiring and concrete provider operator APIs in place.
   - MVP work should require authentication using the shared bearer-token role contract from `MVP-028`.
   - Minimal runtime-coordination status used by the consumer sidecar may remain separate from richer operator inspection APIs.
   - Rich provider operator/admin inspection and mutation APIs must use the shared bearer-token role contract from `MVP-028`.
@@ -98,8 +98,8 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-005 | `done` | oracle | `A1`, `A2`, `A5` | `MVP-033` | `A` | Implement a standalone oracle service with manual whitelist, canonical pricing, recommended-provider response, and control-plane endpoint return |
 | MVP-006 | `done` | oracle | `A5` | `MVP-028` | `A`, `G` | Add admin-only oracle whitelist/provider metadata management workflow for the curated MVP provider set |
 | MVP-007 | `done` | consumer | `A1`, `A2`, `A3` | `MVP-005`, `MVP-033` | `A` | Integrate consumer sidecar with oracle discovery while preserving direct-provider fallback and provider-returned data-plane resolution |
-| MVP-008 | `in_progress` | provider-state | `A3`, `A6` | `MVP-003` | `D`, `F` | Complete durable provider runtime storage for sessions, usage, and accepted RAV state, distinct from collection lifecycle tracking |
-| MVP-009 | `not_started` | provider-state | `A3`, `A5` | `MVP-003`, `MVP-022`, `MVP-029` | `D`, `F` | Expose authenticated provider inspection and settlement-data retrieval APIs for accepted and collectible RAV state |
+| MVP-008 | `done` | provider-state | `A3`, `A6` | `MVP-003` | `D`, `F` | Complete durable provider runtime storage for sessions, usage, and accepted RAV state, distinct from collection lifecycle tracking |
+| MVP-009 | `done` | provider-state | `A3`, `A5` | `MVP-003`, `MVP-022`, `MVP-029` | `D`, `F` | Expose authenticated provider inspection and settlement-data retrieval APIs for accepted and collectible RAV state |
 | MVP-010 | `done` | funding-control | `A6` | `MVP-004` | `C` | Implement session-local low-funds detection and provider terminal stop behavior during streaming |
 | MVP-011 | `done` | funding-control | `A6` | `MVP-010` | `C` | Propagate provider low-funds stop decisions through consumer sidecar into the real ingress/client path |
 | MVP-012 | `done` | funding-control | none | `MVP-004` | `A`, `C` | Add deterministic cost-based RAV issuance thresholds suitable for real runtime behavior |
@@ -109,20 +109,20 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-016 | `done` | provider-integration | `A6` | `MVP-010`, `MVP-014` | `C` | Enforce gateway Continue/Stop decisions in the live provider stream lifecycle |
 | MVP-017 | `done` | consumer-integration | `A1`, `A2`, `A3` | `MVP-007`, `MVP-011`, `MVP-033` | `A`, `C` | Implement the consumer sidecar as the Substreams-compatible endpoint/proxy and primary SDS-facing runtime boundary |
 | MVP-018 | `done` | tooling | none | `MVP-032` | `E` | Implement operator funding CLI flows for approve/deposit/top-up beyond local demo assumptions |
-| MVP-019 | `not_started` | tooling | `A5` | `MVP-009`, `MVP-022` | `D`, `F` | Implement provider inspection CLI flows for accepted and collectible RAV data |
-| MVP-020 | `not_started` | tooling | `A5` | `MVP-009`, `MVP-022`, `MVP-029` | `F` | Implement manual collection CLI flow that fetches provider settlement state and crafts/signs/submits collect transactions locally |
+| MVP-019 | `done` | tooling | `A5` | `MVP-009`, `MVP-022` | `D`, `F` | Implement provider inspection CLI flows for accepted and collectible RAV data |
+| MVP-020 | `done` | tooling | `A5` | `MVP-009`, `MVP-022`, `MVP-029` | `F` | Implement manual collection CLI flow that fetches provider settlement state and crafts/signs/submits collect transactions locally |
 | MVP-021 | `in_progress` | security | `A5` | none | `G` | Make TLS the default non-dev runtime posture for oracle, sidecar, and provider integration paths |
-| MVP-022 | `not_started` | security | `A5` | `MVP-028` | `D`, `F`, `G` | Add authentication and authorization to provider admin/operator APIs using the shared bearer-token role contract from MVP-028 |
+| MVP-022 | `done` | security | `A5` | `MVP-028` | `D`, `F`, `G` | Add authentication and authorization to provider admin/operator APIs using the shared bearer-token role contract from MVP-028 |
 | MVP-023 | `done` | observability | `A4` | none | `A`, `C`, `D`, `F`, `G` | Define the final MVP observability floor beyond structured logs and status tooling |
-| MVP-024 | `in_progress` | observability | `A4` | `MVP-023` | `C`, `D`, `F`, `G` | Implement basic operator-facing inspection/status surfaces, metrics, and log correlation |
+| MVP-024 | `done` | observability | `A4` | `MVP-023` | `C`, `D`, `F`, `G` | Implement basic operator-facing inspection/status surfaces, metrics, and log correlation |
 | MVP-025 | `in_progress` | validation | none | none | `A`, `B`, `C`, `D`, `E`, `F`, `G` | Add MVP acceptance coverage for the primary end-to-end scenarios in docs/tests/manual verification |
 | MVP-026 | `in_progress` | docs | `A1`, `A4`, `A5` | `MVP-023`, `MVP-028`, `MVP-033` | `A`, `B`, `C`, `D`, `E`, `F`, `G` | Refresh protocol/runtime docs so they match the revised MVP architecture and remaining open questions |
 | MVP-027 | `done` | protocol | `A3` | none | `B`, `D`, `F` | Freeze MVP payment/session identity semantics for fresh sessions and non-reused collection/payment lineage |
 | MVP-028 | `done` | security | `A5` | none | `G` | Define the MVP authentication and authorization contract for provider operator APIs and future oracle admin surfaces |
-| MVP-029 | `not_started` | provider-state | `A3`, `A5` | `MVP-003` | `D`, `F` | Implement provider collection lifecycle transitions and update surfaces for `collectible`, `collect_pending`, `collected`, and retryable collection state |
+| MVP-029 | `done` | provider-state | `A3`, `A5` | `MVP-003` | `D`, `F` | Implement provider collection lifecycle transitions and update surfaces for `collectible`, `collect_pending`, `collected`, and retryable collection state |
 | MVP-030 | `done` | provider-integration | `A5` | `MVP-014`, `MVP-017` | `A`, `G` | Define and document the MVP runtime-compatibility contract for real provider/plugin deployments without side-effectful automatic probes |
 | MVP-031 | `done` | runtime-payment | `A2`, `A3` | `MVP-004`, `MVP-012`, `MVP-014`, `MVP-017` | `A`, `C` | Wire the long-lived provider-originated payment-control loop behind the consumer-sidecar ingress path used by real runtime traffic |
-| MVP-032 | `not_started` | operations | `A4`, `A5`, `A6` | `MVP-008`, `MVP-010`, `MVP-022` | `C`, `D`, `F`, `G` | Expose authenticated operator runtime/session/payment inspection APIs and CLI/status flows |
+| MVP-032 | `done` | operations | `A4`, `A5`, `A6` | `MVP-008`, `MVP-010`, `MVP-022` | `C`, `D`, `F`, `G` | Expose authenticated operator runtime/session/payment inspection APIs and CLI/status flows |
 | MVP-033 | `done` | protocol | `A1` | none | `A` | Freeze the chain/network discovery input contract across client, sidecar, and oracle |
 | MVP-034 | `done` | validation | none | none | none | Fix repository PostgreSQL tests so migrations resolve from repo-relative state rather than a machine-specific absolute path |
 | MVP-035 | `done` | validation | none | none | none | Make integration devenv startup resilient to local fixed-port collisions so the shared test environment is reproducible |
@@ -282,15 +282,15 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 
 ## Provider State and Settlement Tasks
 
-- [ ] MVP-008 Complete durable provider runtime storage for sessions, usage, and accepted RAV state, distinct from collection lifecycle tracking.
+- [x] MVP-008 Complete durable provider runtime storage for sessions, usage, and accepted RAV state, distinct from collection lifecycle tracking.
   - Context:
     - StreamingFast landed:
       - PostgreSQL repository foundation
       - DSN-based repository selection
       - gateway integration with that repository
       - repository test coverage
-    - Remaining work is to close the gap between existing runtime persistence and the MVP durability scenarios.
-    - Recent payment-session hardening advanced this task by making runtime-state writes narrower, keepalive/runtime lifecycle updates monotonic, and accepted RAV plus baseline commits explicit and atomic. It does not yet close the restart-focused acceptance proof for durable provider state.
+    - The restart-focused accepted RAV proof now closes the gap between existing runtime persistence and the MVP durability scenarios for this task.
+    - Recent payment-session hardening advanced this task by making runtime-state writes narrower, keepalive/runtime lifecycle updates monotonic, and accepted RAV plus baseline commits explicit and atomic.
   - Assumptions:
     - `A3`
     - `A6`
@@ -299,10 +299,10 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Accepted RAV state needed for post-restart inspection and settlement survives restart in the durable backend.
     - The task no longer includes collection lifecycle state, which remains tracked under MVP-029.
   - Verify:
-    - Add or unskip a restart-focused integration or persistence test that validates accepted state survives process restart using the durable repository path.
+    - Added `TestSessionUpdateRAVAndBaseline_SurvivesRepositoryRestart`, a PostgreSQL-backed persistence test that validates accepted RAV, settlement tuple, usage totals, and baseline state survive reopening the repository against the same durable schema.
     - Existing supporting coverage now includes field-specific repository updates, monotonic keepalive/runtime lifecycle behavior, and accepted RAV plus baseline commit semantics across in-memory and PostgreSQL paths.
 
-- [ ] MVP-009 Expose authenticated provider inspection and settlement-data retrieval APIs for accepted and collectible RAV state.
+- [x] MVP-009 Expose authenticated provider inspection and settlement-data retrieval APIs for accepted and collectible RAV state.
   - Context:
     - CLI inspection and manual collection require a provider-side way to retrieve settlement-relevant data.
     - Current `GetSessionStatus` is useful runtime-coordination scaffolding and now exposes provider-side payment-control pending state, but it is intentionally not the richer operator inspection surface.
@@ -316,11 +316,17 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - The API shape is stable enough for MVP-019 and MVP-020 without direct backend reads.
   - Verify:
     - Add integration coverage for listing and fetching settlement-relevant accepted state.
+  - Implemented:
+    - Added `ProviderOperatorService` as a separate private Connect service under `provider/v1/operator.proto`.
+    - Added authenticated read RPCs for sessions, accepted RAVs, and collection lifecycle records.
+    - Added authenticated admin RPCs for collection lifecycle transitions to pending, collected, and retryable failure.
+    - Registered the service on the private provider operator listener, separate from the public payment gateway service.
+    - Added focused Connect handler tests for missing auth, read-token success, read-token mutation denial, admin mutation success, accepted RAV retrieval, collection retrieval, filtering, stale expected-value conflicts, and invalid collection keys.
 
-- [ ] MVP-029 Implement provider collection lifecycle transitions and update surfaces for `collectible`, `collect_pending`, `collected`, and retryable collection state.
+- [x] MVP-029 Implement provider collection lifecycle transitions and update surfaces for `collectible`, `collect_pending`, `collected`, and retryable collection state.
   - Context:
     - The revised scope keeps collection lifecycle tracking as explicit provider-side work.
-    - The recent persistence work did not complete this lifecycle.
+    - The repository now models collection lifecycle separately from runtime session state.
   - Assumptions:
     - `A3`
     - `A5`
@@ -329,7 +335,8 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - There is a defined provider-side update path for marking collection attempts pending, completed, or retryable.
     - Retry behavior is documented so CLI flows can be idempotent.
   - Verify:
-    - Add persistence or integration tests that cover `collectible` -> `collect_pending` -> `collected` and a retryable failure path.
+    - Added in-memory and PostgreSQL persistence tests covering `collectible` -> `collect_pending` -> `collected`, `collect_pending` -> `collect_failed_retryable` -> `collect_pending`, stale expected-value rejection, and backwards-transition rejection.
+    - PostgreSQL migration coverage now includes the `collection_records` table.
 
 ## Funding Control and Runtime Payment Tasks
 
@@ -563,7 +570,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Added shared ERC20, `PaymentsEscrow`, and `GraphTallyCollector` ABI wrappers plus shared signer proof generation outside `horizon/devenv`.
     - Documented the operator workflow in [docs/operator-funding.md](../docs/operator-funding.md).
 
-- [ ] MVP-019 Implement provider inspection CLI flows for accepted and collectible RAV data.
+- [x] MVP-019 Implement provider inspection CLI flows for accepted and collectible RAV data.
   - Context:
     - Operators need to inspect what can be collected before settlement.
     - `sds tools rav` inspection is local protobuf inspection, not provider-backed operator inspection.
@@ -574,8 +581,14 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - It supports the lifecycle states needed for MVP operations.
   - Verify:
     - Add manual smoke coverage for inspecting accepted and `collect_pending` state.
+  - Implemented:
+    - Added `sds provider operator sessions list|get`, `ravs list|get`, and `collections list|get` read-only commands backed by the authenticated `ProviderOperatorService`.
+    - CLI requires explicit `--provider-endpoint` and exactly one of `--operator-token-env` or `--operator-token`.
+    - Secure HTTPS is the default for schemeless endpoints; plaintext HTTP requires explicit `--plaintext` for local/dev use.
+    - Commands support text and JSON output, read filters for payer/receiver/data-service/session/collection/status/state, conservative limits, and explicit RAV payload inclusion.
+    - Added focused tests for endpoint security parsing, token resolution, and text formatting.
 
-- [ ] MVP-020 Implement manual collection CLI flow that fetches provider settlement state and crafts/signs/submits collect transactions locally.
+- [x] MVP-020 Implement manual collection CLI flow that fetches provider settlement state and crafts/signs/submits collect transactions locally.
   - Context:
     - Settlement keys should stay outside the provider runtime.
     - Existing RAV tooling is helpful support, but it does not yet implement the provider-backed settlement flow required by MVP.
@@ -587,6 +600,14 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - CLI can retry safely when collection is pending or needs to be re-attempted.
   - Verify:
     - Add a manual or automated integration scenario that retrieves collectible state and completes a collect transaction.
+  - Evidence:
+    - Added production `contracts/horizon` helpers to encode `SubstreamsDataService.collect(indexer, QueryFee, abi.encode(signedRAV, dataServiceCut))` calldata from `horizon.SignedRAV`.
+    - Moved the integration setup helper for data-service collect payload encoding onto the production helper.
+    - Added `sds provider operator collect`, backed by the authenticated provider operator API and `contracts/chain` transaction sender.
+    - The command requires explicit provider endpoint/token, RPC/chain configuration, data service address, provider private key, collection identity, and `--data-service-cut-ppm`; no local production defaults are inferred.
+    - The command validates collectible/retryable state, exact signed RAV data, provider key address, and data service address before submission.
+    - The command marks pending before submission except in `--dry-run`, marks collected after a successful waited receipt, marks retryable after submission/receipt errors when pending was set, leaves `--no-wait` records pending with follow-up output, and treats already-collected records as a no-op.
+    - Focused tests cover calldata packing, collect record validation, and admin pending mutation without a pre-submission tx hash.
 
 ## Security, Runtime Compatibility, and Observability Tasks
 
@@ -617,7 +638,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - Verify:
     - Add validation or smoke coverage for TLS-enabled startup and client connectivity across oracle and sidecar/provider paths.
 
-- [ ] MVP-022 Add authentication and authorization to provider admin/operator APIs.
+- [x] MVP-022 Add authentication and authorization to provider admin/operator APIs.
   - Context:
     - Provider-side operator actions must not rely on open or anonymous admin APIs.
     - The existing `GetSessionStatus` surface is a minimal runtime coordination helper used by the consumer sidecar; if it remains minimal, it can stay separate from richer authenticated operator inspection APIs.
@@ -625,11 +646,18 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - Assumptions:
     - `A5`
   - Done when:
-    - Provider inspection and settlement-retrieval APIs require authentication and authorization according to the shared bearer-token role contract from MVP-028.
-    - Rich operator runtime/session/payment inspection APIs require `operator.read`; mutating provider admin actions require `admin.write`.
-    - The implementation rejects unauthenticated or unauthorized access to operator-only provider actions.
+    - Provider gateway startup accepts explicit operator listener and read/admin token environment variable configuration.
+    - Enabled provider operator surfaces fail fast without usable configured tokens.
+    - Gateway-level operator authorization uses the shared bearer-token role contract from MVP-028, where read-only operator actions require `operator.read` and mutating provider admin actions require `admin.write`.
+    - Concrete provider inspection, settlement-retrieval, and lifecycle API handlers added by `MVP-009`/`MVP-032` can enforce the wired authorization helper before serving operator-only actions.
   - Verify:
-    - Add tests for authenticated success and unauthenticated rejection.
+    - Add tests for token configuration validation, authenticated success, unauthenticated rejection, and role denial.
+  - Implemented:
+    - Added disabled-by-default provider operator gateway flags: `--operator-listen-addr`, `--operator-read-token-env`, and `--admin-write-token-env`.
+    - Startup now resolves read/admin bearer tokens from explicit environment variable names and fails fast when an enabled operator service has missing, empty, or unusable token values.
+    - `gateway.Config` and `Gateway` now carry `operatorauth.Config`, with a gateway helper that enforces `operator.read` and `admin.write` role requirements through the shared `internal/operatorauth` contract.
+    - The provider command starts a separate operator gateway listener when enabled; concrete operator API handlers are added by `MVP-009`/`MVP-032`.
+    - Focused tests cover command token resolution plus gateway/operator-listener authorization behavior for missing, malformed, read-only, and admin tokens.
 
 ## Runtime Compatibility Tasks
 
@@ -680,7 +708,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - Verify:
     - Update [docs/mvp-scope.md](../docs/mvp-scope.md) and narrow the open question if a decision is made.
 
-- [ ] MVP-024 Implement basic operator-facing inspection/status surfaces, metrics, and log correlation.
+- [x] MVP-024 Implement basic operator-facing inspection/status surfaces, metrics, and log correlation.
   - Context:
     - Operators need enough visibility to debug runtime/payment issues.
     - The MVP observability floor now includes structured logs, basic Prometheus-style metrics, and operator inspection/status tooling.
@@ -693,8 +721,15 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - This task complements MVP-032 rather than replacing concrete runtime/session/payment inspection APIs.
   - Verify:
     - Manual verification that operators can inspect and reason about low-funds, restart, and collection flows without code-level debugging.
+  - Implemented:
+    - The private provider operator gateway now exposes an authenticated Prometheus text endpoint at `/metrics`.
+    - Metrics require `operator.read` bearer authorization and are served from the private operator listener rather than the public payment gateway listener.
+    - The endpoint reports current provider sessions by status, terminated sessions by end reason, active runtime workers, accepted RAV count, collection lifecycle records by state, low-funds sessions, payment-control pending sessions, RAV-request eligible sessions, and retained usage totals.
+    - Metric labels intentionally avoid high-cardinality session IDs while preserving operator-useful aggregate status.
+    - Existing structured logs already carry session/payment correlation fields such as `session_id`, `payer`, signer, worker key, and payment/control outcomes; `MVP-032` operator status views provide the corresponding status correlation surface.
+    - Focused coverage verifies metrics auth, emitted status/funds/usage metrics, collection metrics, and absence of session labels.
 
-- [ ] MVP-032 Expose operator runtime/session/payment inspection APIs and CLI/status flows.
+- [x] MVP-032 Expose operator runtime/session/payment inspection APIs and CLI/status flows.
   - Context:
     - The MVP scope requires operators to inspect session, payment, and collection state, not only settlement-ready records.
     - `GetSessionStatus` now exposes whether provider-side runtime payment control is pending, which is useful runtime scaffolding for this task but does not replace authenticated operator inspection APIs or CLI/status flows.
@@ -708,6 +743,11 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Low-funds inspection includes enough actionable information for an operator to understand whether additional escrow funding is required and why.
   - Verify:
     - Add manual or integration coverage for inspecting an active or recently interrupted session, a low-funds session, and persisted post-restart payment state.
+  - Implemented:
+    - Authenticated provider operator session APIs expose session status, accumulated usage, baseline usage, accepted RAV summary, collection state, payment-control pending state, and low-funds/payment state.
+    - Added an operator payment state payload with last assessed funds status, current and projected outstanding value, escrow balance when known, minimum needed amount, check errors, and operator hints.
+    - `sds provider operator sessions list|get` displays the runtime/payment state without direct backend access, and `sessions list` can filter by `--funds-status=ok|insufficient|unknown`.
+    - Focused tests cover low-funds payment-state API output, funds-status filtering, and CLI text presentation.
 
 ## Validation and Documentation Tasks
 

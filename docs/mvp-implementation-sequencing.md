@@ -187,25 +187,33 @@ Minimum prerequisites:
 
 - `MVP-027`
 
-Recommended sequence:
+Completed foundation:
 
-1. `MVP-003` Define and document the provider-side runtime persistence boundary and settlement lifecycle ownership
-2. `MVP-008` Add durable provider storage for sessions, usage, and latest accepted RAV runtime state
-3. `MVP-029` Implement provider collection lifecycle transitions and update surfaces for `collectible`, `collect_pending`, `collected`, and retryable collection state
-4. `MVP-022` Add authentication and authorization to provider admin/operator APIs
-5. `MVP-009` Expose authenticated provider inspection and settlement-data retrieval APIs for accepted/collectible RAV state
-6. `MVP-032` Expose authenticated operator runtime/session/payment inspection APIs and CLI/status flows
-7. `MVP-019` Implement provider inspection CLI flows for collectible/accepted RAV data
-8. `MVP-020` Implement manual collection CLI flow that crafts/signs/submits collect transactions locally
+- `MVP-003` Define and document the provider-side runtime persistence boundary and settlement lifecycle ownership
+- `MVP-008` Add durable provider storage for sessions, usage, and latest accepted RAV runtime state
+- `MVP-029` Implement provider collection lifecycle transitions and update surfaces for `collectible`, `collect_pending`, `collected`, and retryable collection state
+- `MVP-022` Add authentication and authorization wiring for provider admin/operator APIs
+- `MVP-009` Expose authenticated provider inspection and settlement-data retrieval APIs for accepted/collectible RAV state
+- `MVP-032` authenticated runtime/session/payment inspection APIs and CLI/status flows
+- `MVP-019` Implement provider inspection CLI flows for accepted and collectible RAV data
+- `MVP-020` Implement manual collection CLI flow that crafts/signs/submits collect transactions locally
+
+Recommended next sequence:
+
+1. `MVP-024` observability metrics/log correlation implementation
+2. `MVP-025` acceptance coverage
+3. `MVP-026` documentation refresh
 
 Notes:
 
-- `MVP-008` and `MVP-029` can begin in parallel once `MVP-003` and `MVP-027` are stable enough.
-- Recent payment-session hardening advances `MVP-008` by making narrow runtime-state writes monotonic and accepted RAV plus baseline commits explicit, but restart-safe durable acceptance proof still remains before `MVP-008` can close.
-- `MVP-003` should freeze the runtime-versus-settlement boundary before either downstream task broadens its scope.
-- `MVP-022` can be implemented before concrete retrieval APIs, because the bearer-token role contract is already frozen under `MVP-028`.
-- `MVP-009` depends on `MVP-022` and `MVP-029`, so authenticated retrieval should wait until both auth enforcement and lifecycle semantics are stable.
-- `MVP-018` is complete; future operator-flow sequencing starts from provider inspection and manual collection work.
+- `MVP-008` is closed by PostgreSQL-backed persistence coverage proving accepted RAV, settlement tuple, usage totals, and baseline state survive reopening the repository against the same durable schema.
+- `MVP-029` is closed by repository lifecycle coverage for `collectible`, `collect_pending`, `collected`, retryable failure, stale expected-value rejection, and backwards-transition rejection.
+- `MVP-022` is closed by disabled-by-default provider operator listener flags, explicit read/admin token env resolution, gateway-carried `operatorauth.Config`, a separate operator listener scaffold, and focused role-enforcement coverage.
+- `MVP-009` is closed by the separate authenticated `ProviderOperatorService`, which exposes read RPCs for sessions, accepted RAVs, and collection lifecycle records plus admin lifecycle transition RPCs.
+- `MVP-032` is closed by authenticated session/runtime payment inspection fields and provider operator CLI presentation for status, accumulated/baseline usage, accepted RAV summary, payment-control pending state, last assessed funds status, current/projected outstanding value, escrow balance when known, minimum needed, check errors, and low-funds operator hints.
+- `MVP-019` is closed by read-only `sds provider operator sessions|ravs|collections` commands backed by the authenticated provider operator API.
+- `MVP-020` is closed by `sds provider operator collect`, production `SubstreamsDataService.collect` calldata helpers, local provider-key transaction signing through `contracts/chain`, and provider lifecycle transitions for pending, collected, retryable failure, no-wait, dry-run, and already-collected no-op cases.
+- `MVP-018` is complete; future operator-flow sequencing starts from observability, acceptance, and docs hardening.
 
 ### Lane D: Post-MVP Reconnect And Resume
 
@@ -251,13 +259,12 @@ Minimum prerequisites:
 
 Recommended sequence:
 
-1. `MVP-024` Implement basic operator-facing inspection/status surfaces, metrics, and log correlation
-2. `MVP-025` Add MVP acceptance coverage for the primary end-to-end scenarios in docs/tests/manual verification
-3. `MVP-026` Refresh protocol/runtime docs so they match the MVP architecture and explicit open questions
+1. `MVP-025` Add MVP acceptance coverage for the primary end-to-end scenarios in docs/tests/manual verification
+2. `MVP-026` Refresh protocol/runtime docs so they match the MVP architecture and explicit open questions
 
 Notes:
 
-- `MVP-024` should implement structured log correlation, basic Prometheus-style metrics, and operator status/inspection visibility without requiring distributed tracing.
+- `MVP-024` is closed by authenticated private operator `/metrics`, structured session/payment log correlation fields, and provider operator status/inspection visibility without requiring distributed tracing.
 - `MVP-025` should be updated incrementally throughout implementation, but its final closure belongs near the end.
 - `MVP-026` should be completed after the key open-question outputs it depends on are stable.
 
@@ -299,12 +306,11 @@ Already resolved:
 - `MVP-040`
 - `MVP-041`
 - `MVP-023`
+- `MVP-008`
+- `MVP-029`
 
 ### Phase 1: Start The First Implementable Lanes
 
-- Provider state foundation:
-  - `MVP-008`
-  - `MVP-029`
 - Security foundation:
   - `MVP-021`
 - Runtime compatibility:
@@ -346,7 +352,7 @@ This section is interpretive guidance based on the assumptions register and depe
 ### Should Usually Wait
 
 - `MVP-019` and `MVP-020`
-  - Should wait until retrieval APIs, auth, and collection lifecycle semantics are in place.
+  - Should wait until retrieval APIs and auth are in place.
 
 ## Prompting Guidance For Sequenced Work
 

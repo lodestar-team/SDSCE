@@ -41,6 +41,31 @@ Static configured bearer tokens are sufficient for MVP.
 
 The reusable helper for this contract lives in [internal/operatorauth/operatorauth.go](/home/juan/GraphOps/substreams/data-service/internal/operatorauth/operatorauth.go).
 
+## Provider Gateway Configuration
+
+Provider operator APIs are configured separately from the public payment protocol. The provider gateway command accepts:
+
+- `--operator-listen-addr`
+- `--operator-read-token-env`
+- `--admin-write-token-env`
+
+The operator listener is disabled unless `--operator-listen-addr` is set. When it is set, the provider starts a separate private operator listener. Both token env-name flags are required, and startup fails if either environment variable is missing, empty, or contains whitespace that cannot be used as a bearer token.
+
+There are no production token defaults. Local/dev workflows must set explicit test token environment variables before enabling the operator listener.
+
+The checked-in reflex development stacks enable the private operator listener on `:9010` and set explicit local-only fallback tokens for that process:
+
+- `SDS_OPERATOR_READ_TOKEN=local-operator-read-token`
+- `SDS_ADMIN_WRITE_TOKEN=local-admin-write-token`
+
+Operators may override those environment variables before running reflex. These values are only for local development and must not be reused in deployed environments.
+
+The reflex fallback values are scoped to the provider process. Operator CLI commands running in a separate shell must either export the same values and use `--operator-token-env`, or pass the local token with `--operator-token`.
+
+The resolved tokens are carried in `gateway.Config` as `operatorauth.Config`; provider operator handlers should call the gateway authorization helper before reading or mutating provider operator state.
+
+The provider operator API is exposed as a separate `ProviderOperatorService` on the private operator listener. Session, accepted RAV, collection retrieval RPCs, and private operator `/metrics` require `operator.read`. Collection lifecycle mutation RPCs require `admin.write`, including manual collection CLI state updates before and after locally submitted collect transactions.
+
 ## Roles
 
 - `operator.read`

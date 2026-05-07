@@ -1,7 +1,7 @@
 # Provider Runtime Compatibility
 
 Drafted: 2026-04-01
-Revised: 2026-04-29
+Revised: 2026-05-07
 
 ## Purpose
 
@@ -36,6 +36,7 @@ In practice, this means:
 - older `firecore` or embedded plugin binaries may become incompatible with newer SDS provider/plugin gateways
 - compatibility should be treated as an explicit release/deployment concern, not something inferred from "starts successfully"
 - the additive `MVP-040` changes to `provider.v1.GetSessionStatusResponse` (`end_reason`, `payment_control_pending`) are payment control-plane only and backward-compatible for external `firecore` / Substreams runtime tuples because they do not modify the auth/session/usage plugin surfaces
+- the provider operator API and CLI work from `MVP-009`, `MVP-019`, `MVP-020`, and `MVP-032` is also backward-compatible for external `firecore` / Substreams runtime tuples because it adds a separate authenticated operator listener/client path and does not change the auth/session/usage plugin surfaces
 
 ## Supported MVP Deployment Shape
 

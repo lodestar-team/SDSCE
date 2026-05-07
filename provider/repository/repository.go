@@ -20,6 +20,15 @@ var ErrNotFound = errors.New("not found")
 // configured limit.
 var ErrQuotaExceeded = errors.New("quota exceeded")
 
+// ErrCollectionConflict is returned when a collection mutation targets a stale
+// accepted RAV snapshot, usually because the expected aggregate value no longer
+// matches the persisted collection record.
+var ErrCollectionConflict = errors.New("collection record conflict")
+
+// ErrInvalidCollectionTransition is returned when a collection lifecycle update
+// would move a record through an unsupported state transition.
+var ErrInvalidCollectionTransition = errors.New("invalid collection state transition")
+
 // GlobalRepository provides global state storage for live session/client tracking.
 // All methods are namespaced by domain (Session*, Client*, Quota*, etc.)
 // All implementations must be safe for concurrent use and return independent
@@ -52,6 +61,14 @@ type GlobalRepository interface {
 	// Usage accumulation (for metering)
 	UsageAdd(ctx context.Context, sessionID string, usage *UsageEvent) error
 
+	// Collection lifecycle tracking
+	CollectionCreateOrUpdateCollectible(ctx context.Context, sessionID string, rav *horizon.SignedRAV) (*CollectionRecord, error)
+	CollectionGet(ctx context.Context, key CollectionKey) (*CollectionRecord, error)
+	CollectionList(ctx context.Context, filter CollectionFilter) ([]*CollectionRecord, error)
+	CollectionMarkPending(ctx context.Context, key CollectionKey, expectedValue *big.Int, txHash string, updatedAt time.Time) (*CollectionRecord, error)
+	CollectionMarkCollected(ctx context.Context, key CollectionKey, expectedValue *big.Int, txHash string, collectedAmount *big.Int, updatedAt time.Time) (*CollectionRecord, error)
+	CollectionMarkFailedRetryable(ctx context.Context, key CollectionKey, expectedValue *big.Int, txHash string, lastError string, updatedAt time.Time) (*CollectionRecord, error)
+
 	// Health/lifecycle
 	Ping(ctx context.Context) error
 	Close() error
@@ -65,6 +82,49 @@ const (
 	SessionStatusPaused     SessionStatus = "paused"
 	SessionStatusTerminated SessionStatus = "terminated"
 )
+
+// CollectionState represents the provider-side settlement lifecycle for an
+// accepted RAV snapshot.
+type CollectionState string
+
+const (
+	CollectionStateCollectible            CollectionState = "collectible"
+	CollectionStateCollectPending         CollectionState = "collect_pending"
+	CollectionStateCollected              CollectionState = "collected"
+	CollectionStateCollectFailedRetryable CollectionState = "collect_failed_retryable"
+)
+
+// CollectionKey identifies collection lifecycle state for one session and
+// settlement tuple.
+type CollectionKey struct {
+	SessionID       string
+	CollectionID    horizon.CollectionID
+	Payer           eth.Address
+	ServiceProvider eth.Address
+	DataService     eth.Address
+}
+
+// CollectionRecord tracks settlement lifecycle state separately from runtime
+// session state.
+type CollectionRecord struct {
+	Key             CollectionKey
+	SignedRAV       *horizon.SignedRAV
+	ValueAggregate  *big.Int
+	State           CollectionState
+	AttemptCount    int
+	LastTxHash      string
+	LastError       string
+	CollectedAmount *big.Int
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+// CollectionFilter restricts collection lifecycle listings.
+type CollectionFilter struct {
+	SessionID *string
+	State     *CollectionState
+	Payer     *eth.Address
+}
 
 // Session represents an active or terminated payment/streaming session.
 // This unified session model supports both firehose-core plugins (auth/session/metering)

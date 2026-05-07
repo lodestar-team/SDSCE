@@ -10,6 +10,7 @@ import (
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	commonv1 "github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/common/v1"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
+	"github.com/jmoiron/sqlx"
 )
 
 func init() {
@@ -64,37 +65,12 @@ func (r *Database) SessionCreate(ctx context.Context, session *repository.Sessio
 		"baseline_reqs":     row.BaselineReqs,
 		"baseline_cost":     baselineCostVal,
 	}
+	if session.CurrentRAV != nil {
+		return r.sessionCreateWithRAVTx(ctx, session, params)
+	}
 	_, err := execOne[sessionRow](ctx, r, "session/create.sql", params)
 	if err != nil {
 		return err
-	}
-
-	// If session has a RAV, insert it
-	if session.CurrentRAV != nil {
-		ravRw := fromRAV(session.ID, session.CurrentRAV)
-
-		collectionIDVal := mustValue(ravRw.CollectionID)
-		ravPayerVal := mustValue(ravRw.Payer)
-		serviceProviderVal := mustValue(ravRw.ServiceProvider)
-		ravDataServiceVal := mustValue(ravRw.DataService)
-		valueAggregateVal := mustValue(ravRw.ValueAggregate)
-		signatureVal := mustValue(ravRw.Signature)
-
-		_, err = execOne[ravRow](ctx, r, "session/upsert_rav.sql", map[string]any{
-			"session_id":       ravRw.SessionID,
-			"collection_id":    collectionIDVal,
-			"payer":            ravPayerVal,
-			"service_provider": serviceProviderVal,
-			"data_service":     ravDataServiceVal,
-			"timestamp_ns":     ravRw.TimestampNs,
-			"value_aggregate":  valueAggregateVal,
-			"metadata":         ravRw.Metadata,
-			"signature":        signatureVal,
-			"created_at":       ravRw.CreatedAt,
-		})
-		if err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -140,8 +116,7 @@ func (r *Database) SessionUpdate(ctx context.Context, session *repository.Sessio
 	baselineCostVal := mustValue(row.BaselineCost)
 	metadataVal := mustValue(row.Metadata)
 
-	// Update session
-	_, err := execOne[sessionRow](ctx, r, "session/update.sql", map[string]any{
+	params := map[string]any{
 		"id":                row.ID,
 		"created_at":        row.CreatedAt,
 		"updated_at":        row.UpdatedAt,
@@ -162,39 +137,108 @@ func (r *Database) SessionUpdate(ctx context.Context, session *repository.Sessio
 		"baseline_bytes":    row.BaselineBytes,
 		"baseline_reqs":     row.BaselineReqs,
 		"baseline_cost":     baselineCostVal,
-	})
+	}
+	if session.CurrentRAV != nil {
+		return r.sessionUpdateWithRAVTx(ctx, session, params)
+	}
+
+	// Update session
+	_, err := execOne[sessionRow](ctx, r, "session/update.sql", params)
 	if err != nil {
 		return err
 	}
 
-	// Upsert RAV if present
-	if session.CurrentRAV != nil {
-		ravRw := fromRAV(session.ID, session.CurrentRAV)
+	return nil
+}
 
-		collectionIDVal := mustValue(ravRw.CollectionID)
-		ravPayerVal := mustValue(ravRw.Payer)
-		serviceProviderVal := mustValue(ravRw.ServiceProvider)
-		ravDataServiceVal := mustValue(ravRw.DataService)
-		valueAggregateVal := mustValue(ravRw.ValueAggregate)
-		signatureVal := mustValue(ravRw.Signature)
-
-		_, err = execOne[ravRow](ctx, r, "session/upsert_rav.sql", map[string]any{
-			"session_id":       ravRw.SessionID,
-			"collection_id":    collectionIDVal,
-			"payer":            ravPayerVal,
-			"service_provider": serviceProviderVal,
-			"data_service":     ravDataServiceVal,
-			"timestamp_ns":     ravRw.TimestampNs,
-			"value_aggregate":  valueAggregateVal,
-			"metadata":         ravRw.Metadata,
-			"signature":        signatureVal,
-			"created_at":       ravRw.CreatedAt,
-		})
-		if err != nil {
-			return err
-		}
+func (r *Database) sessionCreateWithRAVTx(ctx context.Context, session *repository.Session, sessionParams map[string]any) (err error) {
+	tx, err := r.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
 	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
 
+	if err := execTxRows(ctx, tx, "session/create.sql", sessionParams); err != nil {
+		return err
+	}
+	if err := upsertRAVTx(ctx, tx, session.ID, session.CurrentRAV); err != nil {
+		return err
+	}
+	if _, err := r.collectionCreateOrUpdateCollectibleTx(ctx, tx, session.ID, session.CurrentRAV); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *Database) sessionUpdateWithRAVTx(ctx context.Context, session *repository.Session, sessionParams map[string]any) (err error) {
+	tx, err := r.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if err := execTxRows(ctx, tx, "session/update.sql", sessionParams); err != nil {
+		return err
+	}
+	if err := upsertRAVTx(ctx, tx, session.ID, session.CurrentRAV); err != nil {
+		return err
+	}
+	if _, err := r.collectionCreateOrUpdateCollectibleTx(ctx, tx, session.ID, session.CurrentRAV); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func upsertRAVTx(ctx context.Context, tx *sqlx.Tx, sessionID string, rav *horizon.SignedRAV) error {
+	ravRw := fromRAV(sessionID, rav)
+	collectionIDVal := mustValue(ravRw.CollectionID)
+	ravPayerVal := mustValue(ravRw.Payer)
+	serviceProviderVal := mustValue(ravRw.ServiceProvider)
+	ravDataServiceVal := mustValue(ravRw.DataService)
+	valueAggregateVal := mustValue(ravRw.ValueAggregate)
+	signatureVal := mustValue(ravRw.Signature)
+
+	return execTxRows(ctx, tx, "session/upsert_rav.sql", map[string]any{
+		"session_id":       ravRw.SessionID,
+		"collection_id":    collectionIDVal,
+		"payer":            ravPayerVal,
+		"service_provider": serviceProviderVal,
+		"data_service":     ravDataServiceVal,
+		"timestamp_ns":     ravRw.TimestampNs,
+		"value_aggregate":  valueAggregateVal,
+		"metadata":         ravRw.Metadata,
+		"signature":        signatureVal,
+		"created_at":       ravRw.CreatedAt,
+	})
+}
+
+func execTxRows(ctx context.Context, tx *sqlx.Tx, statement string, params map[string]any) error {
+	rows, err := bindAndQueryxContext(ctx, tx, onDiskStatement(statement), params)
+	if err != nil {
+		return err
+	}
+	var found bool
+	for rows.Next() {
+		found = true
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if closeErr := rows.Close(); closeErr != nil {
+		return closeErr
+	}
+	if !found {
+		return repository.ErrNotFound
+	}
 	return nil
 }
 
@@ -329,6 +373,10 @@ func (r *Database) SessionUpdateRAVAndBaseline(ctx context.Context, sessionID st
 		}
 		if closeErr := ravRows.Close(); closeErr != nil {
 			return closeErr
+		}
+
+		if _, err := r.collectionCreateOrUpdateCollectibleTx(ctx, tx, sessionID, currentRAV); err != nil {
+			return err
 		}
 	}
 

@@ -180,12 +180,26 @@ sds provider gateway \
   --repository-dsn "psql://sds_user:secret@localhost:5432/sds?sslmode=disable" \
   --plaintext \
   --plugin-plaintext \
+  --operator-listen-addr ":9010" \
+  --operator-read-token-env "SDS_OPERATOR_READ_TOKEN" \
+  --admin-write-token-env "SDS_ADMIN_WRITE_TOKEN" \
   --service-provider "0x1234567890123456789012345678901234567890" \
   --collector-address "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd" \
   --escrow-address "0x1111111111111111111111111111111111111111" \
   --rpc-endpoint "http://localhost:8545" \
   --data-plane-endpoint "https://localhost:10016?insecure=true"
 ```
+
+For local reflex development, the provider gateway listens on `localhost:9010` for authenticated operator APIs. The reflex files set explicit local-only fallback token values for the provider process:
+
+```bash
+SDS_OPERATOR_READ_TOKEN=local-operator-read-token
+SDS_ADMIN_WRITE_TOKEN=local-admin-write-token
+```
+
+Use the read token for `sds provider operator sessions|ravs|collections` and the admin token for `sds provider operator collect`.
+
+The reflex fallback values are scoped to the provider process. Operator CLI commands running in a separate shell must either export the same values and use `--operator-token-env`, or pass the local token with `--operator-token`.
 
 ## Implementation Details
 
@@ -214,8 +228,13 @@ It persists:
 - usage events and accumulated usage
 - quota/runtime coordination state
 - the latest accepted RAV snapshot associated with a session
+- collection lifecycle records for `collectible`, `collect_pending`, `collected`, and `collect_failed_retryable`
 
-It does not yet define the provider collection lifecycle model for `collectible`, `collect_pending`, `collected`, or retryable collection state. That boundary is defined in [docs/provider-persistence-boundary.md](../docs/provider-persistence-boundary.md) and implemented by downstream MVP work rather than this repository overview.
+The collection lifecycle model is settlement state, not runtime session state. That boundary is defined in [docs/provider-persistence-boundary.md](../../docs/provider-persistence-boundary.md); provider operator APIs and CLI flows consume it through downstream authenticated retrieval surfaces rather than direct database access.
+
+Provider operator API handlers use the gateway-carried `operatorauth.Config` to enforce the bearer-token contract documented in [docs/operator-auth.md](../../docs/operator-auth.md). The private `ProviderOperatorService` exposes session, runtime payment/funds state, accepted RAV, and collection lifecycle retrieval for `operator.read` callers; lifecycle mutation and other provider admin actions require `admin.write`. The manual collect CLI uses those admin transitions around locally signed `SubstreamsDataService.collect` transactions rather than accessing repository storage directly.
+
+The private provider operator listener also exposes `/metrics` in Prometheus text format. Metrics require `operator.read` bearer authorization and report aggregate session, worker, usage, accepted-RAV, collection lifecycle, low-funds, payment-control, and RAV-request visibility without session-id labels.
 
 ### Backward Compatibility
 

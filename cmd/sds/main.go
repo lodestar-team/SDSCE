@@ -33,6 +33,7 @@ func main() {
 			"provider",
 			"Provider-side commands",
 			impl.ProviderGatewayCommand,
+			providerOperatorCmd,
 		),
 
 		Group(

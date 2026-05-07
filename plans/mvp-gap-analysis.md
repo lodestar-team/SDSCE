@@ -45,11 +45,8 @@ Validation infrastructure is also healthier than before:
 
 The biggest remaining MVP gaps are now:
 
-- provider collection lifecycle persistence and inspection/collection APIs
 - refreshed published firecore/dummy-blockchain images
-- operator funding and collection tooling
-- authenticated admin/operator surfaces
-- basic metrics and operator observability implementation
+- acceptance coverage and final documentation refresh
 
 ## Acceptance Scenario Status
 
@@ -58,10 +55,10 @@ The biggest remaining MVP gaps are now:
 | A. Discovery to paid streaming | `partial` | The sidecar ingress, provider-originated payment loop, and compatibility contract are documented, but refreshed published firecore/dummy-blockchain images still remain |
 | B. Fresh session after interruption | `partial` | Fresh-session semantics are implemented in the init contract, but broader real-path interruption validation still remains |
 | C. Low funds during streaming | `partial` | Session-local low-funds stop behavior now reaches both the real sidecar ingress path and the local-first Firecore runtime path, but refreshed published images still remain |
-| D. Provider restart without losing collectible state | `partial` | Provider persistence is no longer purely in-memory because PostgreSQL support exists, but collectible/collection lifecycle tracking is still incomplete |
+| D. Provider restart without losing collectible state | `partial` | Accepted RAV runtime state, collection lifecycle persistence, authenticated retrieval APIs, and provider operator CLI surfaces now exist; remaining validation work belongs to broader acceptance coverage |
 | E. Manual funding flow | `implemented` | Operator-grade funding and signer authorization CLI flows now exist outside local demo assumptions |
-| F. Manual collection flow | `missing` | RAV tooling exists, but provider-backed settlement inspection and collect workflow are not implemented |
-| G. Secure deployment posture | `partial` | TLS hooks and provider public/private split exist, but authenticated admin/operator surfaces remain unfinished |
+| F. Manual collection flow | `implemented` | Provider-backed settlement inspection and `sds provider operator collect` now fetch collectible state, locally sign/submit `SubstreamsDataService.collect`, and drive provider lifecycle state |
+| G. Secure deployment posture | `partial` | TLS hooks, provider public/private split, and authenticated operator/admin surfaces exist; remaining posture work is tracked under TLS/default deployment hardening |
 
 ## Component Status
 
@@ -144,8 +141,7 @@ What already exists:
 
 What is still missing for MVP:
 
-- collection lifecycle state
-- authenticated admin/operator surfaces
+- remaining metrics/log correlation polish
 
 ### Provider Plugin Services
 
@@ -210,23 +206,25 @@ Current state:
 - the current durable model already covers runtime/session state plus the latest accepted RAV snapshot for a session
 - narrow repository updates preserve usage aggregates while independently updating keepalive, runtime lifecycle/metadata, or accepted RAV plus baseline state
 - keepalive and runtime lifecycle updates are monotonic and non-regressive across in-memory and PostgreSQL backends
+- accepted RAV, settlement tuple, usage totals, and baseline state survive reopening the PostgreSQL repository against the same durable schema
+- collection lifecycle state is modeled separately from runtime sessions across in-memory and PostgreSQL backends, including `collectible`, `collect_pending`, `collected`, and `collect_failed_retryable`
 
 Evidence:
 
 - `provider/gateway/repository.go`
 - `provider/repository/psql/`
+- `provider/repository/psql/repository_test.go`
 - `provider/gateway/REPOSITORY.md`
 - `docs/provider-persistence-boundary.md`
 
 What is still missing for MVP:
 
-- explicit collection lifecycle persistence
-- provider-backed collectible/collect_pending/collected tracking
-- acceptance-level proof for the full restart/collectible scenario
+- remaining metrics/log correlation polish
 
 Notes:
 
 - `MVP-003` now freezes the boundary between runtime/session persistence and later settlement lifecycle tracking so `MVP-008` and `MVP-029` do not overlap semantically.
+- `MVP-008` is closed for the current runtime repository model, `MVP-029` is closed for provider-side collection lifecycle persistence, and `MVP-009`/`MVP-019`/`MVP-020` now provide authenticated retrieval and provider operator tooling.
 - Repository validation is now portable across checkout paths because PostgreSQL test migrations resolve from repo-local state rather than a machine-specific absolute path.
 
 ### Consumer Data-Plane Compatibility
@@ -292,22 +290,22 @@ Evidence:
 
 ### Settlement / Collection CLI
 
-Status: `missing`
+Status: `implemented`
 
 Current state:
 
-- local RAV creation/inspection tooling exists, but it is not provider-backed settlement tooling
+- Provider-backed operator inspection and manual collection tooling now exists.
+- Read-only provider commands inspect sessions, accepted RAVs, collection lifecycle state, and runtime payment/funds state through the authenticated operator API.
+- Manual collection fetches exact provider settlement state, signs/submits `SubstreamsDataService.collect()` locally, and drives provider lifecycle state through pending, collected, retryable failure, no-wait, dry-run, and already-collected no-op paths.
+- Local RAV creation/inspection tooling still exists as support tooling, but it is not the provider-backed settlement workflow.
 
 Evidence:
 
+- `cmd/sds/provider_operator_sessions.go`
+- `cmd/sds/provider_operator_ravs.go`
+- `cmd/sds/provider_operator_collections.go`
+- `cmd/sds/provider_operator_collect.go`
 - `cmd/sds/tools_rav.go`
-
-What is still missing for MVP:
-
-- inspect collectible accepted RAV data from the provider
-- fetch settlement-relevant data from the provider
-- craft/sign/submit `collect()` transaction locally
-- retry-safe operator workflow
 
 ### Transport Security
 
@@ -324,11 +322,11 @@ What already exists:
 
 - plaintext vs TLS transport configuration paths
 - provider public/private network split for payment gateway vs plugin gateway
+- authenticated provider operator/admin surfaces on a private operator listener
 
 What is still missing for MVP:
 
 - validated and documented secure deployment posture across all relevant surfaces
-- authenticated admin/operator surfaces
 - validated TLS-by-default posture for the full MVP deployment shape
 
 ### Observability
@@ -343,8 +341,8 @@ What already exists:
 
 What is still missing for MVP:
 
-- basic Prometheus-style metrics endpoints
-- better operator-facing inspection for payment, runtime, and collection state
+- acceptance coverage across the primary end-to-end scenarios
+- final protocol/runtime documentation refresh
 
 ## Current Implementation Highlights
 
@@ -368,11 +366,14 @@ The most important recent status changes versus the original draft are:
 - Payment-session hardening has closed the main follow-up issues from the runtime-payment lane.
   - Finite EOF handling is now driven by local and provider-reported payment-control pending state, not a fixed delay.
   - Accepted runtime RAV persistence is separated from peer disconnect and post-commit refresh failure.
-  - Repository updates for keepalive/runtime/RAV state are narrower and monotonic, reducing stale-write lost-update risk while leaving restart-focused durable acceptance proof under `MVP-008`.
+  - Repository updates for keepalive/runtime/RAV state are narrower and monotonic, reducing stale-write lost-update risk; `MVP-008` now adds restart-focused durable accepted RAV proof coverage.
   - Active Firecore workers now keep provider payment-control status pending, so finite sidecar ingress completion waits for possible final metering before returning cleanly.
 - Security and observability contracts are now narrower.
   - Oracle whitelist/provider metadata governance is deployment-managed YAML for MVP, not a public writable admin API.
-  - The provider operator bearer-token role contract exists, but richer provider operator APIs still need enforcement.
+- The provider gateway now has explicit provider operator auth wiring with read/admin bearer token env resolution, a separate operator listener, and authenticated provider operator APIs for sessions, accepted RAVs, collection records, and lifecycle transitions.
+  - Provider operator tooling now includes authenticated read-only inspection commands and a manual collect command that signs and submits `SubstreamsDataService.collect` transactions locally while driving provider lifecycle state through pending, collected, retryable failure, dry-run, no-wait, and already-collected no-op paths.
+  - Provider operator session inspection now presents runtime payment state, including low-funds status, projected outstanding value, escrow balance when known, minimum needed, check errors, and operator hints.
+  - The private provider operator listener exposes authenticated Prometheus-style `/metrics` for aggregate session, worker, usage, accepted-RAV, collection, low-funds, payment-control, and RAV-request visibility.
   - The MVP observability floor is structured logs, operator inspection/status tooling, and basic Prometheus-style metrics; distributed tracing remains post-MVP.
 
 ## Remaining Backlog Alignment
@@ -385,25 +386,15 @@ Oracle, consumer ingress, and runtime compatibility:
 
 Provider runtime hardening and cleanup:
 
-- No separate runtime-payment hardening task remains open after `MVP-040` and `MVP-041`; remaining related work is tracked through provider-state durability (`MVP-008`), runtime compatibility/published images (`MVP-036`), and operator visibility (`MVP-032`).
-
-Persistence and settlement:
-
-- `MVP-008`
-- `MVP-009`
-- `MVP-029`
+- No separate runtime-payment hardening task remains open after `MVP-040` and `MVP-041`; remaining related work is tracked through runtime compatibility/published images (`MVP-036`).
 
 Tooling and operations:
 
-- `MVP-019`
-- `MVP-020`
-- `MVP-032`
+- No open provider operator tooling task remains in this lane after `MVP-019`, `MVP-020`, and `MVP-032`.
 
 Security and observability:
 
 - `MVP-021`
-- `MVP-022`
-- `MVP-024`
 
 Validation and docs:
 

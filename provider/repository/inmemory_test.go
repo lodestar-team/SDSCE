@@ -43,6 +43,44 @@ func newTestWorker(key, sessionID, payerHex string) *repository.Worker {
 	}
 }
 
+func newTestCollectionRAV(value *big.Int) *horizon.SignedRAV {
+	payer := eth.MustNewAddress("0x1111111111111111111111111111111111111111")
+	serviceProvider := eth.MustNewAddress("0x2222222222222222222222222222222222222222")
+	dataService := eth.MustNewAddress("0x3333333333333333333333333333333333333333")
+	var sig eth.Signature
+	for i := range sig {
+		sig[i] = byte(i + 1)
+	}
+
+	return &horizon.SignedRAV{
+		Message: &horizon.RAV{
+			CollectionID: horizon.CollectionID{
+				0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+				0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+				0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+				0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
+			},
+			Payer:           payer,
+			ServiceProvider: serviceProvider,
+			DataService:     dataService,
+			TimestampNs:     uint64(time.Now().UnixNano()),
+			ValueAggregate:  new(big.Int).Set(value),
+			Metadata:        []byte("collection-test"),
+		},
+		Signature: sig,
+	}
+}
+
+func collectionKeyForRAV(sessionID string, rav *horizon.SignedRAV) repository.CollectionKey {
+	return repository.CollectionKey{
+		SessionID:       sessionID,
+		CollectionID:    rav.Message.CollectionID,
+		Payer:           rav.Message.Payer,
+		ServiceProvider: rav.Message.ServiceProvider,
+		DataService:     rav.Message.DataService,
+	}
+}
+
 // --- Session tests ---
 
 func TestInMemory_SessionCreate_Get(t *testing.T) {
@@ -135,6 +173,16 @@ func TestInMemory_SessionUpdateRAVAndBaseline_PreservesUsageTotals(t *testing.T)
 	require.NoError(t, err)
 	require.NotNil(t, got.CurrentRAV)
 	assert.Equal(t, 0, big.NewInt(12).Cmp(got.CurrentRAV.Message.ValueAggregate))
+	record, err := repo.CollectionGet(ctx, repository.CollectionKey{
+		SessionID:       s.ID,
+		CollectionID:    rav.Message.CollectionID,
+		Payer:           rav.Message.Payer,
+		ServiceProvider: rav.Message.ServiceProvider,
+		DataService:     rav.Message.DataService,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, repository.CollectionStateCollectible, record.State)
+	assert.Equal(t, 0, big.NewInt(12).Cmp(record.ValueAggregate))
 	assert.Equal(t, uint64(10), got.BlocksProcessed)
 	assert.Equal(t, uint64(20), got.BytesTransferred)
 	assert.Equal(t, uint64(3), got.Requests)
@@ -268,6 +316,144 @@ func TestInMemory_SessionUpdateRuntimeState_NotFound(t *testing.T) {
 
 	err := repo.SessionUpdateRuntimeState(context.Background(), "missing", repository.SessionStatusActive, nil, nil, commonv1.EndReason_END_REASON_UNSPECIFIED, time.Now())
 	require.ErrorIs(t, err, repository.ErrNotFound)
+}
+
+func TestInMemory_CollectionLifecycleTransitions(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+	rav := newTestCollectionRAV(big.NewInt(100))
+
+	record, err := repo.CollectionCreateOrUpdateCollectible(ctx, "s1", rav)
+	require.NoError(t, err)
+	assert.Equal(t, repository.CollectionStateCollectible, record.State)
+	assert.Equal(t, 0, big.NewInt(100).Cmp(record.ValueAggregate))
+	assert.Equal(t, 0, record.AttemptCount)
+
+	pendingAt := time.Now().Add(time.Minute)
+	record, err = repo.CollectionMarkPending(ctx, record.Key, big.NewInt(100), "0xabc", pendingAt)
+	require.NoError(t, err)
+	assert.Equal(t, repository.CollectionStateCollectPending, record.State)
+	assert.Equal(t, 1, record.AttemptCount)
+	assert.Equal(t, "0xabc", record.LastTxHash)
+	assert.Equal(t, pendingAt, record.UpdatedAt)
+
+	record, err = repo.CollectionMarkFailedRetryable(ctx, record.Key, big.NewInt(100), "0xabc", "receipt timeout", pendingAt.Add(time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, repository.CollectionStateCollectFailedRetryable, record.State)
+	assert.Equal(t, "receipt timeout", record.LastError)
+
+	record, err = repo.CollectionMarkPending(ctx, record.Key, big.NewInt(100), "0xdef", pendingAt.Add(2*time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, repository.CollectionStateCollectPending, record.State)
+	assert.Equal(t, 2, record.AttemptCount)
+	assert.Empty(t, record.LastError)
+
+	record, err = repo.CollectionMarkCollected(ctx, record.Key, big.NewInt(100), "0xdef", big.NewInt(95), pendingAt.Add(3*time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, repository.CollectionStateCollected, record.State)
+	assert.Equal(t, 0, big.NewInt(95).Cmp(record.CollectedAmount))
+	assert.Equal(t, "0xdef", record.LastTxHash)
+
+	got, err := repo.CollectionGet(ctx, record.Key)
+	require.NoError(t, err)
+	assert.Equal(t, repository.CollectionStateCollected, got.State)
+
+	state := repository.CollectionStateCollected
+	listed, err := repo.CollectionList(ctx, repository.CollectionFilter{State: &state})
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, record.Key.SessionID, listed[0].Key.SessionID)
+}
+
+func TestInMemory_CollectionLifecycleRejectsStaleAndBackwardsTransitions(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+	rav := newTestCollectionRAV(big.NewInt(100))
+
+	record, err := repo.CollectionCreateOrUpdateCollectible(ctx, "s1", rav)
+	require.NoError(t, err)
+
+	_, err = repo.CollectionMarkPending(ctx, record.Key, big.NewInt(99), "0xabc", time.Now())
+	require.ErrorIs(t, err, repository.ErrCollectionConflict)
+
+	record, err = repo.CollectionMarkPending(ctx, record.Key, big.NewInt(100), "0xabc", time.Now())
+	require.NoError(t, err)
+	record, err = repo.CollectionMarkCollected(ctx, record.Key, big.NewInt(100), "0xabc", big.NewInt(100), time.Now())
+	require.NoError(t, err)
+
+	_, err = repo.CollectionMarkPending(ctx, record.Key, big.NewInt(100), "0xdef", time.Now())
+	require.ErrorIs(t, err, repository.ErrInvalidCollectionTransition)
+
+	same, err := repo.CollectionCreateOrUpdateCollectible(ctx, "s1", rav)
+	require.NoError(t, err)
+	assert.Equal(t, repository.CollectionStateCollected, same.State)
+
+	lower := newTestCollectionRAV(big.NewInt(90))
+	_, err = repo.CollectionCreateOrUpdateCollectible(ctx, "s1", lower)
+	require.ErrorIs(t, err, repository.ErrCollectionConflict)
+
+	higher := newTestCollectionRAV(big.NewInt(110))
+	updated, err := repo.CollectionCreateOrUpdateCollectible(ctx, "s1", higher)
+	require.NoError(t, err)
+	assert.Equal(t, repository.CollectionStateCollectible, updated.State)
+	assert.Equal(t, 0, big.NewInt(110).Cmp(updated.ValueAggregate))
+}
+
+func TestInMemory_SessionUpdateRAVAndBaseline_DoesNotCommitOnLifecycleConflict(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+	session := newTestSession("s1", "0x1111111111111111111111111111111111111111")
+	initial := newTestCollectionRAV(big.NewInt(100))
+	session.CurrentRAV = initial
+	require.NoError(t, repo.SessionCreate(ctx, session))
+
+	record, err := repo.CollectionMarkPending(ctx, collectionKeyForRAV(session.ID, initial), big.NewInt(100), "0xabc", time.Now())
+	require.NoError(t, err)
+	require.Equal(t, repository.CollectionStateCollectPending, record.State)
+
+	conflicting := newTestCollectionRAV(big.NewInt(110))
+	err = repo.SessionUpdateRAVAndBaseline(ctx, session.ID, conflicting, 1, 1, 1, big.NewInt(110))
+	require.ErrorIs(t, err, repository.ErrCollectionConflict)
+
+	got, err := repo.SessionGet(ctx, session.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.CurrentRAV)
+	assert.Equal(t, 0, big.NewInt(100).Cmp(got.CurrentRAV.Message.ValueAggregate))
+
+	gotRecord, err := repo.CollectionGet(ctx, collectionKeyForRAV(session.ID, initial))
+	require.NoError(t, err)
+	assert.Equal(t, repository.CollectionStateCollectPending, gotRecord.State)
+	assert.Equal(t, 0, big.NewInt(100).Cmp(gotRecord.ValueAggregate))
+}
+
+func TestInMemory_SessionCreateDuplicate_DoesNotMutateLifecycle(t *testing.T) {
+	repo := repository.NewInMemoryRepository()
+	ctx := context.Background()
+	session := newTestSession("s1", "0x1111111111111111111111111111111111111111")
+	initial := newTestCollectionRAV(big.NewInt(100))
+	session.CurrentRAV = initial
+	require.NoError(t, repo.SessionCreate(ctx, session))
+
+	record, err := repo.CollectionMarkPending(ctx, collectionKeyForRAV(session.ID, initial), big.NewInt(100), "0xabc", time.Now())
+	require.NoError(t, err)
+	record, err = repo.CollectionMarkCollected(ctx, record.Key, big.NewInt(100), "0xabc", big.NewInt(100), time.Now())
+	require.NoError(t, err)
+	require.Equal(t, repository.CollectionStateCollected, record.State)
+
+	duplicate := newTestSession("s1", "0x1111111111111111111111111111111111111111")
+	duplicate.CurrentRAV = newTestCollectionRAV(big.NewInt(110))
+	err = repo.SessionCreate(ctx, duplicate)
+	require.ErrorContains(t, err, "already exists")
+
+	got, err := repo.SessionGet(ctx, session.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.CurrentRAV)
+	assert.Equal(t, 0, big.NewInt(100).Cmp(got.CurrentRAV.Message.ValueAggregate))
+
+	gotRecord, err := repo.CollectionGet(ctx, collectionKeyForRAV(session.ID, initial))
+	require.NoError(t, err)
+	assert.Equal(t, repository.CollectionStateCollected, gotRecord.State)
+	assert.Equal(t, 0, big.NewInt(100).Cmp(gotRecord.ValueAggregate))
 }
 
 // TestInMemory_SessionDelete and SessionDelete_NotFound removed - SessionDelete method no longer exists

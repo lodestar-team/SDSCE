@@ -3,9 +3,12 @@ package impl
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/graphprotocol/substreams-data-service/horizon"
+	"github.com/graphprotocol/substreams-data-service/internal/operatorauth"
 	"github.com/graphprotocol/substreams-data-service/provider/auth"
 	"github.com/graphprotocol/substreams-data-service/provider/gateway"
 	"github.com/graphprotocol/substreams-data-service/provider/plugin"
@@ -26,14 +29,21 @@ var providerLog, _ = logging.PackageLogger("provider", "github.com/graphprotocol
 
 // ProviderGateways holds both the Payment Gateway and Plugin Gateway servers
 type ProviderGateways struct {
-	PaymentGateway *gateway.Gateway
-	PluginGateway  *plugin.PluginGateway
+	PaymentGateway  *gateway.Gateway
+	PluginGateway   *plugin.PluginGateway
+	OperatorGateway *gateway.OperatorGateway
 }
 
 type pluginTransportFlags struct {
 	Plaintext   bool
 	TLSCertFile string
 	TLSKeyFile  string
+}
+
+type operatorAuthFlags struct {
+	ListenAddr        string
+	ReadTokenEnvName  string
+	AdminTokenEnvName string
 }
 
 // Shutdown gracefully shuts down both gateways
@@ -43,6 +53,9 @@ func (g *ProviderGateways) Shutdown(err error) {
 	}
 	if g.PluginGateway != nil {
 		g.PluginGateway.Shutdown(err)
+	}
+	if g.OperatorGateway != nil {
+		g.OperatorGateway.Shutdown(err)
 	}
 }
 
@@ -67,6 +80,48 @@ func (f pluginTransportFlags) hasOverrides() bool {
 	return f.Plaintext || f.TLSCertFile != "" || f.TLSKeyFile != ""
 }
 
+func resolveOperatorAuthConfig(flags operatorAuthFlags, lookupEnv func(string) (string, bool)) (operatorauth.Config, bool, error) {
+	if flags.ListenAddr == "" {
+		return operatorauth.Config{}, false, nil
+	}
+
+	if strings.TrimSpace(flags.ReadTokenEnvName) == "" {
+		return operatorauth.Config{}, false, fmt.Errorf("<operator-read-token-env> is required when <operator-listen-addr> is set")
+	}
+	if strings.TrimSpace(flags.AdminTokenEnvName) == "" {
+		return operatorauth.Config{}, false, fmt.Errorf("<admin-write-token-env> is required when <operator-listen-addr> is set")
+	}
+
+	readToken, err := resolveBearerTokenEnv(lookupEnv, flags.ReadTokenEnvName, "operator.read")
+	if err != nil {
+		return operatorauth.Config{}, false, err
+	}
+	adminToken, err := resolveBearerTokenEnv(lookupEnv, flags.AdminTokenEnvName, "admin.write")
+	if err != nil {
+		return operatorauth.Config{}, false, err
+	}
+
+	return operatorauth.Config{
+		ReadBearerToken:  readToken,
+		AdminBearerToken: adminToken,
+	}, true, nil
+}
+
+func resolveBearerTokenEnv(lookupEnv func(string) (string, bool), envName string, role string) (string, error) {
+	value, ok := lookupEnv(envName)
+	if !ok {
+		return "", fmt.Errorf("%s bearer token environment variable %q is not set", role, envName)
+	}
+	if strings.TrimSpace(value) == "" {
+		return "", fmt.Errorf("%s bearer token environment variable %q is empty", role, envName)
+	}
+	if strings.ContainsAny(value, " \t\r\n") {
+		return "", fmt.Errorf("%s bearer token environment variable %q contains whitespace and cannot be used as a bearer token", role, envName)
+	}
+
+	return value, nil
+}
+
 var ProviderGatewayCommand = Command(
 	runProviderGateway,
 	"gateway",
@@ -75,7 +130,7 @@ var ProviderGatewayCommand = Command(
 		Starts the provider payment gateway which handles payment session management
 		and RAV exchange for data providers.
 
-		The gateway starts TWO separate servers with different security profiles:
+		The gateway starts separate servers with different security profiles:
 
 		1. Payment Gateway (--grpc-listen-addr, default :9001)
 		   - PUBLIC endpoint - should be exposed to the internet
@@ -88,6 +143,11 @@ var ProviderGatewayCommand = Command(
 		   - Provides Auth/Session/Usage services for the tier1 server
 		   - Keep this on a private network or localhost only
 
+		3. Operator Gateway (--operator-listen-addr, disabled unless set)
+		   - PRIVATE endpoint - protected by configured bearer tokens
+		   - Read APIs require the operator.read token
+		   - Mutating admin APIs require the admin.write token
+
 		IMPORTANT: The Plugin Gateway should only be accessible by your own firehose-core
 		instance(s). Never expose it publicly as it provides internal service APIs.
 
@@ -99,6 +159,9 @@ var ProviderGatewayCommand = Command(
 	Flags(func(flags *pflag.FlagSet) {
 		flags.String("grpc-listen-addr", ":9001", "Payment Gateway listen address (PUBLIC - consumer sidecars connect here)")
 		flags.String("plugin-listen-addr", ":9003", "Plugin Gateway listen address (PRIVATE - only firehose-core sds:// plugins, keep internal)")
+		flags.String("operator-listen-addr", "", "Operator Gateway listen address (PRIVATE - disabled unless set, bearer-token protected)")
+		flags.String("operator-read-token-env", "", "Environment variable containing the operator.read bearer token (required when --operator-listen-addr is set)")
+		flags.String("admin-write-token-env", "", "Environment variable containing the admin.write bearer token (required when --operator-listen-addr is set)")
 		flags.String("service-provider", "", "Service provider address (required)")
 		flags.Uint64("chain-id", 1337, "Chain ID for EIP-712 domain")
 		flags.String("collector-address", "", "Collector contract address for EIP-712 domain (required)")
@@ -200,6 +263,9 @@ func StartProviderGateway(
 func runProviderGateway(cmd *cobra.Command, args []string) error {
 	paymentListenAddr := sflags.MustGetString(cmd, "grpc-listen-addr")
 	pluginListenAddr := sflags.MustGetString(cmd, "plugin-listen-addr")
+	operatorListenAddr := sflags.MustGetString(cmd, "operator-listen-addr")
+	operatorReadTokenEnv := sflags.MustGetString(cmd, "operator-read-token-env")
+	adminWriteTokenEnv := sflags.MustGetString(cmd, "admin-write-token-env")
 	serviceProviderHex := sflags.MustGetString(cmd, "service-provider")
 	chainID := sflags.MustGetUint64(cmd, "chain-id")
 	collectorHex := sflags.MustGetString(cmd, "collector-address")
@@ -244,6 +310,13 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 	})
 	cli.NoError(err, "invalid plugin gateway transport configuration")
 
+	operatorAuthConfig, operatorEnabled, err := resolveOperatorAuthConfig(operatorAuthFlags{
+		ListenAddr:        operatorListenAddr,
+		ReadTokenEnvName:  operatorReadTokenEnv,
+		AdminTokenEnvName: adminWriteTokenEnv,
+	}, os.LookupEnv)
+	cli.NoError(err, "invalid operator authentication configuration")
+
 	// Load provider pricing and RAV request configuration.
 	providerPricingConfig := gateway.DefaultProviderPricingConfig()
 	if pricingConfigPath != "" {
@@ -269,6 +342,7 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 		RAVRequestThreshold: providerPricingConfig.RAVRequestThreshold,
 		DataPlaneEndpoint:   dataPlaneEndpoint,
 		TransportConfig:     transportConfig,
+		OperatorAuthConfig:  operatorAuthConfig,
 		Repository:          repo,
 	}
 
@@ -296,11 +370,24 @@ func runProviderGateway(cmd *cobra.Command, args []string) error {
 
 	pluginGateway := plugin.NewPluginGateway(pluginConfig, providerLog)
 
+	var operatorGateway *gateway.OperatorGateway
+	if operatorEnabled {
+		operatorGateway, err = gateway.NewOperatorGateway(&gateway.OperatorGatewayConfig{
+			ListenAddr:      operatorListenAddr,
+			PaymentGateway:  paymentGateway,
+			TransportConfig: transportConfig,
+		}, providerLog)
+		cli.NoError(err, "failed to create operator gateway")
+	}
+
 	app := cli.NewApplication(cmd.Context())
 
-	// Supervise both gateways
+	// Supervise gateways
 	app.SuperviseAndStart(paymentGateway)
 	app.SuperviseAndStart(pluginGateway)
+	if operatorGateway != nil {
+		app.SuperviseAndStart(operatorGateway)
+	}
 
 	return app.WaitForTermination(providerLog, 0*time.Second, 30*time.Second)
 }

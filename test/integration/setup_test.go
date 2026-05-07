@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	horizoncontracts "github.com/graphprotocol/substreams-data-service/contracts/horizon"
 	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/graphprotocol/substreams-data-service/horizon/devenv"
 )
@@ -271,7 +272,6 @@ func callRecoverRAVSigner(env *TestEnv, signedRAV *horizon.SignedRAV) (eth.Addre
 
 // collectDataEncoderABI is a synthetic ABI used to encode the collect() data parameter.
 var collectDataEncoderABI *eth.ABI
-var dataServiceCollectEncoderABI *eth.ABI
 
 func init() {
 	var err error
@@ -308,77 +308,15 @@ func init() {
 	if err != nil {
 		panic(fmt.Sprintf("failed to parse collectDataEncoderABI: %v", err))
 	}
-
-	dataServiceCollectEncoderABI, err = eth.ParseABIFromBytes([]byte(`{
-		"abi": [{
-			"type": "function",
-			"name": "encode",
-			"inputs": [
-				{
-					"name": "signedRAV",
-					"type": "tuple",
-					"components": [
-						{
-							"name": "rav",
-							"type": "tuple",
-							"components": [
-								{"name": "collectionId", "type": "bytes32"},
-								{"name": "payer", "type": "address"},
-								{"name": "serviceProvider", "type": "address"},
-								{"name": "dataService", "type": "address"},
-								{"name": "timestampNs", "type": "uint64"},
-								{"name": "valueAggregate", "type": "uint128"},
-								{"name": "metadata", "type": "bytes"}
-							]
-						},
-						{"name": "signature", "type": "bytes"}
-					]
-				},
-				{"name": "dataServiceCut", "type": "uint256"}
-			]
-		}]
-	}`))
-	if err != nil {
-		panic(fmt.Sprintf("failed to parse dataServiceCollectEncoderABI: %v", err))
-	}
 }
 
 // encodeDataServiceCollectData encodes (SignedRAV, uint256 dataServiceCut) for SubstreamsDataService.collect()
 func encodeDataServiceCollectData(signedRAV *horizon.SignedRAV, dataServiceCut uint64) []byte {
-	encodeFn := dataServiceCollectEncoderABI.FindFunctionByName("encode")
-	if encodeFn == nil {
-		panic("encode function not found in dataServiceCollectEncoderABI")
-	}
-
-	rav := signedRAV.Message
-
-	ravTuple := map[string]interface{}{
-		"collectionId":    rav.CollectionID[:],
-		"payer":           rav.Payer,
-		"serviceProvider": rav.ServiceProvider,
-		"dataService":     rav.DataService,
-		"timestampNs":     rav.TimestampNs,
-		"valueAggregate":  rav.ValueAggregate,
-		"metadata":        rav.Metadata,
-	}
-
-	sig := signedRAV.Signature
-	rsv := make([]byte, 65)
-	copy(rsv[0:32], sig[1:33])   // R (32 bytes)
-	copy(rsv[32:64], sig[33:65]) // S (32 bytes)
-	rsv[64] = sig[0]             // V (1 byte)
-
-	signedRAVTuple := map[string]interface{}{
-		"rav":       ravTuple,
-		"signature": rsv,
-	}
-
-	data, err := encodeFn.NewCall(signedRAVTuple, big.NewInt(int64(dataServiceCut))).Encode()
+	data, err := horizoncontracts.EncodeDataServiceCollectData(signedRAV, dataServiceCut)
 	if err != nil {
 		panic(fmt.Sprintf("encoding SubstreamsDataService collect data: %v", err))
 	}
-
-	return data[4:]
+	return data
 }
 
 // encodeCollectData encodes (SignedRAV, uint256 dataServiceCut, address receiverDestination) for collect()

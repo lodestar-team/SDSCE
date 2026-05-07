@@ -27,10 +27,15 @@
 -r "\.(go|sql)$" -s -R "devel/.*" -- sh -c \
     'echo "Starting Provider Gateway (with PostgreSQL)..." && \
     head -c 8 /dev/urandom | xxd -p -c 16 > ./devel/.provider-gateway && \
+    SDS_OPERATOR_READ_TOKEN="${SDS_OPERATOR_READ_TOKEN:-local-operator-read-token}" \
+    SDS_ADMIN_WRITE_TOKEN="${SDS_ADMIN_WRITE_TOKEN:-local-admin-write-token}" \
     DLOG=".*=debug" ./devel/sds provider gateway \
         --repository-dsn="psql://dev-node:changeme@localhost:5432/dev-node?sslmode=disable" \
         --grpc-listen-addr=:9001 \
         --plugin-listen-addr=:9003 \
+        --operator-listen-addr=:9010 \
+        --operator-read-token-env=SDS_OPERATOR_READ_TOKEN \
+        --admin-write-token-env=SDS_ADMIN_WRITE_TOKEN \
         --plaintext \
         --service-provider=0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
         --collector-address=0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9 \
@@ -45,6 +50,7 @@
     echo " Consumer sidecar ingress: http://localhost:9002" && \
     echo " Oracle discovery:         http://localhost:9004" && \
     echo " Provider control plane:   http://localhost:9001" && \
+    echo " Provider operator API:    http://localhost:9010" && \
     echo " Substreams tier1:         https://localhost:10016?insecure=true" && \
     echo "" && \
     DLOG="${DLOG:-error}" firecore -c devel/firecore.config.yaml -d ./devel/.firehose start'

@@ -11,6 +11,7 @@ import (
 	"github.com/alphadose/haxmap"
 	sds "github.com/graphprotocol/substreams-data-service"
 	"github.com/graphprotocol/substreams-data-service/horizon"
+	"github.com/graphprotocol/substreams-data-service/internal/operatorauth"
 	"github.com/graphprotocol/substreams-data-service/pb/graph/substreams/data_service/provider/v1/providerv1connect"
 	"github.com/graphprotocol/substreams-data-service/provider/repository"
 	"github.com/graphprotocol/substreams-data-service/sidecar"
@@ -59,6 +60,7 @@ type Gateway struct {
 	ravRequestThreshold *big.Int
 	dataPlaneEndpoint   string
 	transportConfig     sidecar.ServerTransportConfig
+	operatorAuthConfig  operatorauth.Config
 
 	authCache *haxmap.Map[string, authCacheEntry]
 
@@ -79,6 +81,7 @@ type Config struct {
 	RAVRequestThreshold sds.GRT
 	DataPlaneEndpoint   string
 	TransportConfig     sidecar.ServerTransportConfig
+	OperatorAuthConfig  operatorauth.Config
 
 	// Repository provides session/usage state storage and must be selected
 	// explicitly by the caller.
@@ -131,6 +134,7 @@ func New(config *Config, logger *zap.Logger) (*Gateway, error) {
 		ravRequestThreshold: ravRequestThreshold.BigInt(),
 		dataPlaneEndpoint:   config.DataPlaneEndpoint,
 		transportConfig:     config.TransportConfig,
+		operatorAuthConfig:  config.OperatorAuthConfig,
 		authCache:           haxmap.New[string, authCacheEntry](),
 		repo:                config.Repository,
 		runtime:             newRuntimeManager(),
@@ -162,6 +166,23 @@ func (s *Gateway) SessionCount() int {
 
 func (s *Gateway) OnMeteredUsage(ctx context.Context, sessionID string) error {
 	return s.runtime.onMeteredUsage(ctx, s, sessionID)
+}
+
+func (s *Gateway) authorizeOperator(header http.Header, required operatorauth.Role) (operatorauth.Role, error) {
+	return operatorauth.AuthorizeHeader(header, s.operatorAuthConfig, required)
+}
+
+func (s *Gateway) paymentControlPending(ctx context.Context, session *repository.Session) (bool, error) {
+	if session == nil || !session.IsActive() {
+		return false, nil
+	}
+
+	activeWorkers, err := s.repo.WorkerCountBySession(ctx, session.ID)
+	if err != nil {
+		return false, err
+	}
+
+	return activeWorkers > 0 || s.runtime.hasPendingPaymentControl(session.ID) || s.shouldRequestRAV(session), nil
 }
 
 func (s *Gateway) shouldRequestRAV(session *repository.Session) bool {

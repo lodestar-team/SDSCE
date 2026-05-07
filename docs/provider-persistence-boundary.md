@@ -5,7 +5,7 @@ This document is the canonical MVP reference for the provider-side persistence b
 It defines the separation between:
 
 - runtime/session persistence owned by the current provider repository model
-- settlement/collection lifecycle persistence that remains separate MVP work, primarily `MVP-029`
+- settlement/collection lifecycle persistence owned by the repository collection model introduced for `MVP-029`
 
 Use this document together with:
 
@@ -70,6 +70,7 @@ In the current PostgreSQL implementation, that concrete shape is represented by:
 - `usage_events`
 - `quota_usage`
 - `ravs` as a one-to-one latest accepted RAV record keyed by `session_id`
+- `collection_records` as settlement lifecycle state keyed by session and settlement tuple
 
 The `ravs` table should be interpreted as durable runtime state that preserves the latest accepted RAV needed after restart. It is not, by itself, a complete settlement lifecycle model.
 
@@ -97,16 +98,23 @@ Without a shared source of truth for that runtime state, the private plugin-faci
 
 Settlement and collection lifecycle tracking is a separate concern from runtime session tracking.
 
-For MVP, the provider must eventually support durable collection-oriented state for accepted RAVs, including the conceptual lifecycle states:
+For MVP, the provider supports durable collection-oriented state for accepted RAVs, including the lifecycle states:
 
 - `collectible`
 - `collect_pending`
 - `collected`
-- retryable failure / retryable collection state
+- `collect_failed_retryable`
 
-That lifecycle is settlement state, not runtime session state. It exists so operator inspection and manual collection workflows can reason about what is ready to collect, what is in flight, and what has already completed.
+That lifecycle is settlement state, not runtime session state. It exists so operator inspection and manual collection workflows can reason about what is ready to collect, what is in flight, what failed in a retryable way, and what has already completed.
 
-`MVP-003` does not define the concrete persistence schema, repository interface, or API payloads for that lifecycle. That design and implementation belong to downstream tasks, especially `MVP-029`, with retrieval surfaces in `MVP-009`.
+The repository exposes collection lifecycle transition methods for:
+
+- creating or refreshing a `collectible` record from an accepted RAV
+- moving `collectible` or `collect_failed_retryable` to `collect_pending`
+- moving `collect_pending` to `collected`
+- moving `collect_pending` to `collect_failed_retryable`
+
+Lifecycle mutations carry an expected aggregate value so stale collection attempts cannot update a newer accepted RAV snapshot. Retrieval surfaces still belong to `MVP-009`.
 
 ## Boundary Rules
 
@@ -117,15 +125,15 @@ That lifecycle is settlement state, not runtime session state. It exists so oper
 - For MVP, the public/private provider split is a boundary between API surfaces and trust zones, not a commitment that those two surfaces are independently deployable without further internal runtime decoupling work.
 - Client and CLI flows should read settlement-relevant provider state through provider-owned APIs, not by assuming direct database access.
 - `MVP-008` extends durable runtime storage around the existing repository model.
-- `MVP-029` owns collection lifecycle persistence, transitions, and retry semantics.
+- `MVP-029` owns collection lifecycle persistence, transitions, and retry semantics and is implemented in the repository layer.
 - `MVP-009` owns provider retrieval APIs for accepted and collectible settlement-relevant state.
 
 ## Implications For Downstream Tasks
 
 - `MVP-008` should focus on restart-safe runtime durability for sessions, workers, usage, and the latest accepted RAV state already represented in the current repository model.
 - `MVP-008` should not absorb collection lifecycle tracking just because accepted RAV state is also settlement-relevant.
-- `MVP-029` should introduce the distinct provider-side persistence/update model needed for collection lifecycle state.
-- `MVP-019` and `MVP-020` should consume provider-backed settlement retrieval flows after `MVP-009` and `MVP-029`, not direct backend reads.
+- `MVP-029` introduced the distinct provider-side persistence/update model needed for collection lifecycle state.
+- `MVP-019` and `MVP-020` consume provider-backed settlement retrieval flows after `MVP-009` and `MVP-029`, not direct backend reads. Manual collection state changes go through authenticated collection lifecycle mutation RPCs.
 
 ## Post-MVP Decoupling Direction
 

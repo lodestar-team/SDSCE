@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/graphprotocol/substreams-data-service/horizon"
 	"github.com/streamingfast/eth-go"
 )
 
@@ -79,6 +80,53 @@ func TestCollectorPackAndUnpack(t *testing.T) {
 	}
 }
 
+func TestDataServicePackCollect(t *testing.T) {
+	dataService := MustNewDataService()
+	signedRAV := testSignedRAV()
+
+	data, err := EncodeDataServiceCollectData(signedRAV, 100_000)
+	if err != nil {
+		t.Fatalf("EncodeDataServiceCollectData() error = %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("EncodeDataServiceCollectData() returned empty calldata payload")
+	}
+
+	calldata, err := dataService.PackQueryFeeCollect(signedRAV, 100_000)
+	if err != nil {
+		t.Fatalf("PackQueryFeeCollect() error = %v", err)
+	}
+	if got, want := hex.EncodeToString(calldata[:4]), selector("collect(address,uint8,bytes)"); got != want {
+		t.Fatalf("collect selector = %s, want %s", got, want)
+	}
+
+	values, err := dataService.abi.Methods["collect"].Inputs.Unpack(calldata[4:])
+	if err != nil {
+		t.Fatalf("unpack collect inputs: %v", err)
+	}
+	if got, want := values[0].(common.Address), common.HexToAddress(signedRAV.Message.ServiceProvider.Pretty()); got != want {
+		t.Fatalf("indexer = %s, want %s", got.Hex(), want.Hex())
+	}
+	if got, want := values[1].(uint8), PaymentTypeQueryFee; got != want {
+		t.Fatalf("paymentType = %d, want %d", got, want)
+	}
+	if got := values[2].([]byte); hex.EncodeToString(got) != hex.EncodeToString(data) {
+		t.Fatal("collect data argument does not match encoded RAV payload")
+	}
+}
+
+func TestDataServiceCollectDataRequiresRAV(t *testing.T) {
+	if _, err := EncodeDataServiceCollectData(nil, 0); err == nil {
+		t.Fatal("expected nil signed RAV error")
+	}
+
+	signedRAV := testSignedRAV()
+	signedRAV.Message.ValueAggregate = nil
+	if _, err := EncodeDataServiceCollectData(signedRAV, 0); err == nil {
+		t.Fatal("expected nil value aggregate error")
+	}
+}
+
 func TestGenerateSignerProofLayout(t *testing.T) {
 	signerKey, err := eth.NewPrivateKey("0xe4c2694501255921b6588519cfd36d4e86ddc4ce19ab1bc91d9c58057c040304")
 	if err != nil {
@@ -107,6 +155,29 @@ func TestGenerateSignerProofLayout(t *testing.T) {
 	}
 	if got, want := crypto.PubkeyToAddress(*recovered), common.HexToAddress(signerKey.PublicKey().Address().Pretty()); got != want {
 		t.Fatalf("recovered signer = %s, want %s", got.Hex(), want.Hex())
+	}
+}
+
+func testSignedRAV() *horizon.SignedRAV {
+	var collectionID horizon.CollectionID
+	copy(collectionID[:], common.HexToHash("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").Bytes())
+
+	var sig eth.Signature
+	for i := range sig {
+		sig[i] = byte(i + 1)
+	}
+
+	return &horizon.SignedRAV{
+		Message: &horizon.RAV{
+			CollectionID:    collectionID,
+			Payer:           eth.MustNewAddress("0x1111111111111111111111111111111111111111"),
+			ServiceProvider: eth.MustNewAddress("0x2222222222222222222222222222222222222222"),
+			DataService:     eth.MustNewAddress("0x3333333333333333333333333333333333333333"),
+			TimestampNs:     123,
+			ValueAggregate:  big.NewInt(1000),
+			Metadata:        []byte("metadata"),
+		},
+		Signature: sig,
 	}
 }
 

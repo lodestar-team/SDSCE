@@ -59,6 +59,93 @@ func TestResolvePluginTransportConfig_RejectsInvalidOverridesIndependently(t *te
 	require.Contains(t, err.Error(), "plugin gateway plaintext transport cannot be combined")
 }
 
+func TestResolveOperatorAuthConfig_DisabledWithoutListenAddr(t *testing.T) {
+	cfg, enabled, err := resolveOperatorAuthConfig(operatorAuthFlags{}, func(string) (string, bool) {
+		t.Fatal("environment should not be read when operator listener is disabled")
+		return "", false
+	})
+	require.NoError(t, err)
+	require.False(t, enabled)
+	require.Empty(t, cfg.ReadBearerToken)
+	require.Empty(t, cfg.AdminBearerToken)
+}
+
+func TestResolveOperatorAuthConfig_RequiresTokenEnvNamesWhenEnabled(t *testing.T) {
+	_, enabled, err := resolveOperatorAuthConfig(operatorAuthFlags{
+		ListenAddr: ":9005",
+	}, mapLookupEnv(nil))
+	require.Error(t, err)
+	require.False(t, enabled)
+	require.Contains(t, err.Error(), "<operator-read-token-env> is required")
+
+	_, enabled, err = resolveOperatorAuthConfig(operatorAuthFlags{
+		ListenAddr:       ":9005",
+		ReadTokenEnvName: "SDS_OPERATOR_READ_TOKEN",
+	}, mapLookupEnv(nil))
+	require.Error(t, err)
+	require.False(t, enabled)
+	require.Contains(t, err.Error(), "<admin-write-token-env> is required")
+}
+
+func TestResolveOperatorAuthConfig_RequiresConfiguredTokenValuesWhenEnabled(t *testing.T) {
+	_, enabled, err := resolveOperatorAuthConfig(operatorAuthFlags{
+		ListenAddr:        ":9005",
+		ReadTokenEnvName:  "SDS_OPERATOR_READ_TOKEN",
+		AdminTokenEnvName: "SDS_ADMIN_WRITE_TOKEN",
+	}, mapLookupEnv(map[string]string{
+		"SDS_OPERATOR_READ_TOKEN": "read-token",
+	}))
+	require.Error(t, err)
+	require.False(t, enabled)
+	require.Contains(t, err.Error(), `admin.write bearer token environment variable "SDS_ADMIN_WRITE_TOKEN" is not set`)
+
+	_, enabled, err = resolveOperatorAuthConfig(operatorAuthFlags{
+		ListenAddr:        ":9005",
+		ReadTokenEnvName:  "SDS_OPERATOR_READ_TOKEN",
+		AdminTokenEnvName: "SDS_ADMIN_WRITE_TOKEN",
+	}, mapLookupEnv(map[string]string{
+		"SDS_OPERATOR_READ_TOKEN": " ",
+		"SDS_ADMIN_WRITE_TOKEN":   "admin-token",
+	}))
+	require.Error(t, err)
+	require.False(t, enabled)
+	require.Contains(t, err.Error(), `operator.read bearer token environment variable "SDS_OPERATOR_READ_TOKEN" is empty`)
+
+	_, enabled, err = resolveOperatorAuthConfig(operatorAuthFlags{
+		ListenAddr:        ":9005",
+		ReadTokenEnvName:  "SDS_OPERATOR_READ_TOKEN",
+		AdminTokenEnvName: "SDS_ADMIN_WRITE_TOKEN",
+	}, mapLookupEnv(map[string]string{
+		"SDS_OPERATOR_READ_TOKEN": "read token",
+		"SDS_ADMIN_WRITE_TOKEN":   "admin-token",
+	}))
+	require.Error(t, err)
+	require.False(t, enabled)
+	require.Contains(t, err.Error(), `operator.read bearer token environment variable "SDS_OPERATOR_READ_TOKEN" contains whitespace`)
+}
+
+func TestResolveOperatorAuthConfig_LoadsTokensWhenEnabled(t *testing.T) {
+	cfg, enabled, err := resolveOperatorAuthConfig(operatorAuthFlags{
+		ListenAddr:        ":9005",
+		ReadTokenEnvName:  "SDS_OPERATOR_READ_TOKEN",
+		AdminTokenEnvName: "SDS_ADMIN_WRITE_TOKEN",
+	}, mapLookupEnv(map[string]string{
+		"SDS_OPERATOR_READ_TOKEN": "read-token",
+		"SDS_ADMIN_WRITE_TOKEN":   "admin-token",
+	}))
+	require.NoError(t, err)
+	require.True(t, enabled)
+	require.Equal(t, "read-token", cfg.ReadBearerToken)
+	require.Equal(t, "admin-token", cfg.AdminBearerToken)
+}
+
+func mapLookupEnv(values map[string]string) func(string) (string, bool) {
+	return func(name string) (string, bool) {
+		value, ok := values[name]
+		return value, ok
+	}
+}
+
 func writeSelfSignedCertPair(t *testing.T) (string, string) {
 	t.Helper()
 

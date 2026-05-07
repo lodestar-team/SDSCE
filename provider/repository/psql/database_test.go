@@ -15,6 +15,14 @@ import (
 
 // withTestDB sets up test database in isolated schema
 func withTestDB(t *testing.T, testFunc func(db *Database)) {
+	withTestDBSchema(t, func(db *Database, _ string, _ string) {
+		testFunc(db)
+	})
+}
+
+// withTestDBSchema sets up a test database in an isolated schema and exposes
+// the schema so tests can reopen a fresh repository against the same state.
+func withTestDBSchema(t *testing.T, testFunc func(db *Database, dsn string, schema string)) {
 	ctx := context.Background()
 
 	db, err := GetConnectionFromDSN(ctx, postgresTestDSN)
@@ -26,7 +34,16 @@ func withTestDB(t *testing.T, testFunc func(db *Database)) {
 	_, err = db.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA %s", schemaName))
 	require.NoError(t, err)
 	defer func() {
-		_, _ = db.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA %s CASCADE", schemaName))
+		dropDB := db
+		if err := dropDB.PingContext(ctx); err != nil {
+			reopened, openErr := GetConnectionFromDSN(ctx, postgresTestDSN)
+			if openErr != nil {
+				return
+			}
+			dropDB = reopened
+			defer dropDB.Close()
+		}
+		_, _ = dropDB.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA %s CASCADE", schemaName))
 	}()
 
 	// Run migrations in schema
@@ -46,7 +63,23 @@ func withTestDB(t *testing.T, testFunc func(db *Database)) {
 	repo := NewRepository(db, zlog)
 	require.NoError(t, repo.Setup())
 
-	testFunc(repo)
+	testFunc(repo, postgresTestDSN, schemaName)
+}
+
+func reopenTestRepository(t *testing.T, dsn string, schema string) *Database {
+	t.Helper()
+
+	ctx := context.Background()
+	db, err := GetConnectionFromDSN(ctx, dsn)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(ctx, fmt.Sprintf("SET search_path TO %s", schema))
+	require.NoError(t, err)
+
+	repo := NewRepository(db, zlog)
+	require.NoError(t, repo.Setup())
+
+	return repo
 }
 
 func runMigrationsInSchema(t *testing.T, db *sqlx.DB, schema string) {
@@ -104,6 +137,7 @@ func TestDatabaseConnection(t *testing.T) {
 		// Verify we have the expected tables
 		require.Contains(t, tables, "sessions", "Expected sessions table to exist")
 		require.Contains(t, tables, "ravs", "Expected ravs table to exist")
+		require.Contains(t, tables, "collection_records", "Expected collection_records table to exist")
 		require.Contains(t, tables, "workers", "Expected workers table to exist")
 		require.Contains(t, tables, "quota_usage", "Expected quota_usage table to exist")
 		require.Contains(t, tables, "usage_events", "Expected usage_events table to exist")

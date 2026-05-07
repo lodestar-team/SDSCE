@@ -66,6 +66,39 @@ CREATE TABLE ravs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Collection lifecycle records (settlement state, separate from runtime sessions)
+CREATE TABLE collection_records (
+    session_id VARCHAR(255) NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+
+    -- Settlement tuple
+    collection_id BYTEA NOT NULL CHECK (length(collection_id) = 32),
+    payer BYTEA NOT NULL CHECK (length(payer) = 20),
+    service_provider BYTEA NOT NULL CHECK (length(service_provider) = 20),
+    data_service BYTEA NOT NULL CHECK (length(data_service) = 20),
+
+    -- Accepted RAV snapshot for this lifecycle record
+    rav_timestamp_ns BIGINT NOT NULL,
+    value_aggregate NUMERIC NOT NULL,
+    rav_metadata BYTEA,
+    rav_signature BYTEA NOT NULL CHECK (length(rav_signature) = 65),
+
+    -- Collection lifecycle state
+    state VARCHAR(50) NOT NULL CHECK (state IN ('collectible', 'collect_pending', 'collected', 'collect_failed_retryable')),
+    attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+    last_tx_hash TEXT,
+    last_error TEXT,
+    collected_amount NUMERIC,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (session_id, collection_id, payer, service_provider, data_service)
+);
+
+CREATE INDEX idx_collection_records_state ON collection_records(state);
+CREATE INDEX idx_collection_records_payer ON collection_records(payer);
+CREATE INDEX idx_collection_records_updated_at ON collection_records(updated_at);
+
 -- Workers table
 CREATE TABLE workers (
     key VARCHAR(255) PRIMARY KEY,

@@ -59,6 +59,30 @@ type ravRow struct {
 	CreatedAt time.Time `db:"created_at"`
 }
 
+// collectionRecordRow represents a collection lifecycle record in the database.
+type collectionRecordRow struct {
+	SessionID string `db:"session_id"`
+
+	CollectionID    collectionID `db:"collection_id"`
+	Payer           address      `db:"payer"`
+	ServiceProvider address      `db:"service_provider"`
+	DataService     address      `db:"data_service"`
+
+	RAVTimestampNs int64     `db:"rav_timestamp_ns"`
+	ValueAggregate grt       `db:"value_aggregate"`
+	RAVMetadata    []byte    `db:"rav_metadata"`
+	RAVSignature   signature `db:"rav_signature"`
+
+	State           string         `db:"state"`
+	AttemptCount    int            `db:"attempt_count"`
+	LastTxHash      sql.NullString `db:"last_tx_hash"`
+	LastError       sql.NullString `db:"last_error"`
+	CollectedAmount grt            `db:"collected_amount"`
+
+	CreatedAt time.Time `db:"created_at"`
+	UpdatedAt time.Time `db:"updated_at"`
+}
+
 // workerRow represents a worker record in the database
 type workerRow struct {
 	Key       string         `db:"key"`
@@ -213,6 +237,49 @@ func fromRAV(sessionID string, rav *horizon.SignedRAV) *ravRow {
 		Metadata:        rav.Message.Metadata,
 		Signature:       newSignature(rav.Signature),
 		CreatedAt:       time.Now(),
+	}
+}
+
+func (row *collectionRecordRow) toRepository() *repository.CollectionRecord {
+	var lastTxHash string
+	if row.LastTxHash.Valid {
+		lastTxHash = row.LastTxHash.String
+	}
+	var lastError string
+	if row.LastError.Valid {
+		lastError = row.LastError.String
+	}
+
+	valueAggregate := row.ValueAggregate.BigInt()
+	ravValueAggregate := row.ValueAggregate.BigInt()
+	return &repository.CollectionRecord{
+		Key: repository.CollectionKey{
+			SessionID:       row.SessionID,
+			CollectionID:    horizon.CollectionID(row.CollectionID.Bytes()),
+			Payer:           row.Payer.Address(),
+			ServiceProvider: row.ServiceProvider.Address(),
+			DataService:     row.DataService.Address(),
+		},
+		SignedRAV: &horizon.SignedRAV{
+			Message: &horizon.RAV{
+				CollectionID:    horizon.CollectionID(row.CollectionID.Bytes()),
+				Payer:           row.Payer.Address(),
+				ServiceProvider: row.ServiceProvider.Address(),
+				DataService:     row.DataService.Address(),
+				TimestampNs:     uint64(row.RAVTimestampNs),
+				ValueAggregate:  ravValueAggregate,
+				Metadata:        row.RAVMetadata,
+			},
+			Signature: row.RAVSignature.Signature(),
+		},
+		ValueAggregate:  valueAggregate,
+		State:           repository.CollectionState(row.State),
+		AttemptCount:    row.AttemptCount,
+		LastTxHash:      lastTxHash,
+		LastError:       lastError,
+		CollectedAmount: row.CollectedAmount.BigInt(),
+		CreatedAt:       row.CreatedAt,
+		UpdatedAt:       row.UpdatedAt,
 	}
 }
 

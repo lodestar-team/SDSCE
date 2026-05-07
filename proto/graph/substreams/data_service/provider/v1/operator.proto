@@ -1,0 +1,201 @@
+syntax = "proto3";
+
+package graph.substreams.data_service.provider.v1;
+
+import "graph/substreams/data_service/common/v1/types.proto";
+
+// ProviderOperatorService exposes private provider operator inspection and
+// lifecycle APIs. Deployments should bind it to the private operator listener,
+// not the public payment gateway listener.
+service ProviderOperatorService {
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  rpc ListAcceptedRAVs(ListAcceptedRAVsRequest) returns (ListAcceptedRAVsResponse);
+  rpc GetAcceptedRAV(GetAcceptedRAVRequest) returns (GetAcceptedRAVResponse);
+  rpc ListCollections(ListCollectionsRequest) returns (ListCollectionsResponse);
+  rpc GetCollection(GetCollectionRequest) returns (GetCollectionResponse);
+
+  rpc MarkCollectionPending(MarkCollectionPendingRequest) returns (MarkCollectionPendingResponse);
+  rpc MarkCollectionCollected(MarkCollectionCollectedRequest) returns (MarkCollectionCollectedResponse);
+  rpc MarkCollectionRetryable(MarkCollectionRetryableRequest) returns (MarkCollectionRetryableResponse);
+}
+
+enum OperatorSessionStatus {
+  OPERATOR_SESSION_STATUS_UNSPECIFIED = 0;
+  OPERATOR_SESSION_STATUS_ACTIVE = 1;
+  OPERATOR_SESSION_STATUS_PAUSED = 2;
+  OPERATOR_SESSION_STATUS_TERMINATED = 3;
+}
+
+enum CollectionState {
+  COLLECTION_STATE_UNSPECIFIED = 0;
+  COLLECTION_STATE_COLLECTIBLE = 1;
+  COLLECTION_STATE_COLLECT_PENDING = 2;
+  COLLECTION_STATE_COLLECTED = 3;
+  COLLECTION_STATE_COLLECT_FAILED_RETRYABLE = 4;
+}
+
+enum OperatorFundsStatus {
+  OPERATOR_FUNDS_STATUS_UNSPECIFIED = 0;
+  OPERATOR_FUNDS_STATUS_OK = 1;
+  OPERATOR_FUNDS_STATUS_INSUFFICIENT = 2;
+  OPERATOR_FUNDS_STATUS_UNKNOWN = 3;
+}
+
+message CollectionKey {
+  string session_id = 1;
+  bytes collection_id = 2;
+  common.v1.Address payer = 3;
+  common.v1.Address service_provider = 4;
+  common.v1.Address data_service = 5;
+}
+
+message OperatorPaymentState {
+  common.v1.PaymentStatus payment_status = 1;
+  OperatorFundsStatus funds_status = 2;
+  common.v1.GRT current_outstanding = 3;
+  common.v1.GRT projected_outstanding = 4;
+  common.v1.GRT minimum_needed = 5;
+  string funds_check_error = 6;
+  string operator_hint = 7;
+}
+
+message OperatorSession {
+  string session_id = 1;
+  OperatorSessionStatus status = 2;
+  common.v1.Address payer = 3;
+  common.v1.Address receiver = 4;
+  common.v1.Address data_service = 5;
+  uint64 created_at_ns = 6;
+  uint64 updated_at_ns = 7;
+  uint64 ended_at_ns = 8;
+  common.v1.EndReason end_reason = 9;
+  common.v1.Usage accumulated_usage = 10;
+  common.v1.Usage baseline_usage = 11;
+  bool payment_control_pending = 12;
+  AcceptedRAV accepted_rav = 13;
+  OperatorPaymentState payment_state = 14;
+}
+
+message AcceptedRAV {
+  string session_id = 1;
+  bytes collection_id = 2;
+  common.v1.Address payer = 3;
+  common.v1.Address service_provider = 4;
+  common.v1.Address data_service = 5;
+  uint64 timestamp_ns = 6;
+  common.v1.GRT value_aggregate = 7;
+  common.v1.SignedRAV signed_rav = 8;
+  CollectionState collection_state = 9;
+}
+
+message CollectionRecord {
+  CollectionKey key = 1;
+  CollectionState state = 2;
+  common.v1.SignedRAV signed_rav = 3;
+  common.v1.GRT value_aggregate = 4;
+  uint64 attempt_count = 5;
+  string last_tx_hash = 6;
+  string last_error = 7;
+  common.v1.GRT collected_amount = 8;
+  uint64 created_at_ns = 9;
+  uint64 updated_at_ns = 10;
+}
+
+message ListSessionsRequest {
+  uint32 limit = 1;
+  OperatorSessionStatus status = 2;
+  common.v1.Address payer = 3;
+  common.v1.Address receiver = 4;
+  common.v1.Address data_service = 5;
+  bool include_rav = 6;
+  OperatorFundsStatus funds_status = 7;
+}
+
+message ListSessionsResponse {
+  repeated OperatorSession sessions = 1;
+}
+
+message GetSessionRequest {
+  string session_id = 1;
+  bool include_rav = 2;
+}
+
+message GetSessionResponse {
+  OperatorSession session = 1;
+}
+
+message ListAcceptedRAVsRequest {
+  uint32 limit = 1;
+  string session_id = 2;
+  bytes collection_id = 3;
+  common.v1.Address payer = 4;
+  common.v1.Address service_provider = 5;
+  common.v1.Address data_service = 6;
+}
+
+message ListAcceptedRAVsResponse {
+  repeated AcceptedRAV ravs = 1;
+}
+
+message GetAcceptedRAVRequest {
+  string session_id = 1;
+}
+
+message GetAcceptedRAVResponse {
+  AcceptedRAV rav = 1;
+}
+
+message ListCollectionsRequest {
+  uint32 limit = 1;
+  string session_id = 2;
+  CollectionState state = 3;
+  common.v1.Address payer = 4;
+  common.v1.Address service_provider = 5;
+  common.v1.Address data_service = 6;
+  bytes collection_id = 7;
+}
+
+message ListCollectionsResponse {
+  repeated CollectionRecord collections = 1;
+}
+
+message GetCollectionRequest {
+  CollectionKey key = 1;
+}
+
+message GetCollectionResponse {
+  CollectionRecord collection = 1;
+}
+
+message MarkCollectionPendingRequest {
+  CollectionKey key = 1;
+  common.v1.GRT expected_value = 2;
+  string tx_hash = 3;
+}
+
+message MarkCollectionPendingResponse {
+  CollectionRecord collection = 1;
+}
+
+message MarkCollectionCollectedRequest {
+  CollectionKey key = 1;
+  common.v1.GRT expected_value = 2;
+  string tx_hash = 3;
+  common.v1.GRT collected_amount = 4;
+}
+
+message MarkCollectionCollectedResponse {
+  CollectionRecord collection = 1;
+}
+
+message MarkCollectionRetryableRequest {
+  CollectionKey key = 1;
+  common.v1.GRT expected_value = 2;
+  string tx_hash = 3;
+  string last_error = 4;
+}
+
+message MarkCollectionRetryableResponse {
+  CollectionRecord collection = 1;
+}

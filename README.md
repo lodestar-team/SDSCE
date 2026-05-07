@@ -37,14 +37,25 @@ Local stack variants:
 
 - `.reflex`: default direct-provider ingress stack
 - `.reflex.direct`: same as `.reflex`, but with the mode named explicitly
+- `.reflex.demo`: direct-provider ingress stack with a lower provider RAV request threshold for manual settlement testing
 - `.reflex.oracle`: oracle-backed provider discovery stack
 
 ```bash
 reflex -c .reflex.direct
+reflex -c .reflex.demo
 reflex -c .reflex.oracle
 ```
 
 The default `.reflex` flow uses the deterministic demo signer that `sds devenv` authorizes automatically. It also passes `--plaintext` explicitly for the local/demo sidecar<->gateway path, while the provider gateway's private Plugin Gateway inherits that local transport unless you override it with the plugin-specific flags added in the CLI. Outside local/demo usage, configure TLS certificate/key files instead of relying on plaintext defaults.
+
+The reflex stacks also enable the private provider operator listener on `localhost:9010` for local inspection and manual collection flows. The reflex command sets explicit local-only bearer tokens unless you override them:
+
+```bash
+SDS_OPERATOR_READ_TOKEN=local-operator-read-token
+SDS_ADMIN_WRITE_TOKEN=local-admin-write-token
+```
+
+Those fallback values are scoped to the provider process. For operator CLI checks in another shell, either export the same values and use `--operator-token-env`, or pass the local token with `--operator-token`. Read-only commands use the read token; mutating collection commands, including `sds provider operator collect`, use the admin token.
 
 The consumer sidecar `--payment-session-roundtrip-timeout` also bounds how long ingress will wait to resolve ambiguous upstream EOF or explicit pending payment-control work against provider session status before classifying the end of stream as an unresolved transport/control failure.
 
@@ -53,6 +64,7 @@ Local endpoints exposed by the direct-provider stack:
 - Consumer sidecar ingress: `localhost:9002`
 - Provider payment gateway: `localhost:9001`
 - Provider plugin gateway: `localhost:9003` (private `sds://` surface)
+- Provider operator gateway: `localhost:9010` (private authenticated operator surface)
 - Substreams tier1: `localhost:10016`
 
 The oracle-backed stack exposes the same sidecar/provider endpoints and also starts the local oracle on `localhost:9004`.
@@ -65,6 +77,16 @@ substreams run common@v0.1.0 map_clocks \
   --plaintext \
   -s 0 \
   -t +20
+```
+
+Read the provider operator status surface:
+
+```bash
+sds provider operator sessions list \
+  --provider-endpoint localhost:9010 \
+  --plaintext \
+  --operator-token local-operator-read-token \
+  --include-rav
 ```
 
 ```bash
@@ -279,12 +301,22 @@ The provider gateway supports two repository backends via the `--repository-dsn`
 - **In-memory**: `--repository-dsn="inmemory://"` - Local/demo and test-only; appropriate for a single-process stack
 - **PostgreSQL**: `--repository-dsn="psql://user:pass@host:port/dbname?sslmode=disable"` - Persistent and appropriate for multi-instance or deployed gateways
 
+For local commands that enable the operator listener, set local-only token env vars first:
+
+```bash
+export SDS_OPERATOR_READ_TOKEN=local-operator-read-token
+export SDS_ADMIN_WRITE_TOKEN=local-admin-write-token
+```
+
 ```bash
 # Using devenv addresses with in-memory repository (local/demo only)
 sds provider gateway \
   --repository-dsn "inmemory://" \
   --plaintext \
   --plugin-plaintext \
+  --operator-listen-addr :9010 \
+  --operator-read-token-env SDS_OPERATOR_READ_TOKEN \
+  --admin-write-token-env SDS_ADMIN_WRITE_TOKEN \
   --service-provider 0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
   --collector-address 0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9 \
   --escrow-address 0xfc7487a37ca8eac2e64cba61277aa109e9b8631e \
@@ -296,6 +328,9 @@ sds provider gateway \
   --repository-dsn "psql://dev-node:changeme@localhost:5432/dev-node?sslmode=disable" \
   --plaintext \
   --plugin-plaintext \
+  --operator-listen-addr :9010 \
+  --operator-read-token-env SDS_OPERATOR_READ_TOKEN \
+  --admin-write-token-env SDS_ADMIN_WRITE_TOKEN \
   --service-provider 0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
   --collector-address 0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9 \
   --escrow-address 0xfc7487a37ca8eac2e64cba61277aa109e9b8631e \

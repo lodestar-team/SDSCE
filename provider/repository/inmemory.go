@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"sync"
@@ -24,6 +25,7 @@ type InMemoryRepository struct {
 	sessions *haxmap.Map[string, *Session]
 	workers  *haxmap.Map[string, *Worker]
 	quotas   *haxmap.Map[string, *QuotaUsage]
+	records  *haxmap.Map[string, *CollectionRecord]
 
 	// mu serializes worker/quota mutations so multi-step repository operations
 	// can be made atomic inside the in-memory backend.
@@ -31,8 +33,9 @@ type InMemoryRepository struct {
 
 	// usageMu guards usage slice append operations; haxmap does not natively
 	// support atomic append-to-slice, so we use a thin mutex here.
-	usageMu sync.Mutex
-	usage   *haxmap.Map[string, []*UsageEvent]
+	usageMu      sync.Mutex
+	usage        *haxmap.Map[string, []*UsageEvent]
+	collectionMu sync.Mutex
 }
 
 var _ GlobalRepository = (*InMemoryRepository)(nil)
@@ -43,6 +46,7 @@ func NewInMemoryRepository() *InMemoryRepository {
 		sessions: newStringMap[*Session](),
 		workers:  newStringMap[*Worker](),
 		quotas:   newStringMap[*QuotaUsage](),
+		records:  newStringMap[*CollectionRecord](),
 		usage:    newStringMap[[]*UsageEvent](),
 	}
 }
@@ -57,8 +61,21 @@ func (r *InMemoryRepository) SessionCreate(_ context.Context, session *Session) 
 	if session.ID == "" {
 		return fmt.Errorf("session ID must not be empty")
 	}
+	var collectionNext *CollectionRecord
+	if session.CurrentRAV != nil {
+		r.collectionMu.Lock()
+		defer r.collectionMu.Unlock()
+		var err error
+		collectionNext, err = r.collectionNextCollectibleLocked(session.ID, session.CurrentRAV)
+		if err != nil {
+			return err
+		}
+	}
 	if _, loaded := r.sessions.GetOrSet(session.ID, cloneSession(session)); loaded {
 		return fmt.Errorf("session %q already exists", session.ID)
+	}
+	if collectionNext != nil {
+		r.records.Set(collectionMapKey(collectionNext.Key), cloneCollectionRecord(collectionNext))
 	}
 	return nil
 }
@@ -78,6 +95,16 @@ func (r *InMemoryRepository) SessionUpdate(_ context.Context, session *Session) 
 		return fmt.Errorf("session must not be nil")
 	}
 
+	var collectionNext *CollectionRecord
+	if session.CurrentRAV != nil {
+		r.collectionMu.Lock()
+		defer r.collectionMu.Unlock()
+		var err error
+		collectionNext, err = r.collectionNextCollectibleLocked(session.ID, session.CurrentRAV)
+		if err != nil {
+			return err
+		}
+	}
 	next := cloneSession(session)
 	for {
 		current, ok := r.sessions.Get(session.ID)
@@ -85,6 +112,9 @@ func (r *InMemoryRepository) SessionUpdate(_ context.Context, session *Session) 
 			return fmt.Errorf("session %q not found", session.ID)
 		}
 		if r.sessions.CompareAndSwap(session.ID, current, next) {
+			if collectionNext != nil {
+				r.records.Set(collectionMapKey(collectionNext.Key), cloneCollectionRecord(collectionNext))
+			}
 			return nil
 		}
 	}
@@ -139,6 +169,19 @@ func (r *InMemoryRepository) SessionUpdateRuntimeState(_ context.Context, sessio
 
 // SessionUpdateRAVAndBaseline updates only the accepted RAV and the corresponding baseline snapshot.
 func (r *InMemoryRepository) SessionUpdateRAVAndBaseline(_ context.Context, sessionID string, currentRAV *horizon.SignedRAV, baselineBlocks, baselineBytes, baselineReqs uint64, baselineCost *big.Int) error {
+	if currentRAV != nil {
+		r.collectionMu.Lock()
+		defer r.collectionMu.Unlock()
+	}
+	var collectionNext *CollectionRecord
+	if currentRAV != nil {
+		var err error
+		collectionNext, err = r.collectionNextCollectibleLocked(sessionID, currentRAV)
+		if err != nil {
+			return err
+		}
+	}
+
 	for {
 		session, ok := r.sessions.Get(sessionID)
 		if !ok {
@@ -158,6 +201,9 @@ func (r *InMemoryRepository) SessionUpdateRAVAndBaseline(_ context.Context, sess
 		next.UpdatedAt = time.Now()
 
 		if r.sessions.CompareAndSwap(sessionID, session, next) {
+			if collectionNext != nil {
+				r.records.Set(collectionMapKey(collectionNext.Key), cloneCollectionRecord(collectionNext))
+			}
 			return nil
 		}
 	}
@@ -457,6 +503,140 @@ func (r *InMemoryRepository) UsageAdd(_ context.Context, sessionID string, usage
 	return nil
 }
 
+// --- Collection lifecycle tracking ---
+
+func (r *InMemoryRepository) CollectionCreateOrUpdateCollectible(_ context.Context, sessionID string, rav *horizon.SignedRAV) (*CollectionRecord, error) {
+	r.collectionMu.Lock()
+	defer r.collectionMu.Unlock()
+
+	next, err := r.collectionNextCollectibleLocked(sessionID, rav)
+	if err != nil {
+		return nil, err
+	}
+	r.records.Set(collectionMapKey(next.Key), cloneCollectionRecord(next))
+	return cloneCollectionRecord(next), nil
+}
+
+func (r *InMemoryRepository) collectionNextCollectibleLocked(sessionID string, rav *horizon.SignedRAV) (*CollectionRecord, error) {
+	record, err := newCollectionRecordFromRAV(sessionID, rav)
+	if err != nil {
+		return nil, err
+	}
+
+	key := collectionMapKey(record.Key)
+	current, ok := r.records.Get(key)
+	if !ok {
+		return cloneCollectionRecord(record), nil
+	}
+
+	if current.State == CollectionStateCollectPending {
+		if collectionValuesEqual(current.ValueAggregate, record.ValueAggregate) {
+			return cloneCollectionRecord(current), nil
+		}
+		return nil, fmt.Errorf("collection %q has pending value %s, new value %s: %w", key, current.ValueAggregate, record.ValueAggregate, ErrCollectionConflict)
+	}
+	if current.State == CollectionStateCollected {
+		if collectionValuesEqual(current.ValueAggregate, record.ValueAggregate) {
+			return cloneCollectionRecord(current), nil
+		}
+		if record.ValueAggregate.Cmp(current.ValueAggregate) < 0 {
+			return nil, fmt.Errorf("collection %q has collected value %s, stale value %s: %w", key, current.ValueAggregate, record.ValueAggregate, ErrCollectionConflict)
+		}
+	}
+
+	next := cloneCollectionRecord(record)
+	next.CreatedAt = current.CreatedAt
+	return cloneCollectionRecord(next), nil
+}
+
+func (r *InMemoryRepository) CollectionGet(_ context.Context, key CollectionKey) (*CollectionRecord, error) {
+	record, ok := r.records.Get(collectionMapKey(key))
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return cloneCollectionRecord(record), nil
+}
+
+func (r *InMemoryRepository) CollectionList(_ context.Context, filter CollectionFilter) ([]*CollectionRecord, error) {
+	records := make([]*CollectionRecord, 0)
+	r.records.ForEach(func(_ string, record *CollectionRecord) bool {
+		if filter.SessionID != nil && record.Key.SessionID != *filter.SessionID {
+			return true
+		}
+		if filter.State != nil && record.State != *filter.State {
+			return true
+		}
+		if filter.Payer != nil && record.Key.Payer.Pretty() != filter.Payer.Pretty() {
+			return true
+		}
+		records = append(records, cloneCollectionRecord(record))
+		return true
+	})
+	return records, nil
+}
+
+func (r *InMemoryRepository) CollectionMarkPending(_ context.Context, key CollectionKey, expectedValue *big.Int, txHash string, updatedAt time.Time) (*CollectionRecord, error) {
+	return r.updateCollection(key, expectedValue, func(record *CollectionRecord) error {
+		if record.State != CollectionStateCollectible && record.State != CollectionStateCollectFailedRetryable {
+			return ErrInvalidCollectionTransition
+		}
+		record.State = CollectionStateCollectPending
+		record.AttemptCount++
+		record.LastTxHash = txHash
+		record.LastError = ""
+		record.UpdatedAt = collectionUpdatedAt(updatedAt)
+		return nil
+	})
+}
+
+func (r *InMemoryRepository) CollectionMarkCollected(_ context.Context, key CollectionKey, expectedValue *big.Int, txHash string, collectedAmount *big.Int, updatedAt time.Time) (*CollectionRecord, error) {
+	return r.updateCollection(key, expectedValue, func(record *CollectionRecord) error {
+		if record.State != CollectionStateCollectPending {
+			return ErrInvalidCollectionTransition
+		}
+		record.State = CollectionStateCollected
+		record.LastTxHash = txHash
+		record.LastError = ""
+		record.CollectedAmount = cloneBigInt(collectedAmount)
+		record.UpdatedAt = collectionUpdatedAt(updatedAt)
+		return nil
+	})
+}
+
+func (r *InMemoryRepository) CollectionMarkFailedRetryable(_ context.Context, key CollectionKey, expectedValue *big.Int, txHash string, lastError string, updatedAt time.Time) (*CollectionRecord, error) {
+	return r.updateCollection(key, expectedValue, func(record *CollectionRecord) error {
+		if record.State != CollectionStateCollectPending {
+			return ErrInvalidCollectionTransition
+		}
+		record.State = CollectionStateCollectFailedRetryable
+		record.LastTxHash = txHash
+		record.LastError = lastError
+		record.UpdatedAt = collectionUpdatedAt(updatedAt)
+		return nil
+	})
+}
+
+func (r *InMemoryRepository) updateCollection(key CollectionKey, expectedValue *big.Int, apply func(*CollectionRecord) error) (*CollectionRecord, error) {
+	r.collectionMu.Lock()
+	defer r.collectionMu.Unlock()
+
+	mapKey := collectionMapKey(key)
+	current, ok := r.records.Get(mapKey)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if !collectionValuesEqual(current.ValueAggregate, expectedValue) {
+		return nil, ErrCollectionConflict
+	}
+
+	next := cloneCollectionRecord(current)
+	if err := apply(next); err != nil {
+		return nil, err
+	}
+	r.records.Set(mapKey, next)
+	return cloneCollectionRecord(next), nil
+}
+
 // --- Health/lifecycle ---
 
 // Ping is a no-op health check for the in-memory implementation.
@@ -507,6 +687,18 @@ func cloneUsageEvent(usage *UsageEvent) *UsageEvent {
 	}
 
 	clone := *usage
+	return &clone
+}
+
+func cloneCollectionRecord(record *CollectionRecord) *CollectionRecord {
+	if record == nil {
+		return nil
+	}
+
+	clone := *record
+	clone.SignedRAV = cloneSignedRAV(record.SignedRAV)
+	clone.ValueAggregate = cloneBigInt(record.ValueAggregate)
+	clone.CollectedAmount = cloneBigInt(record.CollectedAmount)
 	return &clone
 }
 
@@ -562,4 +754,54 @@ func cloneBigInt(value *big.Int) *big.Int {
 	}
 
 	return new(big.Int).Set(value)
+}
+
+func newCollectionRecordFromRAV(sessionID string, rav *horizon.SignedRAV) (*CollectionRecord, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("session ID must not be empty")
+	}
+	if rav == nil || rav.Message == nil {
+		return nil, fmt.Errorf("signed RAV must not be nil")
+	}
+	if rav.Message.ValueAggregate == nil {
+		return nil, fmt.Errorf("signed RAV value aggregate must not be nil")
+	}
+
+	now := time.Now()
+	return &CollectionRecord{
+		Key: CollectionKey{
+			SessionID:       sessionID,
+			CollectionID:    rav.Message.CollectionID,
+			Payer:           rav.Message.Payer,
+			ServiceProvider: rav.Message.ServiceProvider,
+			DataService:     rav.Message.DataService,
+		},
+		SignedRAV:      cloneSignedRAV(rav),
+		ValueAggregate: cloneBigInt(rav.Message.ValueAggregate),
+		State:          CollectionStateCollectible,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}, nil
+}
+
+func collectionMapKey(key CollectionKey) string {
+	return key.SessionID + "|" +
+		hex.EncodeToString(key.CollectionID[:]) + "|" +
+		key.Payer.Pretty() + "|" +
+		key.ServiceProvider.Pretty() + "|" +
+		key.DataService.Pretty()
+}
+
+func collectionValuesEqual(a, b *big.Int) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.Cmp(b) == 0
+}
+
+func collectionUpdatedAt(updatedAt time.Time) time.Time {
+	if updatedAt.IsZero() {
+		return time.Now()
+	}
+	return updatedAt
 }

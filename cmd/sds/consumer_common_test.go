@@ -84,6 +84,18 @@ func TestRejectAllowanceReplacement(t *testing.T) {
 	}
 }
 
+func TestRejectNoWaitResetFirst(t *testing.T) {
+	if !rejectNoWaitResetFirst(true, true) {
+		t.Fatal("expected --reset-first --no-wait to be rejected")
+	}
+	if rejectNoWaitResetFirst(true, false) {
+		t.Fatal("expected --reset-first with receipt waiting to be allowed")
+	}
+	if rejectNoWaitResetFirst(false, true) {
+		t.Fatal("expected --no-wait without --reset-first to be allowed")
+	}
+}
+
 func TestTopUpDepositAmount(t *testing.T) {
 	current := sds.MustNewGRT("3 GRT")
 	target := sds.MustNewGRT("10 GRT")

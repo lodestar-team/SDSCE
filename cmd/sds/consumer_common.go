@@ -208,6 +208,10 @@ func txOptionsFromFlags(cmd *cobra.Command, key payerKey) chainclient.TxOptions 
 }
 
 func withRPCClient(cmd *cobra.Command, fn func(ctx context.Context, client *chainclient.Client) error) error {
+	return withRPCClientReceiptWaits(cmd, 1, fn)
+}
+
+func withRPCClientReceiptWaits(cmd *cobra.Command, receiptWaits int, fn func(ctx context.Context, client *chainclient.Client) error) error {
 	endpoint := requiredStringFlag(cmd, "rpc-endpoint")
 	rpcTimeout := sflags.MustGetDuration(cmd, "rpc-timeout")
 	dialCtx, dialCancel := context.WithTimeout(cmd.Context(), rpcTimeout)
@@ -221,7 +225,10 @@ func withRPCClient(cmd *cobra.Command, fn func(ctx context.Context, client *chai
 
 	timeout := rpcTimeout
 	if cmd.Flags().Lookup("receipt-timeout") != nil {
-		timeout += sflags.MustGetDuration(cmd, "receipt-timeout")
+		if receiptWaits < 1 {
+			receiptWaits = 1
+		}
+		timeout += time.Duration(receiptWaits) * sflags.MustGetDuration(cmd, "receipt-timeout")
 	}
 	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 	defer cancel()

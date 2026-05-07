@@ -110,8 +110,14 @@ func runConsumerFundingApprove(cmd *cobra.Command, args []string) error {
 	force := sflags.MustGetBool(cmd, "force")
 	resetFirst := sflags.MustGetBool(cmd, "reset-first")
 	cli.Ensure(!(force && resetFirst), "--force and --reset-first are mutually exclusive")
+	cli.Ensure(!rejectNoWaitResetFirst(resetFirst, opts.NoWait), "--reset-first cannot be used with --no-wait because the second approval must wait for the reset receipt")
 
-	return withRPCClient(cmd, func(ctx context.Context, client *chainclient.Client) error {
+	receiptWaits := 1
+	if resetFirst {
+		receiptWaits = 2
+	}
+
+	return withRPCClientReceiptWaits(cmd, receiptWaits, func(ctx context.Context, client *chainclient.Client) error {
 		token := erc20.MustNew()
 		currentAllowance, err := queryERC20Allowance(ctx, client, token, grtAddress, key.Address, escrowAddress)
 		if err != nil {
@@ -244,6 +250,10 @@ func runConsumerFundingTopUp(cmd *cobra.Command, args []string) error {
 
 func rejectAllowanceReplacement(currentAllowance sds.GRT, requestedAmount sds.GRT, force bool, resetFirst bool) bool {
 	return !currentAllowance.IsZero() && !requestedAmount.IsZero() && !force && !resetFirst
+}
+
+func rejectNoWaitResetFirst(resetFirst bool, noWait bool) bool {
+	return resetFirst && noWait
 }
 
 func topUpDepositAmount(currentBalance sds.GRT, targetBalance sds.GRT) (sds.GRT, bool) {

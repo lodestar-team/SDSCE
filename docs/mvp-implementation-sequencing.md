@@ -197,7 +197,6 @@ Recommended sequence:
 6. `MVP-032` Expose authenticated operator runtime/session/payment inspection APIs and CLI/status flows
 7. `MVP-019` Implement provider inspection CLI flows for collectible/accepted RAV data
 8. `MVP-020` Implement manual collection CLI flow that crafts/signs/submits collect transactions locally
-9. `MVP-018` Implement operator funding CLI flows for approve/deposit/top-up beyond local demo assumptions
 
 Notes:
 
@@ -206,7 +205,7 @@ Notes:
 - `MVP-003` should freeze the runtime-versus-settlement boundary before either downstream task broadens its scope.
 - `MVP-022` can be implemented before concrete retrieval APIs, because the bearer-token role contract is already frozen under `MVP-028`.
 - `MVP-009` depends on `MVP-022` and `MVP-029`, so authenticated retrieval should wait until both auth enforcement and lifecycle semantics are stable.
-- `MVP-018` comes late because the current backlog explicitly ties it to operator runtime/low-funds inspection surfaces.
+- `MVP-018` is complete; future operator-flow sequencing starts from provider inspection and manual collection work.
 
 ### Lane D: Post-MVP Reconnect And Resume
 
@@ -323,7 +322,6 @@ Already resolved:
 
 - `MVP-019`
 - `MVP-020`
-- `MVP-018`
 
 ### Phase 4: Finalize Visibility, Acceptance, And Documentation
 

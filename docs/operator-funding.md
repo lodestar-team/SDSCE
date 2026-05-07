@@ -37,6 +37,8 @@ SDS_PAYER_KEY=0x... sds consumer funding approve \
 
 The command refuses non-zero to non-zero allowance replacement by default. Use `--reset-first` to submit `approve(escrow, 0)` before the requested allowance, or `--force` to submit the replacement directly.
 
+`--reset-first` waits for the reset transaction before submitting the replacement approval and cannot be combined with `--no-wait`.
+
 ## Deposit And Top Up
 
 `deposit` is a direct action and always adds the requested amount:
@@ -131,5 +133,7 @@ Available controls:
 - `--no-wait`
 
 `dynamic` is the default. Use `--tx-type=legacy` for local or named networks that do not handle EIP-1559 transactions correctly.
+
+Commands that submit multiple transactions, such as `funding approve --reset-first`, reserve receipt-timeout budget for each submitted transaction.
 
 This tooling is backward-compatible for external `firecore` and Substreams deployments. It adds operator CLI actions only; it does not change shared runtime/plugin contracts, protobufs, or provider runtime behavior.

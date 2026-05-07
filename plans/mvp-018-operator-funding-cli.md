@@ -2,6 +2,8 @@
 
 Drafted: 2026-05-06
 
+Status note: this is the historical pre-implementation plan for `MVP-018`. The current implementation is complete and tracked in `plans/mvp-implementation-backlog.md`, with operator usage documented in `docs/operator-funding.md`.
+
 ## Purpose
 
 This document captures the research and implementation plan for `MVP-018`: operator/payer funding CLI flows for consumer-side SDS usage.

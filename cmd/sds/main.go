@@ -45,6 +45,8 @@ func main() {
 			"consumer",
 			"Consumer-side commands",
 			consumerSidecarCmd,
+			consumerFundingCmd,
+			consumerSignerCmd,
 		),
 
 		Group(

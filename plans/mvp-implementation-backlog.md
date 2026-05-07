@@ -108,7 +108,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-015 | `done` | provider-integration | `A3` | `MVP-004`, `MVP-014` | `A`, `C` | Wire real byte metering and session correlation from the plugin path into the payment-state repository used by the gateway |
 | MVP-016 | `done` | provider-integration | `A6` | `MVP-010`, `MVP-014` | `C` | Enforce gateway Continue/Stop decisions in the live provider stream lifecycle |
 | MVP-017 | `done` | consumer-integration | `A1`, `A2`, `A3` | `MVP-007`, `MVP-011`, `MVP-033` | `A`, `C` | Implement the consumer sidecar as the Substreams-compatible endpoint/proxy and primary SDS-facing runtime boundary |
-| MVP-018 | `not_started` | tooling | none | `MVP-032` | `E` | Implement operator funding CLI flows for approve/deposit/top-up beyond local demo assumptions |
+| MVP-018 | `done` | tooling | none | `MVP-032` | `E` | Implement operator funding CLI flows for approve/deposit/top-up beyond local demo assumptions |
 | MVP-019 | `not_started` | tooling | `A5` | `MVP-009`, `MVP-022` | `D`, `F` | Implement provider inspection CLI flows for accepted and collectible RAV data |
 | MVP-020 | `not_started` | tooling | `A5` | `MVP-009`, `MVP-022`, `MVP-029` | `F` | Implement manual collection CLI flow that fetches provider settlement state and crafts/signs/submits collect transactions locally |
 | MVP-021 | `in_progress` | security | `A5` | none | `G` | Make TLS the default non-dev runtime posture for oracle, sidecar, and provider integration paths |
@@ -543,7 +543,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 
 ## Operator Tooling Tasks
 
-- [ ] MVP-018 Implement operator funding CLI flows for approve/deposit/top-up beyond local demo assumptions.
+- [x] MVP-018 Implement operator funding CLI flows for approve/deposit/top-up beyond local demo assumptions.
   - Context:
     - Funding is an MVP operator workflow, but current tooling is still demo-oriented.
     - `sds tools rav` is useful support tooling, not a substitute for escrow funding flows.
@@ -551,10 +551,17 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - none
   - Done when:
     - CLI commands exist for approve/deposit/top-up in a provider-operator or payer-operator workflow.
+    - CLI commands exist for payer signer proof generation, authorization status, authorize, thaw, revoke, and cancel-thaw.
     - The commands are not limited to local deterministic devenv assumptions.
     - The documented operator flow links funding actions to low-funds/runtime inspection surfaces.
   - Verify:
     - Add command-level tests where practical and document a manual funding flow that works against a non-demo configuration.
+  - Implemented:
+    - Added `sds consumer funding status|approve|deposit|top-up` with explicit RPC, chain, contract, payer, receiver, and key inputs.
+    - Added `sds consumer signer proof|status|authorize|thaw|revoke|cancel-thaw` for sidecar signer lifecycle setup against `GraphTallyCollector`.
+    - Added EIP-1559 dynamic-fee transaction submission with explicit gas, fee, timeout, dry-run, and no-wait flags.
+    - Added shared ERC20, `PaymentsEscrow`, and `GraphTallyCollector` ABI wrappers plus shared signer proof generation outside `horizon/devenv`.
+    - Documented the operator workflow in [docs/operator-funding.md](../docs/operator-funding.md).
 
 - [ ] MVP-019 Implement provider inspection CLI flows for accepted and collectible RAV data.
   - Context:

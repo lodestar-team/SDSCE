@@ -59,7 +59,7 @@ The biggest remaining MVP gaps are now:
 | B. Fresh session after interruption | `partial` | Fresh-session semantics are implemented in the init contract, but broader real-path interruption validation still remains |
 | C. Low funds during streaming | `partial` | Session-local low-funds stop behavior now reaches both the real sidecar ingress path and the local-first Firecore runtime path, but refreshed published images still remain |
 | D. Provider restart without losing collectible state | `partial` | Provider persistence is no longer purely in-memory because PostgreSQL support exists, but collectible/collection lifecycle tracking is still incomplete |
-| E. Manual funding flow | `partial` | Demo-oriented setup/funding helpers exist, but real operator-grade funding CLI flows do not |
+| E. Manual funding flow | `implemented` | Operator-grade funding and signer authorization CLI flows now exist outside local demo assumptions |
 | F. Manual collection flow | `missing` | RAV tooling exists, but provider-backed settlement inspection and collect workflow are not implemented |
 | G. Secure deployment posture | `partial` | TLS hooks and provider public/private split exist, but authenticated admin/operator surfaces remain unfinished |
 
@@ -274,19 +274,21 @@ Notes:
 
 ### Funding CLI
 
-Status: `partial`
+Status: `implemented`
 
 Current state:
 
 - local/demo funding setup exists
+- operator funding status, approve, deposit, and top-up commands exist
+- payer sidecar signer proof, authorization status, authorize, thaw, revoke, and cancel-thaw commands exist
+- production-facing commands require explicit RPC, chain, contract, payer/receiver, and key inputs
 
 Evidence:
 
 - `cmd/sds/demo_setup.go`
-
-What is still missing for MVP:
-
-- operator-oriented approve/deposit/top-up workflow beyond local demo assumptions
+- `cmd/sds/consumer_funding.go`
+- `cmd/sds/consumer_signer.go`
+- `docs/operator-funding.md`
 
 ### Settlement / Collection CLI
 
@@ -393,7 +395,6 @@ Persistence and settlement:
 
 Tooling and operations:
 
-- `MVP-018`
 - `MVP-019`
 - `MVP-020`
 - `MVP-032`

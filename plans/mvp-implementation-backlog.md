@@ -115,7 +115,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-022 | `done` | security | `A5` | `MVP-028` | `D`, `F`, `G` | Add authentication and authorization to provider admin/operator APIs using the shared bearer-token role contract from MVP-028 |
 | MVP-023 | `done` | observability | `A4` | none | `A`, `C`, `D`, `F`, `G` | Define the final MVP observability floor beyond structured logs and status tooling |
 | MVP-024 | `done` | observability | `A4` | `MVP-023` | `C`, `D`, `F`, `G` | Implement basic operator-facing inspection/status surfaces, metrics, and log correlation |
-| MVP-025 | `in_progress` | validation | none | none | `A`, `B`, `C`, `D`, `E`, `F`, `G` | Add MVP acceptance coverage for the primary end-to-end scenarios in docs/tests/manual verification |
+| MVP-025 | `done` | validation | none | none | `A`, `B`, `C`, `D`, `E`, `F`, `G` | Add MVP acceptance coverage for the primary end-to-end scenarios in docs/tests/manual verification |
 | MVP-026 | `in_progress` | docs | `A1`, `A4`, `A5` | `MVP-023`, `MVP-028`, `MVP-033` | `A`, `B`, `C`, `D`, `E`, `F`, `G` | Refresh protocol/runtime docs so they match the revised MVP architecture and remaining open questions |
 | MVP-027 | `done` | protocol | `A3` | none | `B`, `D`, `F` | Freeze MVP payment/session identity semantics for fresh sessions and non-reused collection/payment lineage |
 | MVP-028 | `done` | security | `A5` | none | `G` | Define the MVP authentication and authorization contract for provider operator APIs and future oracle admin surfaces |
@@ -761,19 +761,22 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 
 ## Validation and Documentation Tasks
 
-- [ ] MVP-025 Add MVP acceptance coverage for the primary end-to-end scenarios in docs/tests/manual verification.
+- [x] MVP-025 Add MVP acceptance coverage for the primary end-to-end scenarios in docs/tests/manual verification.
   - Context:
     - The MVP scope makes scenarios the primary definition of done.
-    - The recent commit range added real-path integration scaffolding, including `TestFirecore`, but it is not yet enough to close the scenario matrix.
+    - The local SDS stack is the MVP acceptance source of truth because it validates SDS-mediated paid Substreams access against a controlled Substreams-compatible data plane.
+    - Substreams package execution correctness, Firehose indexing correctness, and production provider ingress behavior are outside SDS MVP acceptance and remain deployment smoke-test concerns.
+    - The scenario matrix records the test/manual evidence for each scenario.
   - Assumptions:
     - none
   - Done when:
     - The key scenarios from [docs/mvp-scope.md](../docs/mvp-scope.md) are covered by tests, reproducible manual flows, or both.
-    - The repo identifies which scenarios are validated locally versus against a named real-provider environment.
-    - At least scenarios `A`, `C`, and `G` have a defined validation path against a real-provider environment rather than relying only on local demo coverage.
+    - The repo identifies the local stack as the MVP acceptance environment and documents the scope boundary between SDS behavior and external Substreams/Firehose product correctness.
     - Scenario `B` is validated according to the fresh-session-after-interruption semantics in the revised scope, not resume semantics.
   - Verify:
-    - Update the scenario matrix or equivalent test/docs references for each acceptance scenario, including environment, validation method, and source of truth for the result.
+    - [docs/mvp-acceptance-matrix.md](../docs/mvp-acceptance-matrix.md) maps each scenario to local-stack validation evidence and out-of-scope data-plane concerns.
+    - `TestConsumerIngress_CreatesFreshSessionAfterInterruptedStream` validates fresh-session semantics at the sidecar ingress boundary.
+    - `go test ./test/integration/... -count=1` passes.
 
 - [x] MVP-034 Fix repository PostgreSQL tests so migrations resolve from repo-relative state rather than a machine-specific absolute path.
   - Context:

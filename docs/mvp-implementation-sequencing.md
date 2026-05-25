@@ -201,8 +201,7 @@ Completed foundation:
 Recommended next sequence:
 
 1. `MVP-024` observability metrics/log correlation implementation
-2. `MVP-025` acceptance coverage
-3. `MVP-026` documentation refresh
+2. `MVP-026` documentation refresh
 
 Notes:
 
@@ -212,6 +211,7 @@ Notes:
 - `MVP-009` is closed by the separate authenticated `ProviderOperatorService`, which exposes read RPCs for sessions, accepted RAVs, and collection lifecycle records plus admin lifecycle transition RPCs.
 - `MVP-032` is closed by authenticated session/runtime payment inspection fields and provider operator CLI presentation for status, accumulated/baseline usage, accepted RAV summary, payment-control pending state, last assessed funds status, current/projected outstanding value, escrow balance when known, minimum needed, check errors, and low-funds operator hints.
 - `MVP-019` is closed by read-only `sds provider operator sessions|ravs|collections` commands backed by the authenticated provider operator API.
+- `MVP-025` is closed by the local-stack acceptance matrix and focused ingress coverage for fresh-session recovery after an interrupted stream.
 - `MVP-020` is closed by `sds provider operator collect`, production `SubstreamsDataService.collect` calldata helpers, local provider-key transaction signing through `contracts/chain`, and provider lifecycle transitions for pending, collected, retryable failure, no-wait, dry-run, and already-collected no-op cases.
 - `MVP-018` is complete; future operator-flow sequencing starts from observability, acceptance, and docs hardening.
 
@@ -258,13 +258,12 @@ Minimum prerequisites:
 
 Recommended sequence:
 
-1. `MVP-025` Add MVP acceptance coverage for the primary end-to-end scenarios in docs/tests/manual verification
-2. `MVP-026` Refresh protocol/runtime docs so they match the MVP architecture and explicit open questions
+1. `MVP-026` Refresh protocol/runtime docs so they match the MVP architecture and explicit open questions
 
 Notes:
 
 - `MVP-024` is closed by authenticated private operator `/metrics`, structured session/payment log correlation fields, and provider operator status/inspection visibility without requiring distributed tracing.
-- `MVP-025` should be updated incrementally throughout implementation, but its final closure belongs near the end.
+- `MVP-025` is closed by the local-stack acceptance matrix and focused ingress fresh-session coverage. Real provider/testnet runs are deployment smoke tests rather than MVP acceptance blockers.
 - `MVP-026` should be completed after the key open-question outputs it depends on are stable.
 
 ## Suggested Implementation Phases
@@ -330,7 +329,6 @@ Already resolved:
 
 ### Phase 4: Finalize Visibility, Acceptance, And Documentation
 
-- `MVP-025`
 - `MVP-026`
 
 ## Tasks That Can Safely Start Before Every Open Question Is Closed
@@ -343,8 +341,6 @@ This section is interpretive guidance based on the assumptions register and depe
 
 - `MVP-024`
   - Basic log correlation, metrics, and status surfaces can proceed because `MVP-023` is now resolved.
-- `MVP-025`
-  - Acceptance coverage scaffolding can be built incrementally while implementation proceeds.
 
 ### Should Usually Wait
 

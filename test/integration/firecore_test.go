@@ -190,7 +190,7 @@ func TestFirecore(t *testing.T) {
 	)
 	if isKnownFirecoreHeaderPropagationBlocker(err) {
 		dumpContainerLogs(t, ctx, dummyBlockchainContainer)
-		t.Skipf("MVP-014 blocked by external firecore/substreams header propagation: %v", err)
+		t.Skipf("default dummy-blockchain image is not compatible with the current SDS runtime path; set SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE to a rebuilt compatible image documented in docs/provider-runtime-compatibility.md: %v", err)
 	}
 	require.NoError(t, err, "firecore-backed sidecar ingress request must succeed")
 	require.Greater(t, blockCount, 0, "expected at least one streamed Substreams response")
@@ -369,7 +369,7 @@ func TestFirecoreStopsStreamOnLowFunds(t *testing.T) {
 	)
 	if isKnownFirecoreHeaderPropagationBlocker(err) {
 		dumpContainerLogs(t, ctx, dummyBlockchainContainer)
-		t.Skipf("MVP-016 blocked by external firecore/substreams header propagation: %v", err)
+		t.Skipf("default dummy-blockchain image is not compatible with the current SDS runtime path; set SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE to a rebuilt compatible image documented in docs/provider-runtime-compatibility.md: %v", err)
 	}
 	require.Error(t, err, "low-funds Firecore run must stop the live stream")
 	require.True(t, isQuotaExceededRuntimeFailure(err), "expected quota/resource exhausted runtime failure, got: %v", err)

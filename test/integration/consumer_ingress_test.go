@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -239,6 +240,146 @@ func TestConsumerIngress_StopsStreamOnLowFunds(t *testing.T) {
 		return session.Status == repository.SessionStatusTerminated &&
 			session.EndReason == commonv1.EndReason_END_REASON_PAYMENT_ISSUE
 	}, 5*time.Second, 100*time.Millisecond, "expected provider session to terminate on low funds")
+}
+
+func TestConsumerIngress_CreatesFreshSessionAfterInterruptedStream(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	env := devenv.Get()
+	require.NotNil(t, env, "devenv not started")
+
+	setup, err := env.SetupTestWithSigner(nil)
+	require.NoError(t, err)
+
+	providerAddr := reserveLocalAddress(t)
+	sidecarAddr := reserveLocalAddress(t)
+
+	var usageService *providerusage.UsageService
+	var callCount atomic.Int32
+	var observedMu sync.Mutex
+	observedSessionIDs := make([]string, 0, 2)
+	repo := repository.NewInMemoryRepository()
+
+	upstreamEndpoint, _, shutdownUpstream := startFakeSubstreamsV3Server(t, func(_ *pbsubstreamsrpcv3.Request, stream grpc.ServerStreamingServer[pbsubstreamsrpcv2.Response]) error {
+		md, _ := metadata.FromIncomingContext(stream.Context())
+		sessionIDs := md.Get(sds.HeaderSessionID)
+		require.Len(t, sessionIDs, 1, "expected the ingress to propagate a single session id header")
+
+		observedMu.Lock()
+		observedSessionIDs = append(observedSessionIDs, sessionIDs[0])
+		observedMu.Unlock()
+
+		switch callCount.Add(1) {
+		case 1:
+			require.NoError(t, stream.Send(testBlockResponse([]byte("first-request-before-interruption"))))
+			reportMeteredUsage(t, ctx, usageService, env.Payer.Address, env.ServiceProvider.Address, sessionIDs[0], 1, 0, 1)
+			require.Eventually(t, func() bool {
+				session, err := repo.SessionGet(ctx, sessionIDs[0])
+				if err != nil || session.CurrentRAV == nil || session.CurrentRAV.Message == nil {
+					return false
+				}
+				return session.CurrentRAV.Message.ValueAggregate.Sign() > 0
+			}, 5*time.Second, 100*time.Millisecond, "expected first interrupted session to accept a non-zero RAV before retry")
+			return status.Error(codes.Unavailable, "simulated upstream interruption")
+		case 2:
+			require.NoError(t, stream.Send(testBlockResponse([]byte("second-request-fresh-session"))))
+			return nil
+		default:
+			return status.Error(codes.Internal, "unexpected extra request")
+		}
+	})
+	defer shutdownUpstream()
+
+	providerGateway, err := providergateway.New(&providergateway.Config{
+		ListenAddr:          providerAddr,
+		ServiceProvider:     env.ServiceProvider.Address,
+		Domain:              env.Domain(),
+		CollectorAddr:       env.Collector.Address,
+		EscrowAddr:          env.Escrow.Address,
+		RPCEndpoint:         env.RPCURL,
+		DataPlaneEndpoint:   upstreamEndpoint,
+		PricingConfig:       deterministicPricingConfig(),
+		RAVRequestThreshold: deterministicPricingConfig().PricePerBlock,
+		TransportConfig:     sidecarlib.ServerTransportConfig{Plaintext: true},
+		Repository:          repo,
+	}, zlog.Named("provider"))
+	require.NoError(t, err)
+	usageService = providerusage.NewUsageService(repo, deterministicRepositoryPricingConfig(), providerGateway)
+	go providerGateway.Run()
+	defer providerGateway.Shutdown(nil)
+	time.Sleep(100 * time.Millisecond)
+
+	receiver := env.ServiceProvider.Address
+	consumerSidecar := consumersidecar.New(&consumersidecar.Config{
+		ListenAddr: sidecarAddr,
+		SignerKey:  setup.SignerKey,
+		Domain:     env.Domain(),
+		IngressConfig: &consumersidecar.IngressConfig{
+			Payer:                        env.Payer.Address,
+			Receiver:                     &receiver,
+			DataService:                  env.DataService.Address,
+			ProviderControlPlaneEndpoint: httpEndpoint(providerAddr),
+		},
+		PaymentSessionRoundtripTimeout: 750 * time.Millisecond,
+		TransportConfig:                sidecarlib.ServerTransportConfig{Plaintext: true},
+	}, zlog.Named("consumer"))
+	go consumerSidecar.Run()
+	defer consumerSidecar.Shutdown(nil)
+
+	require.NoError(t, waitForSidecarHealth(ctx, httpEndpoint(sidecarAddr)+"/healthz", 10*time.Second))
+
+	recvOne := func(wantPayload []byte) error {
+		conn, closeConn := dialSubstreamsGRPC(t, httpEndpoint(sidecarAddr))
+		defer closeConn()
+
+		stream, err := pbsubstreamsrpcv3.NewStreamClient(conn).Blocks(ctx, &pbsubstreamsrpcv3.Request{
+			StartBlockNum: 0,
+			StopBlockNum:  1,
+			OutputModule:  "map_clocks",
+			Package:       &pbsubstreams.Package{Network: "mainnet"},
+		})
+		require.NoError(t, err)
+
+		resp, err := stream.Recv()
+		require.NoError(t, err)
+		require.Equal(t, wantPayload, resp.GetBlockScopedData().GetOutput().GetMapOutput().GetValue())
+
+		_, err = stream.Recv()
+		return err
+	}
+
+	err = recvOne([]byte("first-request-before-interruption"))
+	require.Error(t, err)
+	require.Equal(t, codes.Unavailable, status.Code(err))
+
+	err = recvOne([]byte("second-request-fresh-session"))
+	require.ErrorIs(t, err, io.EOF)
+
+	observedMu.Lock()
+	require.Len(t, observedSessionIDs, 2)
+	require.NotEqual(t, observedSessionIDs[0], observedSessionIDs[1], "expected retry to use a fresh SDS payment session")
+	observedMu.Unlock()
+
+	sessions, err := repo.SessionList(ctx, repository.SessionFilter{})
+	require.NoError(t, err)
+	require.Len(t, sessions, 2)
+
+	sessionsByID := make(map[string]*repository.Session, 2)
+	for _, session := range sessions {
+		require.NotNil(t, session.CurrentRAV)
+		require.NotNil(t, session.CurrentRAV.Message)
+		sessionsByID[session.ID] = session
+	}
+
+	firstSession := sessionsByID[observedSessionIDs[0]]
+	secondSession := sessionsByID[observedSessionIDs[1]]
+	require.NotNil(t, firstSession)
+	require.NotNil(t, secondSession)
+	require.Positive(t, firstSession.CurrentRAV.Message.ValueAggregate.Sign(), "first interrupted session should have accepted non-zero RAV lineage")
+	require.Zero(t, secondSession.CurrentRAV.Message.ValueAggregate.Sign(), "fresh retry session RAV lineage must start from zero")
 }
 
 func TestConsumerIngress_FiniteEOFReturnsPromptlyWithoutControlStop(t *testing.T) {

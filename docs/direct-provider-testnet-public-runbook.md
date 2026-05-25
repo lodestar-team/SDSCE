@@ -244,7 +244,7 @@ Deployment notes:
 
 ## Firecore/Substreams Runtime
 
-The provider data plane must use an SDS-compatible runtime. Older Firecore/Substreams builds may start but fail to load or route `sds://` plugins.
+The provider data plane must use an SDS-compatible runtime. Older Firecore/Substreams builds may start but fail to load or route `sds://` plugins. Use [provider runtime compatibility](./provider-runtime-compatibility.md) as the source of truth for current image state, local-image fallback guidance, and runtime bump criteria.
 
 Configure the runtime to call the private provider plugin gateway:
 

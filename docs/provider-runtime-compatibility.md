@@ -26,7 +26,7 @@ For MVP, a provider deployment is considered compatible only when:
 
 - the provider payment gateway and private plugin gateway are built from the current SDS repo state being deployed
 - the external runtime that calls those plugin gateways is built against an SDS-compatible auth/session/usage plugin contract
-- the deployment uses configuration consistent with the validated runtime tuple documented below
+- the deployment uses configuration consistent with the validated runtime image state documented below
 
 The important compatibility boundary is the SDS plugin/runtime contract, not a version label by itself.
 
@@ -48,7 +48,7 @@ The named MVP target environment is:
 
 This is the real deployment shape that the local-first `TestFirecore` harness approximates.
 
-## Validated Local Runtime Tuple
+## Historical Local Runtime Tuple
 
 The validated local-first tuple recorded in repo planning docs on 2026-03-28 was:
 
@@ -58,7 +58,7 @@ The validated local-first tuple recorded in repo planning docs on 2026-03-28 was
 - `substreams` `8897dccff3e2f989867b7711be91d613d256a36a`
 - local image tags `ghcr.io/streamingfast/firehose-core:sds-local` and `ghcr.io/streamingfast/dummy-blockchain:sds-local`
 
-This tuple is the concrete reference for current MVP-local runtime validation.
+This tuple is retained as historical compatibility evidence. It is not the current published-image reference for `MVP-036`; use the 2026-05-25 image check below for current local validation and rebuild guidance.
 
 ## Known Incompatible Runtime
 
@@ -89,9 +89,9 @@ The reason is simple:
 Because of that, MVP intentionally prefers:
 
 - explicit compatibility documentation
-- known-good version pinning
+- known-good image or version pinning
 - known-bad runtime warnings in docs
-- manual validation against the supported runtime tuple
+- manual validation against the documented supported runtime image state
 
 over:
 

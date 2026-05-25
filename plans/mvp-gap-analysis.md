@@ -43,18 +43,18 @@ Validation infrastructure is also healthier than before:
 - integration bootstrap no longer depends on localhost port `58545` being free in order to start the shared devenv
 - `go test ./...` is no longer blocked by those two non-product validation failures
 
-The biggest remaining MVP gaps are now:
+The biggest remaining MVP gap is now:
 
-- acceptance coverage and final documentation refresh
+- final documentation refresh
 
 ## Acceptance Scenario Status
 
 | Scenario | Status | Notes |
 | --- | --- | --- |
-| A. Discovery to paid streaming | `partial` | The sidecar ingress, provider-originated payment loop, and compatibility contract are documented; broader acceptance coverage and final docs refresh still remain |
-| B. Fresh session after interruption | `partial` | Fresh-session semantics are implemented in the init contract, but broader real-path interruption validation still remains |
-| C. Low funds during streaming | `partial` | Session-local low-funds stop behavior now reaches both the real sidecar ingress path and the local-first Firecore runtime path; broader acceptance coverage still remains |
-| D. Provider restart without losing collectible state | `partial` | Accepted RAV runtime state, collection lifecycle persistence, authenticated retrieval APIs, and provider operator CLI surfaces now exist; remaining validation work belongs to broader acceptance coverage |
+| A. Discovery to paid streaming | `implemented` | Local oracle-backed ingress and Firecore/dummy-chain runtime validation cover SDS discovery, session start, metadata propagation, provider-side metering, and payment-state progression |
+| B. Fresh session after interruption | `implemented` | Local sidecar-ingress interruption coverage proves later requests create fresh SDS payment sessions and zero-value RAV lineage rather than resume prior sessions |
+| C. Low funds during streaming | `implemented` | Session-local low-funds stop behavior reaches both the real sidecar ingress path and the local-first Firecore runtime path |
+| D. Provider restart without losing collectible state | `implemented` | PostgreSQL restart coverage preserves accepted RAV/baseline state, and authenticated operator APIs/CLI expose settlement-relevant state |
 | E. Manual funding flow | `implemented` | Operator-grade funding and signer authorization CLI flows now exist outside local demo assumptions |
 | F. Manual collection flow | `implemented` | Provider-backed settlement inspection and `sds provider operator collect` now fetch collectible state, locally sign/submit `SubstreamsDataService.collect`, and drive provider lifecycle state |
 | G. Secure deployment posture | `implemented` | TLS is the default server posture, plaintext requires explicit local/dev flags, and authenticated operator/admin surfaces exist |
@@ -189,7 +189,7 @@ What already exists:
 Notes:
 
 - Oracle governance remains deployment-managed internal config for MVP; no writable admin API is required yet.
-- Standalone oracle service plus consumer-side oracle discovery are now both implemented; scenario A remains partial because broader acceptance coverage and final docs refresh still remain.
+- Standalone oracle service plus consumer-side oracle discovery are implemented, and scenario A is covered by the local-stack acceptance matrix. The remaining validation work is the final docs refresh.
 
 ### Provider Persistence
 
@@ -338,7 +338,6 @@ What already exists:
 
 What is still missing for MVP:
 
-- acceptance coverage across the primary end-to-end scenarios
 - final protocol/runtime documentation refresh
 
 ## Current Implementation Highlights
@@ -353,8 +352,8 @@ The most important recent status changes versus the original draft are:
   - The payment-session path now evaluates projected session-local exposure against live escrow, fails open on unknown balance, and terminates the current session with `NeedMoreFunds` when funds are insufficient.
 - Deterministic RAV issuance policy is no longer an open runtime gap.
   - The provider now requests new RAVs based on unbaselined `delta_cost` reaching a provider-side `rav_request_threshold`, with a built-in `10 GRT` fallback when not configured.
-- Real-path integration scaffolding is stronger.
-  - The repo now includes stronger firecore/plugin integration setup and a `TestFirecore` scaffold, even though that path is not yet MVP-complete.
+- Real-path integration coverage is stronger.
+  - The repo now includes firecore/plugin integration setup and `TestFirecore` runtime evidence for the local-stack acceptance path.
   - `MVP-036` Published runtime images is now closed as a repo-side verification/documentation task: `ghcr.io/streamingfast/firehose-core:latest` is compatible with the current SDS runtime path when embedded in a rebuilt dummy-chain image.
   - Current image check on 2026-05-25: `ghcr.io/streamingfast/dummy-blockchain:v1.7.7`, `:latest`, and `:1cea671` do not validate the current SDS runtime path without local override tags; a rebuilt dummy-chain image using `--build-arg FIRECORE_VERSION=latest` passes `TestFirecore`.
   - This is protocol drift caused by SDS contract evolution, not just a generic “firecore test is flaky” issue.
@@ -396,7 +395,6 @@ Security and observability:
 
 Validation and docs:
 
-- `MVP-025`
 - `MVP-026`
 
 The gap analysis and the backlog now agree that:

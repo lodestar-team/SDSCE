@@ -52,13 +52,9 @@ As of 2026-04-01, the repo already contains important parts of the MVP foundatio
 - local-first Firecore/dummy-blockchain acceptance against rebuilt SDS-compatible runtime images
 - a development/demo stack and sink wrapper
 
-However, the current repo does not yet constitute the MVP. Major remaining gaps include:
+However, the current repo does not yet constitute the MVP. The major remaining gap is:
 
-- provider-side collection lifecycle persistence and settlement/inspection state exposure
-- operator funding and settlement CLI flows
-- authenticated admin/operator surfaces
-- final acceptance and documentation refresh around the current runtime-image state
-- basic metrics and operator visibility implementation
+- final documentation refresh around the current runtime-image state
 
 The legacy wrapper-era runtime usage-report flow is removed. The remaining manual `Init` / `EndSession` RPCs are not part of the intended MVP runtime architecture.
 
@@ -186,8 +182,8 @@ MVP network-discovery contract:
 | Provider control plane | Provider gateway is the authoritative provider-side SDS boundary | Gives the provider side a clear public control-plane authority |
 | Security posture | TLS by default outside local/dev | Better security without forcing heavy hardening |
 | Admin/operator actions | Require authentication | Oracle governance and provider operations should not be effectively public |
-| Real integration | Real provider and consumer paths are mandatory | Local demo flow is insufficient for MVP |
-| Validation scope | One real provider environment is enough for MVP acceptance | Narrow operational validation is acceptable if architecture stays generic |
+| Real integration | Local SDS stack validates the consumer/provider/oracle/payment paths | The dummy blockchain keeps the data plane controlled while exercising the SDS product boundary |
+| Validation scope | Public or real-provider runs are deployment smoke tests, not MVP acceptance blockers | SDS acceptance should prove paid access control and settlement behavior, not upstream Substreams correctness |
 | Compatibility constraint | Preserve backwards-compatible data-plane interaction semantics | SDS may add management workflows, but the data-plane experience should remain familiar |
 
 ## Why Multi-Stream Support Is Deferred
@@ -309,6 +305,10 @@ That is a materially larger distributed-state problem than the session-local MVP
 ## Acceptance Scenarios
 
 The scenarios below are the primary definition of done for the MVP.
+
+MVP acceptance validates SDS behavior using the local stack as the source of truth. The local stack uses dummy-blockchain as a controlled Substreams-compatible data plane, which is sufficient for validating SDS-mediated paid Substreams access, provider-side metering, payment control, and on-chain settlement. Validating Substreams package execution correctness, Firehose indexing correctness, chain-specific data-plane semantics, or production provider ingress behavior is outside SDS MVP acceptance.
+
+Scenario evidence is tracked in [docs/mvp-acceptance-matrix.md](./mvp-acceptance-matrix.md).
 
 ### A. Discovery to Paid Streaming
 

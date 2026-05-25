@@ -61,6 +61,9 @@ func (g *ProviderGateways) Shutdown(err error) {
 
 func resolvePluginTransportConfig(paymentTransportConfig sidecarlib.ServerTransportConfig, pluginFlags pluginTransportFlags) (sidecarlib.ServerTransportConfig, error) {
 	if !pluginFlags.hasOverrides() {
+		if paymentTransportConfig.Plaintext {
+			return sidecarlib.ServerTransportConfig{}, fmt.Errorf("plugin gateway plaintext transport requires explicit <plugin-plaintext> when provider gateway uses <plaintext>")
+		}
 		return paymentTransportConfig, nil
 	}
 

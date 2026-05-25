@@ -111,7 +111,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-018 | `done` | tooling | none | `MVP-032` | `E` | Implement operator funding CLI flows for approve/deposit/top-up beyond local demo assumptions |
 | MVP-019 | `done` | tooling | `A5` | `MVP-009`, `MVP-022` | `D`, `F` | Implement provider inspection CLI flows for accepted and collectible RAV data |
 | MVP-020 | `done` | tooling | `A5` | `MVP-009`, `MVP-022`, `MVP-029` | `F` | Implement manual collection CLI flow that fetches provider settlement state and crafts/signs/submits collect transactions locally |
-| MVP-021 | `in_progress` | security | `A5` | none | `G` | Make TLS the default non-dev runtime posture for oracle, sidecar, and provider integration paths |
+| MVP-021 | `done` | security | `A5` | none | `G` | Make TLS the default non-dev runtime posture for oracle, sidecar, and provider integration paths |
 | MVP-022 | `done` | security | `A5` | `MVP-028` | `D`, `F`, `G` | Add authentication and authorization to provider admin/operator APIs using the shared bearer-token role contract from MVP-028 |
 | MVP-023 | `done` | observability | `A4` | none | `A`, `C`, `D`, `F`, `G` | Define the final MVP observability floor beyond structured logs and status tooling |
 | MVP-024 | `done` | observability | `A4` | `MVP-023` | `C`, `D`, `F`, `G` | Implement basic operator-facing inspection/status surfaces, metrics, and log correlation |
@@ -126,7 +126,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-033 | `done` | protocol | `A1` | none | `A` | Freeze the chain/network discovery input contract across client, sidecar, and oracle |
 | MVP-034 | `done` | validation | none | none | none | Fix repository PostgreSQL tests so migrations resolve from repo-relative state rather than a machine-specific absolute path |
 | MVP-035 | `done` | validation | none | none | none | Make integration devenv startup resilient to local fixed-port collisions so the shared test environment is reproducible |
-| MVP-036 | `not_started` | operations | `A5` | `MVP-014` | `A`, `G` | Publish refreshed upstream `firehose-core` and `dummy-blockchain` images built against the current SDS plugin/runtime contract so default integration paths no longer rely on local override tags |
+| MVP-036 | `done` | operations | `A5` | `MVP-014` | `A`, `G` | Verify published `firehose-core` and `dummy-blockchain` image state and document the local-image fallback/update workflow |
 | MVP-037 | `done` | validation | none | `MVP-014`, `MVP-016` | `A`, `C` | Isolate and harden the shared-state Firecore and low-funds integration tests so real-path acceptance remains deterministic across full-suite runs |
 | MVP-038 | `done` | protocol | `A2`, `A3` | `MVP-017`, `MVP-031` | `A`, `C` | Remove the deprecated wrapper-era usage-report runtime path and protobuf surfaces once the sidecar-ingress flow is the only supported MVP runtime path |
 | MVP-040 | `done` | runtime-payment | `A2`, `A3` | `MVP-017`, `MVP-031` | `A`, `C` | Make sidecar ingress termination ordering deterministic so provider payment-control stops win over upstream EOF without changing Substreams data-plane semantics |
@@ -397,7 +397,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
         - `dummy-blockchain` `1cea671e78cbb069d64333fdbf4a6c9dd5502d58`
         - `substreams` `8897dccff3e2f989867b7711be91d613d256a36a`
         - image tags `ghcr.io/streamingfast/firehose-core:sds-local` and `ghcr.io/streamingfast/dummy-blockchain:sds-local`
-      - The prebuilt `ghcr.io/streamingfast/dummy-blockchain:v1.7.7` image remains stale and still embeds an older SDS-compatible runtime snapshot. Publishing refreshed upstream images is tracked separately under `MVP-036`.
+      - `MVP-036` later verified that `ghcr.io/streamingfast/firehose-core:latest` is compatible with the current SDS runtime path when embedded in a rebuilt dummy-chain image, while the prebuilt `ghcr.io/streamingfast/dummy-blockchain:v1.7.7` image remains stale.
   - Assumptions:
     - `A3`
   - Done when:
@@ -406,8 +406,8 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Both paths share the same authoritative provider-side repository state.
     - The real-path acceptance run uses a firecore/dummy-blockchain runtime built against the current SDS protocol contract rather than the stale prebuilt image, with the SDS test harness pointed at that image via `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE`.
   - Verify:
-    - `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-local go test ./test/integration -run TestFirecore -v -count=1` passes without skip against a firecore/dummy-blockchain runtime rebuilt from current SDS-compatible sources.
-    - The backlog and runtime-compatibility docs explicitly identify the prebuilt `dummy-blockchain:v1.7.7` image as incompatible with the current SDS provider/plugin contract until `MVP-036` lands.
+    - `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-upstream-firecore-latest go test ./test/integration -run '^TestFirecore$' -v -count=1` passes without skip against a dummy-chain image rebuilt on top of the compatible published `firehose-core:latest` image.
+    - The backlog and runtime-compatibility docs explicitly identify the prebuilt `dummy-blockchain:v1.7.7` image as incompatible with the current SDS provider/plugin contract.
 
 - [x] MVP-015 Wire real byte metering and session correlation from the plugin path into the payment-state repository used by the gateway.
   - Context:
@@ -453,7 +453,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
       - the dedicated low-funds Firecore path stopping the live stream early
       - provider session state ending with `END_REASON_PAYMENT_ISSUE`
       - worker cleanup eventually completing after the stop
-    - The prebuilt `ghcr.io/streamingfast/dummy-blockchain:v1.7.7` image remains stale and still blocks the default image path on the known header-propagation/runtime-drift issue; that remains tracked under `MVP-036`.
+    - `MVP-036` documents the current runtime-image state: published `firehose-core:latest` is compatible, while the prebuilt `ghcr.io/streamingfast/dummy-blockchain:v1.7.7` image remains stale and still blocks the default image path on the known header-propagation/runtime-drift issue.
 
 - [x] MVP-017 Implement the consumer sidecar as the Substreams-compatible endpoint/proxy and primary SDS-facing runtime boundary.
   - Context:
@@ -474,7 +474,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
       - That transition temporarily left legacy wrapper-era `Init` / `ReportUsage` / `EndSession` RPCs in-tree; the deprecated `ReportUsage` path and wrapper CLI cleanup later landed under `MVP-038`.
     - `go test ./test/integration -run 'TestConsumerIngress_UsesOracleSelectedProviderReceiver|TestConsumerIngress_StopsStreamOnLowFunds' -count=1 -v` passes.
     - `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-local go test ./test/integration -run 'TestFirecore|TestFirecoreStopsStreamOnLowFunds' -count=1 -v` passes against the rebuilt local runtime image path.
-    - The published `ghcr.io/streamingfast/dummy-blockchain:v1.7.7` image remains stale and still blocks the default image path; that runtime-compatibility follow-up remains tracked under `MVP-036`.
+    - `MVP-036` documents that published `firehose-core:latest` is compatible, while the published `ghcr.io/streamingfast/dummy-blockchain:v1.7.7` image remains stale and still blocks the default image path.
 
 - [x] MVP-031 Wire the long-lived provider-originated payment-control loop behind the consumer-sidecar ingress path used by real runtime traffic.
   - Context:
@@ -624,11 +624,12 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - Verify:
     - Confirm provider admin tasks and any future public oracle admin API point to the same bearer-token role contract.
 
-- [ ] MVP-021 Make TLS the default non-dev runtime posture for oracle, sidecar, and provider integration paths.
+- [x] MVP-021 Make TLS the default non-dev runtime posture for oracle, sidecar, and provider integration paths.
   - Context:
     - The MVP requires real transport security without forcing a perfect production-hardening story.
     - Shared server transport validation and explicit plaintext/TLS config now exist for oracle, consumer sidecar, provider payment gateway, and provider plugin gateway.
-    - Remaining work is non-dev validation, documentation convergence, and operator-facing startup guidance.
+    - The reflex devenv is the explicit local/dev plaintext environment.
+    - Provider plugin-gateway plaintext now requires explicit `--plugin-plaintext` when the payment gateway uses `--plaintext`; it no longer silently inherits plaintext from the payment gateway.
   - Assumptions:
     - `A5`
   - Done when:
@@ -636,7 +637,10 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Plaintext behavior is clearly scoped to local/dev/demo usage.
     - Operator/admin traffic does not rely on plaintext-by-default behavior outside explicitly dev-scoped workflows.
   - Verify:
-    - Add validation or smoke coverage for TLS-enabled startup and client connectivity across oracle and sidecar/provider paths.
+    - Server transport validation requires TLS cert/key material unless `--plaintext` is explicitly set.
+    - Provider plugin-gateway transport resolution rejects implicit plaintext inheritance and requires `--plugin-plaintext` or explicit plugin TLS material.
+    - Reflex devenv commands pass `--plaintext` and `--plugin-plaintext` explicitly.
+    - Docs describe the public/non-dev default as TLS and the reflex devenv as the plaintext exception.
 
 - [x] MVP-022 Add authentication and authorization to provider admin/operator APIs.
   - Context:
@@ -679,21 +683,27 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Add a runtime-compatibility document that records the supported MVP runtime shape, validated tuple, known incompatible runtimes, and operator workflow.
     - Update contributor workflow guidance so shared runtime/plugin contract changes must also update compatibility documentation.
 
-- [ ] MVP-036 Publish refreshed upstream `firehose-core` and `dummy-blockchain` images built against the current SDS plugin/runtime contract so default integration paths no longer rely on local override tags.
+- [x] MVP-036 Verify published `firehose-core` and `dummy-blockchain` image state and document the local-image fallback/update workflow.
   - Context:
-    - MVP-014 is now validated through the local-first runtime workflow using `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-local`.
-    - The published `ghcr.io/streamingfast/dummy-blockchain:v1.7.7` image is still stale and embeds a `firecore` binary linked against an older SDS snapshot.
-    - Until refreshed upstream images exist, the repo-local default integration path still depends on local retagging and override-based validation.
-    - The local rebuild should include the current generated provider gateway protos so finite EOF/payment-control status validation exercises `GetSessionStatusResponse.payment_control_pending`.
+    - MVP-014 is now validated through the local-first runtime workflow using a locally rebuilt dummy-chain image.
+    - Current image check on 2026-05-25: `ghcr.io/streamingfast/dummy-blockchain:v1.7.7` and `:latest` resolve to the same published manifest and still do not validate the current SDS runtime path; the harness skips after observing missing `x-sds-rav` metadata.
+    - Current image check on 2026-05-25: `ghcr.io/streamingfast/dummy-blockchain:1cea671` embeds `firecore` `ffc6ba2` and still does not validate the current SDS runtime path; the harness skips after observing missing `x-sds-rav` metadata.
+    - Current image check on 2026-05-25: `ghcr.io/streamingfast/firehose-core:latest` resolves to `firehose-core` `v1.14.4`, commit `4493c5ce0735c50c1b06591de99cf014123e2ae5`, and is compatible with the current SDS runtime path when embedded in a rebuilt dummy-chain image.
+    - Current fallback check on 2026-05-25: a locally rebuilt `ghcr.io/streamingfast/dummy-blockchain:sds-upstream-firecore-latest` image built with `--build-arg FIRECORE_VERSION=latest` passes `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-upstream-firecore-latest go test ./test/integration -run '^TestFirecore$' -v -count=1` without skip.
+    - Current local fallback check on 2026-05-25: `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-local go test ./test/integration -run '^TestFirecore$' -v -count=1` passes without skip.
+    - Until a refreshed published dummy-chain image exists, or an already-published dummy-chain tag is identified and validated, the repo-local default integration path still depends on local retagging and override-based validation.
+    - `firehose-core` and downstream runtime images need a bump when SDS plugin communication protos under `proto/graph/substreams/data_service/sds/...` change, or when auth/session/metering plugin behavior transitive to SDS gRPC client calls changes in `provider/plugin/auth.go`, `provider/plugin/session.go`, or `provider/plugin/metering.go`.
   - Assumptions:
     - `A5`
   - Done when:
-    - A published `firehose-core` image exists that is built against the current SDS-compatible plugin/runtime contract.
-    - A published `dummy-blockchain` image exists that embeds that refreshed `firehose-core` image.
-    - SDS integration validation no longer requires local-only image tags to exercise the current runtime/plugin contract.
+    - The compatibility docs record the current published-image check, the known-good local fallback, and the concrete update criteria for when `firehose-core` and downstream runtime images need to be rebuilt.
+    - A published `firehose-core` image exists that is built against the current SDS-compatible plugin/runtime contract, or an existing published tag is identified as compatible.
+    - The current published `dummy-blockchain` image state is documented, including whether the published tag embeds the compatible `firehose-core` image.
+    - The local fallback path for stale published chain images is documented and validated.
   - Verify:
-    - Build and publish refreshed upstream images from the validated source tuple or a newer compatible tuple.
-    - Run `go test ./test/integration -run TestFirecore -v -count=1` against the published image path without `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE` and confirm it passes without skip.
+    - Inspect the currently published `firehose-core` and `dummy-blockchain` tags before assuming a StreamingFast image refresh has landed.
+    - Run `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-upstream-firecore-latest go test ./test/integration -run '^TestFirecore$' -v -count=1` against a dummy-chain image rebuilt with `--build-arg FIRECORE_VERSION=latest` and confirm it passes without skip.
+    - Keep the fully local fallback documented and validated with `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-local go test ./test/integration -run '^TestFirecore$' -v -count=1`.
 
 - [x] MVP-023 Define the final MVP observability floor beyond structured logs and status tooling.
   - Context:

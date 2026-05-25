@@ -79,6 +79,8 @@ sds provider gateway \
   --data-plane-endpoint "https://tier1.example.com:10016"
 ```
 
+When the payment gateway uses TLS and no plugin-specific transport flags are supplied, the private Plugin Gateway uses the same TLS certificate/key configuration. If a local/dev stack uses `--plaintext`, plugin-gateway plaintext must also be explicit with `--plugin-plaintext`; otherwise provide `--plugin-tls-cert-file` and `--plugin-tls-key-file`.
+
 ## Security Considerations
 
 ### Password Protection

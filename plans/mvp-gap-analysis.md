@@ -45,20 +45,19 @@ Validation infrastructure is also healthier than before:
 
 The biggest remaining MVP gaps are now:
 
-- refreshed published firecore/dummy-blockchain images
 - acceptance coverage and final documentation refresh
 
 ## Acceptance Scenario Status
 
 | Scenario | Status | Notes |
 | --- | --- | --- |
-| A. Discovery to paid streaming | `partial` | The sidecar ingress, provider-originated payment loop, and compatibility contract are documented, but refreshed published firecore/dummy-blockchain images still remain |
+| A. Discovery to paid streaming | `partial` | The sidecar ingress, provider-originated payment loop, and compatibility contract are documented; broader acceptance coverage and final docs refresh still remain |
 | B. Fresh session after interruption | `partial` | Fresh-session semantics are implemented in the init contract, but broader real-path interruption validation still remains |
-| C. Low funds during streaming | `partial` | Session-local low-funds stop behavior now reaches both the real sidecar ingress path and the local-first Firecore runtime path, but refreshed published images still remain |
+| C. Low funds during streaming | `partial` | Session-local low-funds stop behavior now reaches both the real sidecar ingress path and the local-first Firecore runtime path; broader acceptance coverage still remains |
 | D. Provider restart without losing collectible state | `partial` | Accepted RAV runtime state, collection lifecycle persistence, authenticated retrieval APIs, and provider operator CLI surfaces now exist; remaining validation work belongs to broader acceptance coverage |
 | E. Manual funding flow | `implemented` | Operator-grade funding and signer authorization CLI flows now exist outside local demo assumptions |
 | F. Manual collection flow | `implemented` | Provider-backed settlement inspection and `sds provider operator collect` now fetch collectible state, locally sign/submit `SubstreamsDataService.collect`, and drive provider lifecycle state |
-| G. Secure deployment posture | `partial` | TLS hooks, provider public/private split, and authenticated operator/admin surfaces exist; remaining posture work is tracked under TLS/default deployment hardening |
+| G. Secure deployment posture | `implemented` | TLS is the default server posture, plaintext requires explicit local/dev flags, and authenticated operator/admin surfaces exist |
 
 ## Component Status
 
@@ -107,7 +106,6 @@ What already exists:
 What is still missing for MVP:
 
 - broader Substreams compatibility validation remains, including final runtime/acceptance convergence around the sidecar ingress as the default entrypoint
-- some real-path acceptance still depends on the Firecore/runtime compatibility caveat tracked separately under `MVP-036`
 
 ### Provider Gateway
 
@@ -191,7 +189,7 @@ What already exists:
 Notes:
 
 - Oracle governance remains deployment-managed internal config for MVP; no writable admin API is required yet.
-- Standalone oracle service plus consumer-side oracle discovery are now both implemented, and scenario A remains partial only because of the remaining published-image work tracked under `MVP-036`.
+- Standalone oracle service plus consumer-side oracle discovery are now both implemented; scenario A remains partial because broader acceptance coverage and final docs refresh still remain.
 
 ### Provider Persistence
 
@@ -309,7 +307,7 @@ Evidence:
 
 ### Transport Security
 
-Status: `partial`
+Status: `implemented`
 
 Evidence:
 
@@ -323,11 +321,10 @@ What already exists:
 - plaintext vs TLS transport configuration paths
 - provider public/private network split for payment gateway vs plugin gateway
 - authenticated provider operator/admin surfaces on a private operator listener
-
-What is still missing for MVP:
-
-- validated and documented secure deployment posture across all relevant surfaces
-- validated TLS-by-default posture for the full MVP deployment shape
+- TLS is the default server posture unless plaintext is explicitly requested
+- provider plugin-gateway plaintext requires explicit `--plugin-plaintext` rather than implicit inheritance
+- the reflex devenv is the checked-in plaintext exception and passes plaintext flags explicitly
+- public/non-dev docs describe TLS as the default posture
 
 ### Observability
 
@@ -358,7 +355,8 @@ The most important recent status changes versus the original draft are:
   - The provider now requests new RAVs based on unbaselined `delta_cost` reaching a provider-side `rav_request_threshold`, with a built-in `10 GRT` fallback when not configured.
 - Real-path integration scaffolding is stronger.
   - The repo now includes stronger firecore/plugin integration setup and a `TestFirecore` scaffold, even though that path is not yet MVP-complete.
-  - The current blocker is now identified more precisely: the prebuilt `dummy-blockchain`/`firecore` runtime used by that scaffold embeds an older SDS snapshot and therefore drifts from the current auth/session/usage plugin contracts implemented in this repo.
+  - `MVP-036` Published runtime images is now closed as a repo-side verification/documentation task: `ghcr.io/streamingfast/firehose-core:latest` is compatible with the current SDS runtime path when embedded in a rebuilt dummy-chain image.
+  - Current image check on 2026-05-25: `ghcr.io/streamingfast/dummy-blockchain:v1.7.7`, `:latest`, and `:1cea671` do not validate the current SDS runtime path without local override tags; a rebuilt dummy-chain image using `--build-arg FIRECORE_VERSION=latest` passes `TestFirecore`.
   - This is protocol drift caused by SDS contract evolution, not just a generic “firecore test is flaky” issue.
 - Consumer-side MVP UX is materially closer to the revised scope.
   - The sidecar now exposes a Substreams-compatible ingress and runs the provider-originated payment/control loop through that path.
@@ -382,11 +380,11 @@ The remaining MVP gaps now align with the rewritten MVP backlog as follows.
 
 Oracle, consumer ingress, and runtime compatibility:
 
-- `MVP-036`
+- No remaining runtime-compatibility backlog item after `MVP-036` Published runtime images.
 
 Provider runtime hardening and cleanup:
 
-- No separate runtime-payment hardening task remains open after `MVP-040` and `MVP-041`; remaining related work is tracked through runtime compatibility/published images (`MVP-036`).
+- No separate runtime-payment hardening task remains open after `MVP-040` and `MVP-041`.
 
 Tooling and operations:
 
@@ -394,7 +392,7 @@ Tooling and operations:
 
 Security and observability:
 
-- `MVP-021`
+- No open security or observability task remains after `MVP-021`, `MVP-022`, `MVP-023`, `MVP-024`, and `MVP-028`.
 
 Validation and docs:
 

@@ -1,7 +1,7 @@
 # Provider Runtime Compatibility
 
 Drafted: 2026-04-01
-Revised: 2026-05-07
+Revised: 2026-05-25
 
 ## Purpose
 
@@ -66,7 +66,15 @@ The published `ghcr.io/streamingfast/dummy-blockchain:v1.7.7` image is known to 
 
 That image remains useful as a concrete example of runtime drift, but it is not a supported compatibility target for the current repo state.
 
-Publishing refreshed upstream images is tracked separately under `MVP-036`.
+Current image check on 2026-05-25:
+
+- `ghcr.io/streamingfast/dummy-blockchain:v1.7.7` and `:latest` resolve to the same published manifest and still do not validate the current SDS runtime path; the harness skips after observing missing `x-sds-rav` metadata.
+- `ghcr.io/streamingfast/dummy-blockchain:1cea671` embeds `firecore` `ffc6ba2` and still does not validate the current SDS runtime path; the harness skips after observing missing `x-sds-rav` metadata.
+- `ghcr.io/streamingfast/firehose-core:latest` is current enough for the SDS runtime path. It currently resolves to `firehose-core` `v1.14.4`, commit `4493c5ce0735c50c1b06591de99cf014123e2ae5`, created 2026-05-11.
+- A locally rebuilt `dummy-blockchain` image using `--build-arg FIRECORE_VERSION=latest` passes the current `TestFirecore` runtime path.
+- `ghcr.io/streamingfast/dummy-blockchain:sds-local`, built locally with an SDS-compatible `firecore` commit, also passes the current `TestFirecore` runtime path.
+
+`MVP-036` is complete for repo-side verification and documentation. The remaining external housekeeping is to republish `dummy-blockchain` on top of the current `firehose-core` image, or to update the repo default once StreamingFast publishes a dummy-chain tag that passes the same validation without local override tags.
 
 ## Why There Is No Automatic Startup Probe
 
@@ -101,9 +109,14 @@ Before rolling out SDS against a real provider runtime:
 
 For local-first validation:
 
-- rebuild `firehose-core` and `dummy-blockchain` from compatible sources
+- use the current published `firehose-core` image when it has already been validated against the SDS plugin contract
+- rebuild only the chain runtime image when the published chain image lags a compatible published `firehose-core`
 - point integration at the rebuilt image with `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE`
 - use `TestFirecore` / `TestFirecoreStopsStreamOnLowFunds` as the compatibility validation reference
+
+If the published chain image is stale but `firehose-core:latest` is compatible, rebuild `dummy-blockchain` with `--build-arg FIRECORE_VERSION=latest` and use a local tag such as `ghcr.io/streamingfast/dummy-blockchain:sds-upstream-firecore-latest` until a published dummy-chain tag passes the compatibility test without skips.
+
+If `firehose-core:latest` is also stale, update the SDS dependency in `firehose-core`, rebuild `firehose-core`, then rebuild the chain runtime image that embeds that local `firecore` image.
 
 ## Contributor Workflow
 
@@ -121,6 +134,15 @@ Examples of changes that may require compatibility updates:
 - changes to required plugin configuration or `sds://` URI behavior
 - changes that rely on newer embedded SDS plugin binaries in external runtimes
 - payment gateway control-plane protobuf changes such as `GetSessionStatusResponse` fields are normally backward-compatible for `firecore` when plugin surfaces are unchanged, but generated clients, tests, and compatibility docs should still be refreshed in the same change
+
+In practical terms, `firehose-core` and downstream runtime images must be bumped when any of these SDS plugin communication boundaries change:
+
+- SDS plugin communication protos under `proto/graph/substreams/data_service/sds/...`
+- auth plugin behavior that is transitive to SDS gRPC client calls, currently represented by `provider/plugin/auth.go`
+- session plugin behavior that is transitive to SDS gRPC client calls, currently represented by `provider/plugin/session.go`
+- metering plugin behavior that is transitive to SDS gRPC client calls, currently represented by `provider/plugin/metering.go`
+
+Changes outside those surfaces, such as provider operator APIs or additive payment control-plane fields, do not normally require a `firehose-core` bump unless they also change the plugin contract used by the runtime.
 
 ## Non-Goals
 

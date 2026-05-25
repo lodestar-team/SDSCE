@@ -87,6 +87,6 @@ The provider operator API is exposed as a separate `ProviderOperatorService` on 
 
 This contract is intentionally separate from transport posture:
 
-- `MVP-021` owns TLS-by-default rollout
-- protected operator/admin endpoints should be expected to run over TLS outside local/dev usage
-- local/dev may still use explicit plaintext transport with local test tokens where needed
+- `MVP-021` defines TLS as the default non-dev transport posture
+- protected operator/admin endpoints should run over TLS outside local/dev usage
+- the reflex devenv is the checked-in plaintext exception and passes plaintext flags explicitly with local test tokens

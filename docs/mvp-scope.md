@@ -57,8 +57,7 @@ However, the current repo does not yet constitute the MVP. Major remaining gaps 
 - provider-side collection lifecycle persistence and settlement/inspection state exposure
 - operator funding and settlement CLI flows
 - authenticated admin/operator surfaces
-- runtime compatibility hardening and refreshed published firecore/dummy-blockchain images
-- TLS-by-default rollout outside local/dev usage
+- final acceptance and documentation refresh around the current runtime-image state
 - basic metrics and operator visibility implementation
 
 The legacy wrapper-era runtime usage-report flow is removed. The remaining manual `Init` / `EndSession` RPCs are not part of the intended MVP runtime architecture.
@@ -366,7 +365,7 @@ The scenarios below are the primary definition of done for the MVP.
 
 - Non-dev deployments use TLS by default
 - Operator/admin actions are authenticated
-- Local/dev/demo workflows may still use simpler transport settings explicitly
+- Local/dev/demo workflows may still use simpler transport settings explicitly; the reflex devenv is the checked-in plaintext exception
 
 ## Known Limitations for MVP
 

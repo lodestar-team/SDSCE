@@ -17,6 +17,8 @@ reflex -c .reflex.demo
 
 Use `.reflex.demo` when you want to reach collectible RAVs quickly because it uses a lower RAV request threshold.
 
+The reflex stack is the checked-in plaintext development environment. Its commands pass `--plaintext` and `--plugin-plaintext` explicitly; non-dev deployments should omit those flags and provide TLS certificate/key files instead.
+
 ## 1. Export Local Demo Variables
 
 Use the values printed by `sds devenv`. For the deterministic reflex demo stack:

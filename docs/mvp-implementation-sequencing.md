@@ -138,7 +138,7 @@ Completed foundation:
 
 Recommended next sequence:
 
-1. `MVP-036` Publish refreshed upstream `firehose-core` and `dummy-blockchain` images so the default runtime validation path no longer depends on local override tags
+1. No remaining runtime-payment sequencing task in this lane after `MVP-036` Published runtime images.
 
 Notes:
 
@@ -162,7 +162,7 @@ Notes:
     - `firehose-core` `b574a98babcb0338198e0ff4db7ebd0e404f6529`
     - `dummy-blockchain` `1cea671e78cbb069d64333fdbf4a6c9dd5502d58`
     - `substreams` `8897dccff3e2f989867b7711be91d613d256a36a`
-  - The prebuilt published `dummy-blockchain` image remains stale and still embeds an older SDS-compatible runtime snapshot, so publishing refreshed upstream images is tracked separately under `MVP-036`.
+  - `MVP-036` Published runtime images is closed as a repo-side verification/documentation task. Current image check on 2026-05-25: `ghcr.io/streamingfast/firehose-core:latest` validates when embedded in a rebuilt dummy-chain image, while the checked prebuilt `dummy-blockchain` tags (`v1.7.7`, `latest`, and `1cea671`) still do not validate the current SDS runtime path without local override tags.
 - `MVP-011` is now complete enough to treat as closed for sequencing purposes.
   - Current status: the sidecar now exposes a real Substreams ingress, owns provider discovery/session bootstrap, and surfaces low-funds termination through the real client-facing path as runtime `ResourceExhausted`.
   - The ingress termination-ordering follow-up tracked under `MVP-040` is now closed by resolving ambiguous upstream EOF against provider-persisted session end state via `GetSessionStatus.end_reason` and by checking provider-reported `payment_control_pending` before treating finite EOF as clean.
@@ -242,12 +242,11 @@ Minimum prerequisites:
 
 Recommended sequence:
 
-1. `MVP-021` Make TLS the default non-dev runtime posture for oracle, sidecar, and provider integration paths
-2. `MVP-022` Add authentication and authorization to provider admin/operator APIs
+1. No remaining security sequencing task after `MVP-021` TLS defaults and `MVP-022` Operator auth.
 
 Notes:
 
-- `MVP-021` can proceed relatively early even though it has no hard dependency on `MVP-028`.
+- `MVP-021` is closed by TLS-by-default server validation, explicit plaintext flags for the reflex devenv, and explicit `--plugin-plaintext` for local plugin-gateway plaintext.
 - `MVP-006` is now complete for MVP: oracle governance is deployment-managed YAML config, not a public writable admin API.
 - `MVP-030` is already complete for sequencing purposes: the repo documents the runtime compatibility contract and intentionally avoids side-effectful automatic startup probes until a true read-only handshake exists.
 
@@ -312,9 +311,9 @@ Already resolved:
 ### Phase 1: Start The First Implementable Lanes
 
 - Security foundation:
-  - `MVP-021`
+  - none remaining after `MVP-021` TLS defaults and `MVP-022` Operator auth
 - Runtime compatibility:
-  - `MVP-036`
+  - none remaining after `MVP-036` Published runtime images
 - Observability implementation:
   - `MVP-024`
 
@@ -342,8 +341,6 @@ This section is interpretive guidance based on the assumptions register and depe
 
 ### Safe To Start Early
 
-- `MVP-021`
-  - TLS default posture is broadly independent of most unresolved protocol questions.
 - `MVP-024`
   - Basic log correlation, metrics, and status surfaces can proceed because `MVP-023` is now resolved.
 - `MVP-025`

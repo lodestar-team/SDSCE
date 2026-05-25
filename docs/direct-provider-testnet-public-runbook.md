@@ -236,6 +236,7 @@ Deployment notes:
 
 - Expose the payment gateway publicly through TLS-capable gRPC ingress or load balancer.
 - Keep the plugin gateway private to the provider cluster.
+- Plaintext is never implicit. If the private plugin gateway uses plaintext inside the provider cluster, keep `--plugin-plaintext` explicit and keep that listener unreachable from public networks.
 - Keep the operator gateway private to operators. Prefer port-forward, VPN, or a restricted internal ingress.
 - Store the repository DSN, RPC credentials, and operator tokens in Kubernetes Secrets.
 - Store pricing in a ConfigMap or another explicit config source.

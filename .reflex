@@ -30,6 +30,7 @@
         --operator-read-token-env=SDS_OPERATOR_READ_TOKEN \
         --admin-write-token-env=SDS_ADMIN_WRITE_TOKEN \
         --plaintext \
+        --plugin-plaintext \
         --service-provider=0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf \
         --collector-address=0x1d01649b4f94722b55b5c3b3e10fe26cd90c1ba9 \
         --escrow-address=0xfc7487a37ca8eac2e64cba61277aa109e9b8631e \

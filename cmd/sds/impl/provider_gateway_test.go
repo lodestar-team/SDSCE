@@ -16,14 +16,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestResolvePluginTransportConfig_InheritsPaymentTransportWhenNoOverrides(t *testing.T) {
+func TestResolvePluginTransportConfig_InheritsSecurePaymentTransportWhenNoOverrides(t *testing.T) {
+	certFile, keyFile := writeSelfSignedCertPair(t)
+
 	payment := sidecarlib.ServerTransportConfig{
-		Plaintext: true,
+		TLSCertFile: certFile,
+		TLSKeyFile:  keyFile,
 	}
 
 	pluginCfg, err := resolvePluginTransportConfig(payment, pluginTransportFlags{})
 	require.NoError(t, err)
 	require.Equal(t, payment, pluginCfg)
+}
+
+func TestResolvePluginTransportConfig_RequiresExplicitPluginPlaintext(t *testing.T) {
+	payment := sidecarlib.ServerTransportConfig{
+		Plaintext: true,
+	}
+
+	_, err := resolvePluginTransportConfig(payment, pluginTransportFlags{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "plugin gateway plaintext transport requires explicit <plugin-plaintext>")
+
+	pluginCfg, err := resolvePluginTransportConfig(payment, pluginTransportFlags{
+		Plaintext: true,
+	})
+	require.NoError(t, err)
+	require.True(t, pluginCfg.Plaintext)
 }
 
 func TestResolvePluginTransportConfig_AllowsDifferentPluginTransport(t *testing.T) {

@@ -39,7 +39,7 @@ Protected operator/admin endpoints use standard HTTP or Connect metadata:
 
 Static configured bearer tokens are sufficient for MVP.
 
-The reusable helper for this contract lives in [internal/operatorauth/operatorauth.go](/home/juan/GraphOps/substreams/data-service/internal/operatorauth/operatorauth.go).
+The reusable helper for this contract lives in [internal/operatorauth/operatorauth.go](../internal/operatorauth/operatorauth.go).
 
 ## Provider Gateway Configuration
 

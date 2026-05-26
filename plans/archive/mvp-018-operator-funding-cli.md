@@ -2,7 +2,7 @@
 
 Drafted: 2026-05-06
 
-Status note: this is the historical pre-implementation plan for `MVP-018`. The current implementation is complete and tracked in `plans/mvp-implementation-backlog.md`, with operator usage documented in `docs/operator-funding.md`.
+Status note: this is the historical pre-implementation plan for `MVP-018`. The current implementation is complete and tracked in `plans/archive/mvp-implementation-backlog.md`, with operator usage documented in `docs/operator-funding.md`.
 
 ## Purpose
 
@@ -43,19 +43,19 @@ The plan was based on:
 
 - `AGENTS.md`
 - `docs/mvp-scope.md`
-- `plans/mvp-implementation-backlog.md`
-- `plans/mvp-gap-analysis.md`
-- `docs/mvp-implementation-sequencing.md`
-- `plans/current-implementation-review.md`
+- `plans/archive/mvp-implementation-backlog.md`
+- `plans/archive/mvp-gap-analysis.md`
+- `docs/archive/mvp-implementation-sequencing.md`
+- `plans/archive/current-implementation-review.md`
 - current code under `cmd/sds/`, `sidecar/`, `horizon/`, `contracts/`, and `test/integration/`
 
 Important scope notes from the MVP docs:
 
 - `docs/mvp-scope.md` defines funding as an operator/developer workflow, not end-user wallet UI.
-- `plans/mvp-implementation-backlog.md` marks `MVP-018` as missing and scoped to approve/deposit/top-up beyond local demo assumptions.
-- `plans/mvp-gap-analysis.md` says current funding tooling is only partial and demo-oriented.
-- `docs/mvp-implementation-sequencing.md` places `MVP-018` late in the operator tooling lane because it should link to operator runtime/low-funds visibility, but the funding CLI can still be planned independently.
-- `plans/current-implementation-review.md` reinforces lessons relevant to this task: avoid hidden insecure defaults, avoid silent demo fallbacks, keep timeout/retry policy explicit, and do not make operator commands look production-safe while relying on local deterministic state.
+- `plans/archive/mvp-implementation-backlog.md` marks `MVP-018` as missing and scoped to approve/deposit/top-up beyond local demo assumptions.
+- `plans/archive/mvp-gap-analysis.md` says current funding tooling is only partial and demo-oriented.
+- `docs/archive/mvp-implementation-sequencing.md` places `MVP-018` late in the operator tooling lane because it should link to operator runtime/low-funds visibility, but the funding CLI can still be planned independently.
+- `plans/archive/current-implementation-review.md` reinforces lessons relevant to this task: avoid hidden insecure defaults, avoid silent demo fallbacks, keep timeout/retry policy explicit, and do not make operator commands look production-safe while relying on local deterministic state.
 
 ## Current Code Inventory
 
@@ -805,7 +805,7 @@ Possible edits:
 - `docs/operator-funding.md`
   - User-facing funding and signer setup guide.
 
-- `plans/mvp-implementation-backlog.md`
+- `plans/archive/mvp-implementation-backlog.md`
   - Clarify that `MVP-018` includes signer authorization lifecycle.
 
 ## Detailed Implementation Steps
@@ -1190,7 +1190,7 @@ Mitigation:
 
 Before or with implementation:
 
-- Update `plans/mvp-implementation-backlog.md` so `MVP-018` explicitly includes signer authorization/status/thaw/revoke as payer setup.
+- Update `plans/archive/mvp-implementation-backlog.md` so `MVP-018` explicitly includes signer authorization/status/thaw/revoke as payer setup.
 - Add `docs/operator-funding.md` with:
   - funding flow
   - top-up flow
@@ -1200,7 +1200,7 @@ Before or with implementation:
   - fee/timeout policy
   - demo vs non-demo examples
 - Update `docs/mvp-scope.md` only if the team wants signer authorization called out explicitly in the funding workflow.
-- Update `plans/mvp-gap-analysis.md` after implementation to move Funding CLI from partial to implemented.
+- Update `plans/archive/mvp-gap-analysis.md` after implementation to move Funding CLI from partial to implemented.
 
 Runtime compatibility note:
 

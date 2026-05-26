@@ -10,14 +10,18 @@ It focuses on:
 - the main entrypoints and ownership boundaries
 - the fastest reading order for understanding the live architecture
 - which parts of the old review drift were fixed in the recent review-fix waves
-- which remaining gaps are still real MVP backlog items rather than stale review bugs
+- which remaining items are deferred post-MVP work rather than stale review bugs
 
 For product intent and target-state decisions, start with [docs/mvp-scope.md](./mvp-scope.md).
 
-For implementation status and remaining MVP work, use:
+For post-MVP follow-up work, use:
 
-- [plans/mvp-gap-analysis.md](../plans/mvp-gap-analysis.md)
-- [plans/mvp-implementation-backlog.md](../plans/mvp-implementation-backlog.md)
+- [plans/post-mvp-backlog.md](../plans/post-mvp-backlog.md)
+
+For MVP readiness and task history, use:
+
+- [plans/archive/mvp-gap-analysis.md](../plans/archive/mvp-gap-analysis.md)
+- [plans/archive/mvp-implementation-backlog.md](../plans/archive/mvp-implementation-backlog.md)
 
 For provider runtime/state boundaries and external runtime compatibility, also use:
 
@@ -26,8 +30,8 @@ For provider runtime/state boundaries and external runtime compatibility, also u
 
 For review rationale, use:
 
-- [plans/current-implementation-review.md](../plans/current-implementation-review.md)
-- [plans/current-implementation-review-tasks/](../plans/current-implementation-review-tasks/)
+- [plans/archive/current-implementation-review.md](../plans/archive/current-implementation-review.md)
+- [plans/archive/current-implementation-review-tasks/](../plans/archive/current-implementation-review-tasks/) for completed or superseded review tasks
 
 Important context: that review is no longer a reliable list of "current bugs". Much of it was addressed by the four review-fix commits `8de75f3` through `5aad2ab`. Use it as design rationale and historical hardening context, not as a current status snapshot.
 
@@ -63,14 +67,14 @@ The most important recent hardening work landed in the four review-fix waves:
   - consumer `paymentSessionManager` no longer performs blocking stream sends under the main state mutex
   - bind-in-flight state and per-generation send serialization are now explicit
 
-The repo is still not MVP-complete. The main remaining gaps are now mostly backlog items, not the old review bugs:
+The MVP implementation scope is complete. Post-MVP follow-up work is tracked in
+[plans/post-mvp-backlog.md](../plans/post-mvp-backlog.md), including:
 
-- provider settlement lifecycle persistence and retrieval surfaces
-- operator funding and collection CLI flows
-- authenticated operator/admin APIs
-- TLS-by-default validation and non-dev operator guidance
-- basic metrics plus operator observability/status implementation
-- refreshed published external runtime images and tuples
+- `PMVP-002` Payment-session reconnect/resume semantics, carried forward from deferred `MVP-013`
+- `PMVP-003` Provider runtime decoupling for independently deployed public/private provider surfaces, carried forward from deferred `MVP-039`
+- repository snapshot/runtime-construction hardening from the completed CRT review pass
+- aggregate payer-level exposure control across concurrent streams
+- permissionless oracle sourcing, automated collection, richer observability, and end-user funding UX
 
 ## 2. Mental Model
 
@@ -483,7 +487,7 @@ Purpose:
 
 This state is convenience/runtime-local. It is not authoritative for provider billing.
 
-### Provider repository runtime state
+### Provider repository runtime and settlement state
 
 - [provider/repository/repository.go](../provider/repository/repository.go)
 - [docs/provider-persistence-boundary.md](./provider-persistence-boundary.md)
@@ -497,6 +501,7 @@ Used by:
 Purpose:
 
 - authoritative provider-side runtime/session/payment state
+- durable provider-side collection lifecycle state for manual settlement workflows
 
 Main entities:
 
@@ -508,13 +513,15 @@ Main entities:
   - per-payer worker/session usage
 - `UsageEvent`
   - metering event history
+- `CollectionRecord`
+  - settlement lifecycle state for accepted RAVs
 
 Important boundary:
 
-- this is the current provider runtime/session model
-- it is not yet the full settlement/collection lifecycle model
-- accepted RAV durability exists
-- collectible/collected transition tracking is still downstream MVP work
+- runtime/session state and collection lifecycle state are distinct concerns
+- accepted RAV durability is part of the runtime/session model
+- collection lifecycle records track settlement progress as `collectible`, `collect_pending`, `collected`, or `collect_failed_retryable`
+- live `PaymentSession` stream bindings remain process-local even when repository state is durable
 
 ### Provider live in-memory runtime binding state
 
@@ -678,17 +685,19 @@ Read the `.proto` files instead if you need the contract:
 - [proto/graph/substreams/data_service/sds/session/v1/session.proto](../proto/graph/substreams/data_service/sds/session/v1/session.proto)
 - [proto/graph/substreams/data_service/sds/usage/v1/usage.proto](../proto/graph/substreams/data_service/sds/usage/v1/usage.proto)
 
-## 10. Where To Look For Remaining Work
+## 10. Where To Look For Current Status
 
-If you finish reading the implementation and want to know what is still missing, use these documents in this order:
+If you finish reading the implementation and want to know current MVP status or
+post-MVP work, use these documents in this order:
 
-1. [plans/mvp-gap-analysis.md](../plans/mvp-gap-analysis.md)
-2. [plans/mvp-implementation-backlog.md](../plans/mvp-implementation-backlog.md)
-3. [docs/provider-persistence-boundary.md](./provider-persistence-boundary.md)
-4. [docs/provider-runtime-compatibility.md](./provider-runtime-compatibility.md)
+1. [plans/post-mvp-backlog.md](../plans/post-mvp-backlog.md)
+2. [docs/provider-persistence-boundary.md](./provider-persistence-boundary.md)
+3. [docs/provider-runtime-compatibility.md](./provider-runtime-compatibility.md)
+4. [plans/archive/mvp-implementation-backlog.md](../plans/archive/mvp-implementation-backlog.md) for MVP task history
 
 The most important thing to remember is:
 
 - the old current-implementation review mostly explains why the recent hardening work happened
-- the MVP backlog explains what still remains
+- the post-MVP backlog explains what remains
+- the MVP backlog is archived as the completed execution record
 - the current code and tests are the source of truth for current behavior

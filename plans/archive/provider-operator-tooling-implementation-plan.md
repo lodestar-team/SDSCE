@@ -22,23 +22,23 @@ The work maps to these backlog items:
 
 Primary source documents:
 
-- [docs/mvp-scope.md](../docs/mvp-scope.md)
-- [plans/mvp-implementation-backlog.md](../plans/mvp-implementation-backlog.md)
-- [plans/mvp-gap-analysis.md](../plans/mvp-gap-analysis.md)
-- [docs/mvp-implementation-sequencing.md](../docs/mvp-implementation-sequencing.md)
-- [docs/operator-auth.md](../docs/operator-auth.md)
-- [docs/operator-funding.md](../docs/operator-funding.md)
+- [docs/mvp-scope.md](../../docs/mvp-scope.md)
+- [plans/archive/mvp-implementation-backlog.md](mvp-implementation-backlog.md)
+- [plans/archive/mvp-gap-analysis.md](mvp-gap-analysis.md)
+- [docs/archive/mvp-implementation-sequencing.md](../../docs/archive/mvp-implementation-sequencing.md)
+- [docs/operator-auth.md](../../docs/operator-auth.md)
+- [docs/operator-funding.md](../../docs/operator-funding.md)
 
 ## Relevant Current Code
 
 ### CLI Entry Points
 
-- [cmd/sds/main.go](../cmd/sds/main.go)
+- [cmd/sds/main.go](../../cmd/sds/main.go)
   - Current `provider` group only registers `impl.ProviderGatewayCommand`.
   - Consumer operator commands are in the main `cmd/sds` package, not `cmd/sds/impl`.
   - Recommended provider CLI shape is to add a new main-package command such as `providerOperatorCmd`, then register it under the existing `provider` group beside `impl.ProviderGatewayCommand`.
 
-- [cmd/sds/impl/provider_gateway.go](../cmd/sds/impl/provider_gateway.go)
+- [cmd/sds/impl/provider_gateway.go](../../cmd/sds/impl/provider_gateway.go)
   - Starts the public Payment Gateway and private Plugin Gateway.
   - Current provider gateway flags include:
     - `--grpc-listen-addr`
@@ -54,7 +54,7 @@ Primary source documents:
     - `--repository-dsn`
   - No operator read/admin token flags exist yet.
 
-- [cmd/sds/consumer_common.go](../cmd/sds/consumer_common.go)
+- [cmd/sds/consumer_common.go](../../cmd/sds/consumer_common.go)
   - Contains useful CLI patterns from `MVP-018`:
     - address parsing helpers
     - payer key parsing
@@ -62,19 +62,19 @@ Primary source documents:
     - RPC client lifecycle
     - GRT formatting
   - New provider CLI code can reuse these helpers if implemented in the main `cmd/sds` package.
-  - Keep following repo CLI rules from [AGENTS.md](../AGENTS.md): `cli.Ensure` for required fields, non-Must parsing plus `cli.NoError` with contextual messages.
+  - Keep following repo CLI rules from [AGENTS.md](../../AGENTS.md): `cli.Ensure` for required fields, non-Must parsing plus `cli.NoError` with contextual messages.
 
-- [cmd/sds/consumer_funding.go](../cmd/sds/consumer_funding.go)
+- [cmd/sds/consumer_funding.go](../../cmd/sds/consumer_funding.go)
   - Good reference for production-facing chain command flags, timeout handling, `--dry-run`, `--no-wait`, and EIP-1559 defaults.
 
-- [cmd/sds/tools_rav.go](../cmd/sds/tools_rav.go)
+- [cmd/sds/tools_rav.go](../../cmd/sds/tools_rav.go)
   - Existing local RAV create/inspect tooling.
   - Useful for formatting and RAV conversion examples.
   - Not provider-backed and must not be treated as satisfying `MVP-019` or `MVP-020`.
 
 ### Provider Gateway And Runtime State
 
-- [proto/graph/substreams/data_service/provider/v1/gateway.proto](../proto/graph/substreams/data_service/provider/v1/gateway.proto)
+- [proto/graph/substreams/data_service/provider/v1/gateway.proto](../../proto/graph/substreams/data_service/provider/v1/gateway.proto)
   - Current public Payment Gateway service has:
     - `StartSession`
     - `GetSessionStatus`
@@ -83,7 +83,7 @@ Primary source documents:
   - `GetSessionStatus` is intentionally narrow runtime coordination, not the richer authenticated operator API.
   - New operator APIs should not overload `GetSessionStatus` into a broad unauthenticated inspection surface.
 
-- [provider/gateway/gateway.go](../provider/gateway/gateway.go)
+- [provider/gateway/gateway.go](../../provider/gateway/gateway.go)
   - `Gateway` owns the public payment protocol and has access to:
     - service provider address
     - Horizon domain
@@ -93,7 +93,7 @@ Primary source documents:
     - runtime payment manager
   - Any operator service attached to the gateway can reuse this repository and runtime state, but must be authenticated.
 
-- [provider/gateway/handler_get_session_status.go](../provider/gateway/handler_get_session_status.go)
+- [provider/gateway/handler_get_session_status.go](../../provider/gateway/handler_get_session_status.go)
   - Shows current narrow status response:
     - active
     - payment status values
@@ -101,13 +101,13 @@ Primary source documents:
     - payment-control pending
   - This endpoint remains public/runtime-adjacent unless intentionally split or protected.
 
-- [provider/gateway/runtime_manager.go](../provider/gateway/runtime_manager.go)
+- [provider/gateway/runtime_manager.go](../../provider/gateway/runtime_manager.go)
   - Owns live `PaymentSession` stream bindings and pending provider-originated payment control.
   - Operator inspection may need read-only runtime snapshots from this manager, but avoid exposing or mutating internals under broad locks.
 
 ### Repository And Persistence
 
-- [provider/repository/repository.go](../provider/repository/repository.go)
+- [provider/repository/repository.go](../../provider/repository/repository.go)
   - `GlobalRepository` currently supports:
     - session create/get/update/touch/list/count
     - runtime state updates
@@ -119,25 +119,25 @@ Primary source documents:
   - `Session` includes `CurrentRAV`, aggregate usage, baseline usage, payer, receiver, data service, status, metadata, and end reason.
   - `CollectionRecord` tracks settlement lifecycle state separately from runtime sessions.
 
-- [provider/repository/inmemory.go](../provider/repository/inmemory.go)
+- [provider/repository/inmemory.go](../../provider/repository/inmemory.go)
   - In-memory implementation of current repository contract.
   - Includes collection lifecycle support in parallel with PostgreSQL.
 
-- [provider/repository/psql/migrations/000001_init_schema.up.sql](../provider/repository/psql/migrations/000001_init_schema.up.sql)
+- [provider/repository/psql/migrations/000001_init_schema.up.sql](../../provider/repository/psql/migrations/000001_init_schema.up.sql)
   - Current tables: `sessions`, `ravs`, `collection_records`, `workers`, `quota_usage`, `usage_events`.
   - `ravs` is currently one-to-one with `sessions`.
   - `collection_records` stores settlement lifecycle state separately from runtime session rows.
 
-- [provider/repository/psql/session.go](../provider/repository/psql/session.go)
+- [provider/repository/psql/session.go](../../provider/repository/psql/session.go)
   - Persists current accepted RAV in `ravs`.
   - `SessionUpdateRAVAndBaseline` updates baseline and upserts the latest RAV transactionally.
 
-- [provider/repository/psql/sql/session/get_rav.sql](../provider/repository/psql/sql/session/get_rav.sql)
+- [provider/repository/psql/sql/session/get_rav.sql](../../provider/repository/psql/sql/session/get_rav.sql)
   - Fetches the latest RAV by `session_id`.
 
 ### Authentication
 
-- [docs/operator-auth.md](../docs/operator-auth.md)
+- [docs/operator-auth.md](../../docs/operator-auth.md)
   - Canonical auth contract for `MVP-028`.
   - Protected provider operator/admin endpoints use `Authorization: Bearer <token>`.
   - Roles:
@@ -146,7 +146,7 @@ Primary source documents:
   - `admin.write` satisfies `operator.read`.
   - `GetSessionStatus` may remain a narrow runtime-coordination endpoint.
 
-- [internal/operatorauth/operatorauth.go](../internal/operatorauth/operatorauth.go)
+- [internal/operatorauth/operatorauth.go](../../internal/operatorauth/operatorauth.go)
   - Reusable helper:
     - `Config`
     - `RoleOperatorRead`
@@ -156,38 +156,38 @@ Primary source documents:
 
 ### Chain And Contract Helpers
 
-- [contracts/chain/client.go](../contracts/chain/client.go)
+- [contracts/chain/client.go](../../contracts/chain/client.go)
   - Shared go-ethereum transaction helper from `MVP-018`.
   - Uses dynamic-fee EIP-1559 transactions by default and supports explicit legacy transactions.
   - Use this for manual collect transaction submission.
 
-- [contracts/horizon/collector.go](../contracts/horizon/collector.go)
+- [contracts/horizon/collector.go](../../contracts/horizon/collector.go)
   - Loads `GraphTallyCollector` ABI.
   - Currently exposes signer authorization methods only.
   - May need read helpers such as `tokensCollected` queries.
   - Do not implement direct `GraphTallyCollector.collect` for MVP unless the production contract/caller model is revisited.
 
-- [contracts/horizon/escrow.go](../contracts/horizon/escrow.go)
+- [contracts/horizon/escrow.go](../../contracts/horizon/escrow.go)
   - Loads `PaymentsEscrow` ABI and is already used by funding commands.
 
-- [horizon/types.go](../horizon/types.go), [horizon/signed_message.go](../horizon/signed_message.go), [sidecar/convert.go](../sidecar/convert.go)
+- [horizon/types.go](../../horizon/types.go), [horizon/signed_message.go](../../horizon/signed_message.go), [sidecar/convert.go](../../sidecar/convert.go)
   - Domain RAV types and protobuf conversion helpers.
   - Use these for API payload conversions and CLI display.
 
-- [test/integration/setup_test.go](../test/integration/setup_test.go)
+- [test/integration/setup_test.go](../../test/integration/setup_test.go)
   - Contains current test-only helpers for encoding `SubstreamsDataService.collect(indexer, paymentType, data)`.
   - The implementation should move the reusable collect calldata encoder out of tests into production code, likely under `contracts/horizon`.
 
-- [horizon/devenv/build/contracts/SubstreamsDataService.sol](../horizon/devenv/build/contracts/SubstreamsDataService.sol)
+- [horizon/devenv/build/contracts/SubstreamsDataService.sol](../../horizon/devenv/build/contracts/SubstreamsDataService.sol)
   - Minimal SDS data service contract.
   - `collect(address indexer, IGraphPayments.PaymentTypes paymentType, bytes calldata data)` decodes `(SignedRAV, uint256 dataServiceCut)` and calls `GraphTallyCollector.collect(...)`.
 
 ### Protobuf Generation
 
-- [buf.yaml](../buf.yaml)
-- [buf.gen.yaml](../buf.gen.yaml)
+- [buf.yaml](../../buf.yaml)
+- [buf.gen.yaml](../../buf.gen.yaml)
 
-Use `buf generate` after editing protobuf files. Generated Go lands under [pb/](../pb).
+Use `buf generate` after editing protobuf files. Generated Go lands under [pb/](../../pb/).
 
 ## Recommended Sequencing
 
@@ -207,11 +207,11 @@ Why first:
 
 Likely files:
 
-- [provider/repository/repository.go](../provider/repository/repository.go)
-- [provider/repository/inmemory.go](../provider/repository/inmemory.go)
-- [provider/repository/psql/session.go](../provider/repository/psql/session.go)
-- [provider/repository/psql/sql/session/get_rav.sql](../provider/repository/psql/sql/session/get_rav.sql)
-- [test/integration/](../test/integration/)
+- [provider/repository/repository.go](../../provider/repository/repository.go)
+- [provider/repository/inmemory.go](../../provider/repository/inmemory.go)
+- [provider/repository/psql/session.go](../../provider/repository/psql/session.go)
+- [provider/repository/psql/sql/session/get_rav.sql](../../provider/repository/psql/sql/session/get_rav.sql)
+- [test/integration/](../../test/integration/)
 
 Implementation shape:
 
@@ -284,14 +284,14 @@ Important race rule:
 
 Likely files:
 
-- [provider/repository/repository.go](../provider/repository/repository.go)
-- [provider/repository/inmemory.go](../provider/repository/inmemory.go)
-- [provider/repository/psql/migrations/](../provider/repository/psql/migrations/)
-- [provider/repository/psql/mappings.go](../provider/repository/psql/mappings.go)
-- [provider/repository/psql/sql/](../provider/repository/psql/sql/)
-- [provider/repository/psql/statements.go](../provider/repository/psql/statements.go)
-- [provider/repository/psql/repository_test.go](../provider/repository/psql/repository_test.go)
-- [provider/repository/inmemory_test.go](../provider/repository/inmemory_test.go)
+- [provider/repository/repository.go](../../provider/repository/repository.go)
+- [provider/repository/inmemory.go](../../provider/repository/inmemory.go)
+- [provider/repository/psql/migrations/](../../provider/repository/psql/migrations/)
+- [provider/repository/psql/mappings.go](../../provider/repository/psql/mappings.go)
+- [provider/repository/psql/sql/](../../provider/repository/psql/sql/)
+- [provider/repository/psql/statements.go](../../provider/repository/psql/statements.go)
+- [provider/repository/psql/repository_test.go](../../provider/repository/psql/repository_test.go)
+- [provider/repository/inmemory_test.go](../../provider/repository/inmemory_test.go)
 
 Validation:
 
@@ -333,11 +333,11 @@ Recommended implementation:
 
 Likely files:
 
-- [cmd/sds/impl/provider_gateway.go](../cmd/sds/impl/provider_gateway.go)
-- [provider/gateway/gateway.go](../provider/gateway/gateway.go)
-- [internal/operatorauth/operatorauth.go](../internal/operatorauth/operatorauth.go)
-- [internal/operatorauth/operatorauth_test.go](../internal/operatorauth/operatorauth_test.go)
-- [docs/operator-auth.md](../docs/operator-auth.md)
+- [cmd/sds/impl/provider_gateway.go](../../cmd/sds/impl/provider_gateway.go)
+- [provider/gateway/gateway.go](../../provider/gateway/gateway.go)
+- [internal/operatorauth/operatorauth.go](../../internal/operatorauth/operatorauth.go)
+- [internal/operatorauth/operatorauth_test.go](../../internal/operatorauth/operatorauth_test.go)
+- [docs/operator-auth.md](../../docs/operator-auth.md)
 
 Validation:
 
@@ -450,10 +450,10 @@ Security:
 
 Likely files:
 
-- [proto/graph/substreams/data_service/provider/v1/](../proto/graph/substreams/data_service/provider/v1/)
-- [pb/](../pb/)
-- [provider/gateway/](../provider/gateway/)
-- [cmd/sds/impl/provider_gateway.go](../cmd/sds/impl/provider_gateway.go)
+- [proto/graph/substreams/data_service/provider/v1/](../../proto/graph/substreams/data_service/provider/v1/)
+- [pb/](../../pb/)
+- [provider/gateway/](../../provider/gateway/)
+- [cmd/sds/impl/provider_gateway.go](../../cmd/sds/impl/provider_gateway.go)
 
 Generation:
 
@@ -536,8 +536,8 @@ Output:
 
 Likely files:
 
-- [cmd/sds/main.go](../cmd/sds/main.go)
-- New files under [cmd/sds/](../cmd/sds/), likely:
+- [cmd/sds/main.go](../../cmd/sds/main.go)
+- New files under [cmd/sds/](../../cmd/sds/), likely:
   - `provider_operator.go`
   - `provider_operator_client.go`
   - `provider_operator_sessions.go`
@@ -619,14 +619,14 @@ Recommended behavior:
 6. Encode collection calldata for the selected collect target.
    - MVP target: `SubstreamsDataService.collect(indexer, QueryFee, abi.encode(signedRAV, dataServiceCut))`.
    - Do not add a direct `GraphTallyCollector.collect` CLI mode in MVP.
-7. Submit EIP-1559 dynamic-fee tx by default through [contracts/chain/client.go](../contracts/chain/client.go).
+7. Submit EIP-1559 dynamic-fee tx by default through [contracts/chain/client.go](../../contracts/chain/client.go).
 8. If waiting for receipt and receipt succeeds, mark collection collected with tx hash/block/amount if available.
 9. If tx submission or receipt wait fails after pending, mark retryable with tx hash/error if known.
 10. If `--no-wait`, leave state as `collect_pending` and print explicit follow-up instructions.
 
 Production code to add:
 
-- Move collect calldata encoding out of [test/integration/setup_test.go](../test/integration/setup_test.go) into `contracts/horizon`.
+- Move collect calldata encoding out of [test/integration/setup_test.go](../../test/integration/setup_test.go) into `contracts/horizon`.
 - Add a wrapper for `SubstreamsDataService` artifact if needed, for example:
   - `contracts/horizon/data_service.go`
   - `PackCollect(indexer, paymentType, data)`
@@ -703,25 +703,25 @@ Recommended PR/task boundaries:
 
 Update these as each task lands:
 
-- [plans/mvp-implementation-backlog.md](../plans/mvp-implementation-backlog.md)
+- [plans/archive/mvp-implementation-backlog.md](mvp-implementation-backlog.md)
   - Status and evidence for `MVP-008`, `MVP-029`, `MVP-022`, `MVP-009`, `MVP-032`, `MVP-019`, `MVP-020`.
 
-- [plans/mvp-gap-analysis.md](../plans/mvp-gap-analysis.md)
+- [plans/archive/mvp-gap-analysis.md](mvp-gap-analysis.md)
   - Update acceptance scenario `D` and `F` as provider restart/collection tooling lands.
 
-- [docs/mvp-implementation-sequencing.md](../docs/mvp-implementation-sequencing.md)
+- [docs/archive/mvp-implementation-sequencing.md](../../docs/archive/mvp-implementation-sequencing.md)
   - Remove completed tasks from future sequence as each closes.
 
-- [docs/operator-auth.md](../docs/operator-auth.md)
+- [docs/operator-auth.md](../../docs/operator-auth.md)
   - Add concrete provider gateway flags and endpoints once implemented.
 
 - New doc recommended: `docs/provider-operator-tooling.md`
   - Operator-facing guide for session inspection, RAV inspection, collection state, and manual collection.
 
-- [docs/operator-funding.md](../docs/operator-funding.md)
+- [docs/operator-funding.md](../../docs/operator-funding.md)
   - Link provider collection tooling once `MVP-020` lands so the payer/provider operator workflow is connected.
 
-- [docs/provider-runtime-compatibility.md](../docs/provider-runtime-compatibility.md)
+- [docs/provider-runtime-compatibility.md](../../docs/provider-runtime-compatibility.md)
   - Only update if protobuf/runtime/plugin compatibility changes.
 
 ## Open Questions Requiring Input

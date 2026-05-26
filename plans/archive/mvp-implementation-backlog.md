@@ -1,14 +1,17 @@
 # Substreams Data Service — MVP Implementation Backlog
 
-_Last updated: 2026-05-06_
+Archived note: this is the completed MVP execution record. The active post-MVP
+follow-up tracker is `plans/post-mvp-backlog.md`.
 
-This document translates [docs/mvp-scope.md](../docs/mvp-scope.md) into concrete implementation tasks for the MVP.
+_Last updated: 2026-05-25_
 
-It is intentionally separate from `plans/implementation-backlog.md`.
+This document translates [docs/mvp-scope.md](../../docs/mvp-scope.md) into concrete implementation tasks for the MVP.
+
+It is intentionally separate from `plans/archive/implementation-backlog.md`.
 
 Rationale for the split:
 
-- `plans/implementation-backlog.md` reflects the earlier implementation sequence and still contains useful historical context
+- `plans/archive/implementation-backlog.md` reflects the earlier implementation sequence and still contains useful historical context
 - this document reflects the revised MVP scope agreed after the 2026-03-24 architecture rewrite
 - the backlog now also incorporates provider/runtime work that landed separately in StreamingFast commits `5ffca3d` through `1416020`
 
@@ -16,9 +19,9 @@ This document is a scope-aligned execution backlog, not a priority list.
 
 ## How To Use This Document
 
-- Use [docs/mvp-scope.md](../docs/mvp-scope.md) as the stable target-state definition.
-- Use `plans/mvp-gap-analysis.md` for current-state assessment.
-- Use this file to define the concrete MVP implementation work that remains.
+- Use [docs/mvp-scope.md](../../docs/mvp-scope.md) as the stable target-state definition.
+- Use `plans/archive/mvp-gap-analysis.md` for final MVP readiness/current-state assessment.
+- Use this file as the concrete MVP execution record and task index.
 
 Each task includes:
 
@@ -30,7 +33,7 @@ Each task includes:
 The status tracker below also includes:
 
 - **Depends on**: tasks that should be frozen or completed first so downstream work does not build on moving semantics
-- **Scenarios**: acceptance scenarios from [docs/mvp-scope.md](../docs/mvp-scope.md) (`A` through `G`) that the task materially contributes to
+- **Scenarios**: acceptance scenarios from [docs/mvp-scope.md](../../docs/mvp-scope.md) (`A` through `G`) that the task materially contributes to
 
 Unless otherwise scoped, the baseline validation for code changes remains:
 
@@ -42,7 +45,7 @@ Recent provider persistence and integration scaffolding landed outside the origi
 
 ## Assumptions Register
 
-These assumptions are referenced by task ID so it is clear which scope decisions or remaining open questions still matter.
+These assumptions are referenced by task ID so it is clear which scope decisions and documented deferrals still matter.
 
 - `A1` Chain/network discovery input is frozen for MVP.
   - Consumer sidecar derives network from the Substreams package by default.
@@ -116,7 +119,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 | MVP-023 | `done` | observability | `A4` | none | `A`, `C`, `D`, `F`, `G` | Define the final MVP observability floor beyond structured logs and status tooling |
 | MVP-024 | `done` | observability | `A4` | `MVP-023` | `C`, `D`, `F`, `G` | Implement basic operator-facing inspection/status surfaces, metrics, and log correlation |
 | MVP-025 | `done` | validation | none | none | `A`, `B`, `C`, `D`, `E`, `F`, `G` | Add MVP acceptance coverage for the primary end-to-end scenarios in docs/tests/manual verification |
-| MVP-026 | `in_progress` | docs | `A1`, `A4`, `A5` | `MVP-023`, `MVP-028`, `MVP-033` | `A`, `B`, `C`, `D`, `E`, `F`, `G` | Refresh protocol/runtime docs so they match the revised MVP architecture and remaining open questions |
+| MVP-026 | `done` | docs | `A1`, `A4`, `A5` | `MVP-023`, `MVP-028`, `MVP-033` | `A`, `B`, `C`, `D`, `E`, `F`, `G` | Refresh protocol/runtime docs so they match the revised MVP architecture and completed acceptance scope |
 | MVP-027 | `done` | protocol | `A3` | none | `B`, `D`, `F` | Freeze MVP payment/session identity semantics for fresh sessions and non-reused collection/payment lineage |
 | MVP-028 | `done` | security | `A5` | none | `G` | Define the MVP authentication and authorization contract for provider operator APIs and future oracle admin surfaces |
 | MVP-029 | `done` | provider-state | `A3`, `A5` | `MVP-003` | `D`, `F` | Implement provider collection lifecycle transitions and update surfaces for `collectible`, `collect_pending`, `collected`, and retryable collection state |
@@ -146,7 +149,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Consumer and provider tasks no longer assume provider-side price negotiation in normal operation.
     - Oracle and handshake wording are consistent across scope and backlog.
   - Verify:
-    - Review [docs/mvp-scope.md](../docs/mvp-scope.md) and confirm there is no conflicting pricing authority language.
+    - Review [docs/mvp-scope.md](../../docs/mvp-scope.md) and confirm there is no conflicting pricing authority language.
 
 - [x] MVP-002 Freeze fresh-session init semantics and provider-returned data-plane endpoint behavior.
   - Context:
@@ -160,7 +163,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - The provider handshake is described as returning the data-plane endpoint.
     - No task still assumes latest-known resumable RAV behavior during normal init.
   - Verify:
-    - Review [docs/mvp-scope.md](../docs/mvp-scope.md) and confirm the workflow and decisions table match this contract.
+    - Review [docs/mvp-scope.md](../../docs/mvp-scope.md) and confirm the workflow and decisions table match this contract.
 
 - [x] MVP-033 Freeze the chain/network discovery input contract across client, sidecar, and oracle.
   - Context:
@@ -172,7 +175,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Consumer sidecar owns derivation, normalization, validation, and conflict detection.
     - Oracle and consumer tasks point to the same frozen contract.
   - Verify:
-    - Review [docs/mvp-scope.md](../docs/mvp-scope.md) and confirm the network-discovery contract is present in the main workflow text rather than left as an open question.
+    - Review [docs/mvp-scope.md](../../docs/mvp-scope.md) and confirm the network-discovery contract is present in the main workflow text.
 
 - [x] MVP-027 Freeze MVP payment/session identity semantics for fresh sessions and non-reused collection/payment lineage.
   - Context:
@@ -181,9 +184,9 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - `A3`
   - Done when:
     - The repo documents that reconnects create new SDS payment sessions rather than reusing prior payment lineage.
-    - Collection/payment identity reuse is no longer an MVP open question.
+    - Collection/payment identity reuse is closed as an MVP scope decision.
   - Verify:
-    - Review [docs/mvp-scope.md](../docs/mvp-scope.md) and confirm the reconnect scenario and major decisions table match this rule.
+    - Review [docs/mvp-scope.md](../../docs/mvp-scope.md) and confirm the reconnect scenario and major decisions table match this rule.
 
 - [x] MVP-003 Define and document the provider-side runtime persistence model and its boundary with settlement lifecycle tracking.
   - Context:
@@ -197,7 +200,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - The provider-side durable model is described in terms of sessions, workers, usage, current accepted RAV state, and separate collection lifecycle tracking.
     - Downstream tasks no longer assume reconnect-driven reuse semantics.
   - Verify:
-    - Review [docs/provider-persistence-boundary.md](../docs/provider-persistence-boundary.md), [provider/repository/repository.go](../provider/repository/repository.go), and [provider/gateway/REPOSITORY.md](../provider/gateway/REPOSITORY.md) against backlog task wording.
+    - Review [docs/provider-persistence-boundary.md](../../docs/provider-persistence-boundary.md), [provider/repository/repository.go](../../provider/repository/repository.go), and [provider/gateway/REPOSITORY.md](../../provider/gateway/REPOSITORY.md) against backlog task wording.
 
 - [x] MVP-004 Define and document the real runtime payment contract used by the public payment gateway, private plugin gateway, and consumer/provider payment loop.
   - Context:
@@ -218,7 +221,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Plugin session/usage correlation is described using typed protobuf fields rather than old implicit header flow.
     - Consumer/provider payment-loop expectations are documented without revive/resume assumptions.
   - Verify:
-    - Review the backlog wording against [cmd/sds/impl/provider_gateway.go](../cmd/sds/impl/provider_gateway.go), [provider/plugin/gateway.go](../provider/plugin/gateway.go), and the plugin protobufs.
+    - Review the backlog wording against [cmd/sds/impl/provider_gateway.go](../../cmd/sds/impl/provider_gateway.go), [provider/plugin/gateway.go](../../provider/plugin/gateway.go), and the plugin protobufs.
 
 ## Oracle Tasks
 
@@ -237,7 +240,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - It does not require the oracle to resolve the final stream endpoint up front.
   - Verify:
     - Add tests for whitelist lookup, response validation, and deterministic recommendation behavior.
-    - Review [proto/graph/substreams/data_service/oracle/v1/oracle.proto](../proto/graph/substreams/data_service/oracle/v1/oracle.proto), [oracle/config.go](../oracle/config.go), [oracle/oracle.go](../oracle/oracle.go), and [cmd/sds/impl/oracle.go](../cmd/sds/impl/oracle.go).
+    - Review [proto/graph/substreams/data_service/oracle/v1/oracle.proto](../../proto/graph/substreams/data_service/oracle/v1/oracle.proto), [oracle/config.go](../../oracle/config.go), [oracle/oracle.go](../../oracle/oracle.go), and [cmd/sds/impl/oracle.go](../../cmd/sds/impl/oracle.go).
 
 - [x] MVP-006 Add admin-only oracle whitelist/provider metadata management workflow for the curated MVP provider set.
   - Context:
@@ -568,7 +571,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Added `sds consumer signer proof|status|authorize|thaw|revoke|cancel-thaw` for sidecar signer lifecycle setup against `GraphTallyCollector`.
     - Added EIP-1559 dynamic-fee transaction submission with explicit gas, fee, timeout, dry-run, and no-wait flags.
     - Added shared ERC20, `PaymentsEscrow`, and `GraphTallyCollector` ABI wrappers plus shared signer proof generation outside `horizon/devenv`.
-    - Documented the operator workflow in [docs/operator-funding.md](../docs/operator-funding.md).
+    - Documented the operator workflow in [docs/operator-funding.md](../../docs/operator-funding.md).
 
 - [x] MVP-019 Implement provider inspection CLI flows for accepted and collectible RAV data.
   - Context:
@@ -613,7 +616,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
 
 - [x] MVP-028 Define the MVP authentication and authorization contract for provider operator APIs and future oracle admin surfaces.
   - Context:
-    - The remaining architecture-level open question after this task is observability depth.
+    - This task froze the shared bearer-token role contract used by provider operator/admin surfaces and any future public oracle admin API.
   - Assumptions:
     - `A5`
   - Done when:
@@ -716,7 +719,7 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - The repo has a documented observability floor for MVP.
     - It is clear that basic metrics endpoints are part of MVP, while distributed tracing is not required for MVP.
   - Verify:
-    - Update [docs/mvp-scope.md](../docs/mvp-scope.md) and narrow the open question if a decision is made.
+    - Update [docs/mvp-scope.md](../../docs/mvp-scope.md) with the observability decision and confirm the decision is reflected in scope.
 
 - [x] MVP-024 Implement basic operator-facing inspection/status surfaces, metrics, and log correlation.
   - Context:
@@ -770,11 +773,11 @@ These assumptions are referenced by task ID so it is clear which scope decisions
   - Assumptions:
     - none
   - Done when:
-    - The key scenarios from [docs/mvp-scope.md](../docs/mvp-scope.md) are covered by tests, reproducible manual flows, or both.
+    - The key scenarios from [docs/mvp-scope.md](../../docs/mvp-scope.md) are covered by tests, reproducible manual flows, or both.
     - The repo identifies the local stack as the MVP acceptance environment and documents the scope boundary between SDS behavior and external Substreams/Firehose product correctness.
     - Scenario `B` is validated according to the fresh-session-after-interruption semantics in the revised scope, not resume semantics.
   - Verify:
-    - [docs/mvp-acceptance-matrix.md](../docs/mvp-acceptance-matrix.md) maps each scenario to local-stack validation evidence and out-of-scope data-plane concerns.
+    - [docs/mvp-acceptance-matrix.md](../../docs/mvp-acceptance-matrix.md) maps each scenario to local-stack validation evidence and out-of-scope data-plane concerns.
     - `TestConsumerIngress_CreatesFreshSessionAfterInterruptedStream` validates fresh-session semantics at the sidecar ingress boundary.
     - `go test ./test/integration/... -count=1` passes.
 
@@ -853,20 +856,23 @@ These assumptions are referenced by task ID so it is clear which scope decisions
     - Review the provider runtime docs and confirm they no longer assume implicit in-process notification between the two provider surfaces.
     - Add integration coverage for the chosen decoupled topology or equivalent internal-boundary contract tests before treating the split as supported.
 
-- [ ] MVP-026 Refresh protocol/runtime docs so they match the revised MVP architecture and remaining open questions.
+- [x] MVP-026 Refresh protocol/runtime docs so they match the revised MVP architecture and completed acceptance scope.
   - Context:
-    - [docs/mvp-scope.md](../docs/mvp-scope.md) has been updated.
-    - The rest of the documentation set and backlog still needs to catch up to that architecture and to the recent provider-side implementation changes.
+    - [docs/mvp-scope.md](../../docs/mvp-scope.md) is the stable MVP target-state document.
+    - The final MVP documentation pass aligned active docs with the sidecar-ingress runtime architecture, provider-originated payment control, authenticated operator APIs, TLS-by-default posture, runtime image compatibility state, and local-stack acceptance boundary.
   - Assumptions:
     - `A1`
     - `A4`
     - `A5`
   - Done when:
     - The repo documentation reflects the revised MVP architecture rather than the older reconnect/pricing assumptions.
-    - Remaining open questions are limited to observability rather than already-resolved scope decisions.
+    - MVP acceptance is documented as local-stack validation of SDS consumer/provider/oracle/payment behavior, with real-provider/testnet runs treated as deployment smoke tests rather than acceptance blockers.
     - Docs that describe provider runtime shape match the current public Payment Gateway plus private Plugin Gateway model.
+    - Runtime compatibility docs identify the current `firehose-core`/`dummy-blockchain` image state and local-image fallback workflow from `MVP-036`.
+    - Historical or superseded docs are archived away from the active documentation set.
   - Verify:
-    - Review the updated docs against [docs/mvp-scope.md](../docs/mvp-scope.md) and confirm there are no major contradictions.
+    - Review the updated docs against [docs/mvp-scope.md](../../docs/mvp-scope.md) and confirm there are no major contradictions.
+    - Review [docs/mvp-acceptance-matrix.md](../../docs/mvp-acceptance-matrix.md), [docs/provider-runtime-compatibility.md](../../docs/provider-runtime-compatibility.md), [docs/provider-persistence-boundary.md](../../docs/provider-persistence-boundary.md), [docs/direct-provider-testnet-public-runbook.md](../../docs/direct-provider-testnet-public-runbook.md), and [README.md](../../README.md) for aligned runtime, security, and operator guidance.
 
 ## Notes on Scope Boundaries
 

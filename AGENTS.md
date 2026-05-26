@@ -9,7 +9,7 @@ go build ./...
 # Run go vet checks
 go vet ./...
 
-# Run tests (note: no test files exist yet)
+# Run tests
 go test ./...
 
 # Format
@@ -25,14 +25,20 @@ go mod tidy
 ## Project Structure
 
 - Main package: root directory
-- Commands: `cmd/sf_analyzer/` and `cmd/sf_comparator/`
-- Metrics: `metrics/`
+- Main CLI: `cmd/sds/`
+- Consumer runtime: `consumer/sidecar/`
+- Provider runtime: `provider/gateway/`, `provider/plugin/`, `provider/repository/`, `provider/usage/`
+- Oracle service: `oracle/`
+- Horizon contracts and local development helpers: `horizon/`, `horizon/devenv/`, `contracts/`
+- Protobuf-generated APIs: `pb/`
+- Integration tests and local runtime harnesses: `test/integration/`
+- Operator and planning documentation: `docs/`, `plans/post-mvp-backlog.md`
 
 ## Environment
 
 - Go Version: 1.24.0 (toolchain go1.24.4)
 - Build Status: PASSING
-- Test Status: PASSING (21 tests)
+- Test Status: PASSING (`go test ./...`)
 - Only use latest Golang features instead of older idioms (slices, maps, iter, any, generics, etc.)
 
 ## CLI Flag Parsing and Error Handling
@@ -88,6 +94,7 @@ if err != nil {
 - Add a short comment for non-obvious transport/network setup (for example, h2c/plaintext HTTP/2 client configuration).
 - Do not make insecure transport the default for code paths that may later be used outside local/demo workflows.
 - If plaintext or insecure TLS behavior is needed for local development, gate it behind explicit configuration and keep production-oriented defaults secure.
+
 ## Coding Patterns
 
 Use the simplest abstraction form when creating new instance of "semi-primitives" types like GRT, Address, etc.
@@ -113,14 +120,19 @@ grt, err := sds.NewGRT(<accepts all types>)
 sds.MustNewGRT(<accepts all types>)
 ```
 
-## MVP Planning References
+## Planning References
 
-For MVP-scoped work:
+For MVP historical context:
 
 - Use `docs/mvp-scope.md` as the target-state definition.
-- Use `plans/mvp-gap-analysis.md` for current-state assessment.
-- Use `plans/mvp-implementation-backlog.md` as the active execution backlog.
-- Treat `plans/implementation-backlog.md` as historical context unless explicitly requested.
+- Use `plans/archive/mvp-gap-analysis.md` for the final MVP readiness summary.
+- Use `plans/archive/mvp-implementation-backlog.md` as the MVP execution record.
+- Use `docs/archive/mvp-implementation-sequencing.md` for MVP sequencing history.
+- Treat `plans/archive/implementation-backlog.md` as historical context unless explicitly requested.
+
+For post-MVP follow-up work:
+
+- Use `plans/post-mvp-backlog.md` as the active lightweight follow-up backlog.
 
 ## Runtime Compatibility Workflow
 
@@ -128,6 +140,14 @@ For MVP-scoped work:
 - Treat `docs/provider-runtime-compatibility.md` as the operator-facing source of truth for supported runtime tuples, known incompatible runtimes, and compatibility assumptions.
 - Call out whether the change is runtime-breaking or backward-compatible for external `firecore` / Substreams deployments.
 - Do not add automatic compatibility probes that create runtime side effects unless the user explicitly asks for that tradeoff; prefer explicit documentation and validated tuples for MVP.
+
+## Changelog Discipline
+
+- Keep `CHANGELOG.md` current for changes that affect users, operators, runtime behavior, deployment posture, public APIs/protobufs, CLI behavior, compatibility requirements, or documentation structure.
+- Add entries under `## Unreleased` using Keep a Changelog categories (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`) when applicable.
+- Do not add changelog entries for purely internal refactors, test-only changes, or typo fixes unless they change operator/developer behavior or close an MVP task.
+- When committing MVP-scoped work, include the relevant MVP task ID in the changelog entry when that helps future release notes.
+- If a change intentionally does not need a changelog entry, be prepared to say why in the final response.
 
 ## Commit Messages
 
@@ -145,5 +165,3 @@ For MVP-scoped work:
 - All builds must pass before committing
 - Run `go vet` to ensure code quality
 - Use `go mod tidy` after updating dependencies
-- Test coverage exists for event.go and utils.go
-- Known bug: utils.go line 49 uses `count` before it's set (results in +Inf for average)

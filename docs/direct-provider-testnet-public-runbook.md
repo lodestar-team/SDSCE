@@ -228,15 +228,15 @@ sds provider gateway \
   --data-plane-endpoint="$PROVIDER_SUBSTREAMS_ENDPOINT" \
   --pricing-config=/etc/sds/pricing/pricing.yaml \
   --tls-cert-file=/tls/tls.crt \
-  --tls-key-file=/tls/tls.key \
-  --plugin-plaintext
+  --tls-key-file=/tls/tls.key
 ```
 
 Deployment notes:
 
 - Expose the payment gateway publicly through TLS-capable gRPC ingress or load balancer.
 - Keep the plugin gateway private to the provider cluster.
-- Plaintext is never implicit. If the private plugin gateway uses plaintext inside the provider cluster, keep `--plugin-plaintext` explicit and keep that listener unreachable from public networks.
+- When no plugin-specific transport flags are supplied, the private plugin gateway uses the same TLS certificate/key configuration as the payment gateway.
+- Plaintext is never implicit. Use `--plugin-plaintext` only for local/dev plugin gateway runs, and keep that listener unreachable from public networks.
 - Keep the operator gateway private to operators. Prefer port-forward, VPN, or a restricted internal ingress.
 - Store the repository DSN, RPC credentials, and operator tokens in Kubernetes Secrets.
 - Store pricing in a ConfigMap or another explicit config source.
@@ -251,12 +251,12 @@ Configure the runtime to call the private provider plugin gateway:
 ```yaml
 start:
   flags:
-    common-auth-plugin: "sds://sds-provider-gateway.sds.svc.cluster.local:9003?plaintext=true"
-    common-session-plugin: "sds://sds-provider-gateway.sds.svc.cluster.local:9003?plaintext=true"
-    common-metering-plugin: "sds://sds-provider-gateway.sds.svc.cluster.local:9003?plaintext=true&network=<substreams-network>&buffer=10000&delay=100&report-timeout=5s"
+    common-auth-plugin: "sds://sds-provider-gateway.sds.svc.cluster.local:9003"
+    common-session-plugin: "sds://sds-provider-gateway.sds.svc.cluster.local:9003"
+    common-metering-plugin: "sds://sds-provider-gateway.sds.svc.cluster.local:9003?network=<substreams-network>&buffer=10000&delay=100&report-timeout=5s"
 ```
 
-If using TLS internally, omit `plaintext=true`. If using self-signed internal TLS in a controlled test environment, add `insecure=true`.
+If using self-signed internal TLS in a controlled test environment, add `insecure=true`. If using plaintext for a local/dev plugin gateway, add `plaintext=true` and keep the plugin listener private.
 
 Data-plane requirements:
 
@@ -442,13 +442,16 @@ Choose a package/module compatible with the provider chain. If no RAV appears, e
 ## Provider Operator CLI
 
 The operator API requires a bearer token even for local/private access.
+The examples below assume the operator endpoint is the HTTPS URL from
+`PROVIDER_OPERATOR_GATEWAY_URL`. If you reach the operator API through a local
+plaintext port-forward, set `PROVIDER_OPERATOR_GATEWAY_URL` to that local
+`http://localhost:<port>` URL and add `--plaintext` to the CLI commands.
 
 List sessions:
 
 ```bash
 sds provider operator sessions list \
   --provider-endpoint="$PROVIDER_OPERATOR_GATEWAY_URL" \
-  --plaintext \
   --operator-token-env=SDS_OPERATOR_READ_TOKEN \
   --include-rav
 ```
@@ -458,7 +461,6 @@ List accepted RAVs:
 ```bash
 sds provider operator ravs list \
   --provider-endpoint="$PROVIDER_OPERATOR_GATEWAY_URL" \
-  --plaintext \
   --operator-token-env=SDS_OPERATOR_READ_TOKEN \
   --include-rav
 ```
@@ -468,7 +470,6 @@ List collectible records:
 ```bash
 sds provider operator collections list \
   --provider-endpoint="$PROVIDER_OPERATOR_GATEWAY_URL" \
-  --plaintext \
   --operator-token-env=SDS_OPERATOR_READ_TOKEN \
   --state=collectible \
   --include-rav
@@ -480,8 +481,6 @@ Fetch private operator metrics:
 curl -H "Authorization: Bearer $SDS_OPERATOR_READ_TOKEN" \
   "$PROVIDER_OPERATOR_GATEWAY_URL/metrics"
 ```
-
-If the operator endpoint is HTTPS, omit `--plaintext` from CLI commands and use an `https://...` endpoint.
 
 ## Manual Collection CLI
 
@@ -527,7 +526,7 @@ SDS_PROVIDER_KEY="$SERVICE_PROVIDER_PRIVATE_KEY" sds provider operator collect \
   --data-service-cut-ppm=0
 ```
 
-If the provider operator endpoint is plaintext or reached through a local port-forward, add:
+If the provider operator endpoint is reached through a local plaintext port-forward, add:
 
 ```bash
 --plaintext

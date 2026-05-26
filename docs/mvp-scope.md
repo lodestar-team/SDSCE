@@ -1,7 +1,7 @@
 # Substreams Data Service MVP Scope
 
 Drafted: 2026-03-12  
-Revised: 2026-05-06
+Revised: 2026-05-25
 
 ## Purpose
 
@@ -13,7 +13,7 @@ It is intended to be the stable source of truth for:
 - product and operational scope
 - architectural decisions and their rationale
 - MVP acceptance scenarios
-- explicit non-goals and remaining open questions
+- explicit non-goals and deferred post-MVP work
 
 It is not a task tracker. Detailed current-state assessment and implementation tracking should live in separate planning documents.
 
@@ -39,7 +39,7 @@ The MVP may intentionally simplify parts of the system where doing so materially
 
 ## Current Status Summary
 
-As of 2026-04-01, the repo already contains important parts of the MVP foundation:
+As of 2026-05-25, the repo contains the MVP implementation scope:
 
 - working Horizon V2 / TAP signing, verification, and aggregation
 - deterministic local chain/contracts and integration coverage
@@ -50,15 +50,14 @@ As of 2026-04-01, the repo already contains important parts of the MVP foundatio
 - provider-originated runtime payment/control driven from provider-side metering behind that ingress
 - provider-side Firehose plugin services (`auth`, `session`, `usage`)
 - local-first Firecore/dummy-blockchain acceptance against rebuilt SDS-compatible runtime images
-- a development/demo stack and sink wrapper
-
-However, the current repo does not yet constitute the MVP. The major remaining gap is:
-
-- final documentation refresh around the current runtime-image state
+- authenticated provider operator APIs and CLI flows for inspection, funding, and manual collection
+- TLS-by-default runtime posture with explicit plaintext flags for the reflex devenv
+- local-stack MVP acceptance coverage across discovery, paid streaming, fresh-session recovery, low funds, provider restart, funding, collection, and secure deployment posture
+- a development/demo stack and public operator documentation
 
 The legacy wrapper-era runtime usage-report flow is removed. The remaining manual `Init` / `EndSession` RPCs are not part of the intended MVP runtime architecture.
 
-See `plans/mvp-gap-analysis.md` for a detailed status map.
+See `plans/archive/mvp-gap-analysis.md` and `docs/mvp-acceptance-matrix.md` for the final MVP status map and scenario evidence.
 
 ## Goals
 
@@ -395,8 +394,8 @@ Scenario evidence is tracked in [docs/mvp-acceptance-matrix.md](./mvp-acceptance
 
 ## References
 
-- `plans/mvp-gap-analysis.md`
-- `plans/mvp-implementation-backlog.md`
+- `plans/archive/mvp-gap-analysis.md`
+- `plans/archive/mvp-implementation-backlog.md`
 - `docs/operator-auth.md`
-- `docs/mvp-implementation-sequencing.md`
+- `docs/archive/mvp-implementation-sequencing.md`
 - `README.md`

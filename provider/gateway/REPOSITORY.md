@@ -48,12 +48,20 @@ The PostgreSQL DSN follows standard connection string format. Common parameters:
 
 **Features:**
 - Persistent storage across restarts
-- Supports multiple gateway instances (with proper configuration)
+- Shared durable state for multiple gateway processes
 - Full ACID transaction support
 - Automatic schema migrations
 - Efficient prepared statement caching
 
-**Example:**
+PostgreSQL durability does not by itself make the current MVP runtime fully
+active/active across provider gateway instances. Accepted RAVs, sessions,
+usage, and collection lifecycle records are durable/shared, but live
+`PaymentSession` stream bindings and provider-originated control dispatch remain
+process-local. Fully decoupling the public Provider Gateway from the private
+Plugin Gateway for independently deployed provider surfaces is tracked as
+`PMVP-003`.
+
+**Local/Test Example:**
 ```bash
 sds provider gateway \
   --repository-dsn "psql://sds_user:secret@localhost:5432/sds?sslmode=disable" \
@@ -240,4 +248,4 @@ The private provider operator listener also exposes `/metrics` in Prometheus tex
 
 ### Backward Compatibility
 
-If no `--repository-dsn` flag is provided, the gateway currently falls back to `inmemory://` for backward compatibility. Treat that as a local/demo convenience only; deployed or multi-instance gateways should set an explicit PostgreSQL DSN.
+If no `--repository-dsn` flag is provided, the gateway currently falls back to `inmemory://` for backward compatibility. Treat that as a local/demo convenience only; deployed gateways should set an explicit PostgreSQL DSN. Multi-instance deployments also need runtime-topology planning beyond the repository DSN because live payment-session bindings remain process-local in the MVP architecture.

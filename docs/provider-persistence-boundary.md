@@ -10,7 +10,8 @@ It defines the separation between:
 Use this document together with:
 
 - [docs/mvp-scope.md](./mvp-scope.md) for the MVP target state
-- [plans/mvp-implementation-backlog.md](../plans/mvp-implementation-backlog.md) for task ownership and dependencies
+- [plans/archive/mvp-implementation-backlog.md](../plans/archive/mvp-implementation-backlog.md) for MVP task ownership and dependencies
+- [plans/post-mvp-backlog.md](../plans/post-mvp-backlog.md) for follow-up persistence/runtime-construction hardening
 - [provider/repository/repository.go](../provider/repository/repository.go) for the current repository interface
 - [provider/repository/psql/migrations/000001_init_schema.up.sql](../provider/repository/psql/migrations/000001_init_schema.up.sql) for the current durable storage shape
 
@@ -114,7 +115,7 @@ The repository exposes collection lifecycle transition methods for:
 - moving `collect_pending` to `collected`
 - moving `collect_pending` to `collect_failed_retryable`
 
-Lifecycle mutations carry an expected aggregate value so stale collection attempts cannot update a newer accepted RAV snapshot. Retrieval surfaces still belong to `MVP-009`.
+Lifecycle mutations carry an expected aggregate value so stale collection attempts cannot update a newer accepted RAV snapshot. Authenticated retrieval surfaces were implemented under `MVP-009`.
 
 ## Boundary Rules
 
@@ -124,16 +125,16 @@ Lifecycle mutations carry an expected aggregate value so stale collection attemp
 - Runtime session records may reference settlement-relevant accepted state, but they do not define collection progress.
 - For MVP, the public/private provider split is a boundary between API surfaces and trust zones, not a commitment that those two surfaces are independently deployable without further internal runtime decoupling work.
 - Client and CLI flows should read settlement-relevant provider state through provider-owned APIs, not by assuming direct database access.
-- `MVP-008` extends durable runtime storage around the existing repository model.
-- `MVP-029` owns collection lifecycle persistence, transitions, and retry semantics and is implemented in the repository layer.
-- `MVP-009` owns provider retrieval APIs for accepted and collectible settlement-relevant state.
+- `MVP-008` completed durable runtime storage around the repository model.
+- `MVP-029` completed collection lifecycle persistence, transitions, and retry semantics in the repository layer.
+- `MVP-009` completed provider retrieval APIs for accepted and collectible settlement-relevant state.
 
-## Implications For Downstream Tasks
+## Implemented Task Boundaries
 
-- `MVP-008` should focus on restart-safe runtime durability for sessions, workers, usage, and the latest accepted RAV state already represented in the current repository model.
-- `MVP-008` should not absorb collection lifecycle tracking just because accepted RAV state is also settlement-relevant.
-- `MVP-029` introduced the distinct provider-side persistence/update model needed for collection lifecycle state.
-- `MVP-019` and `MVP-020` consume provider-backed settlement retrieval flows after `MVP-009` and `MVP-029`, not direct backend reads. Manual collection state changes go through authenticated collection lifecycle mutation RPCs.
+- `MVP-008` focused on restart-safe runtime durability for sessions, workers, usage, and the latest accepted RAV state represented in the runtime repository model.
+- `MVP-008` intentionally did not absorb collection lifecycle tracking just because accepted RAV state is also settlement-relevant.
+- `MVP-029` introduced the distinct provider-side persistence/update model for collection lifecycle state.
+- `MVP-019` and `MVP-020` consume provider-backed settlement retrieval flows from `MVP-009` and `MVP-029`, not direct backend reads. Manual collection state changes go through authenticated collection lifecycle mutation RPCs.
 
 ## Post-MVP Decoupling Direction
 
@@ -146,7 +147,7 @@ That future work should:
 - ensure the public `ProviderGateway` can make `RAVRequest` and low-funds decisions from an authoritative source of truth rather than implicit in-memory coordination
 - keep the public/private split as an exposure/security boundary while removing the hidden assumption that both surfaces must share one process
 
-That decoupling is intentionally post-MVP work. The current MVP architecture does not require fully separate deployment of the public and private provider surfaces.
+That decoupling is intentionally post-MVP work tracked by `PMVP-003`. The current MVP architecture does not require fully separate deployment of the public and private provider surfaces.
 
 ## Out Of Scope For MVP-003
 
@@ -155,6 +156,6 @@ That decoupling is intentionally post-MVP work. The current MVP architecture doe
 - add or change protobuf APIs
 - add or change repository interfaces
 - add or change database schema
-- define the final collection lifecycle schema or transitions in implementation detail
-- resolve authn/authz for operator/admin surfaces
-- define the exact inspection or collection API shape
+- define the final collection lifecycle schema or transitions in implementation detail; that was completed later under `MVP-029`
+- resolve authn/authz for operator/admin surfaces; that was completed later under `MVP-028` and `MVP-022`
+- define the exact inspection or collection API shape; that was completed later under `MVP-009`, `MVP-019`, and `MVP-020`

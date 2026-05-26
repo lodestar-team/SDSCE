@@ -1,199 +1,113 @@
-# Agent Workflow (Implementation + Verification)
-
-This repo contains two complementary process documents:
-
-- `AGENTS.md`: repo-specific rules (commands, Go conventions, CLI flag validation patterns).
-- `plans/mvp-implementation-backlog.md`: the active MVP task list with per-task **Done when** + **Verify** criteria and a status table.
-
-This document defines the **step-by-step workflow** to implement backlog tasks consistently (human or LLM).
-
-Note on the backlog switch:
-
-- `plans/mvp-implementation-backlog.md` is now the active implementation backlog for MVP-scoped work.
-- `plans/implementation-backlog.md` remains useful historical context, but agents should not treat it as the primary task source for current MVP execution.
-
-## Scope of This Workflow
-
-This workflow defines the default execution behavior for MVP-scoped work.
-
-Authoritative planning documents for MVP work:
-
-- `docs/mvp-scope.md`: target-state definition
-- `plans/mvp-gap-analysis.md`: current-state assessment
-- `plans/mvp-implementation-backlog.md`: active execution backlog
-
-Historical context only:
-
-- `plans/implementation-backlog.md`
-
-Agents should treat `plans/mvp-implementation-backlog.md` as the primary task source unless the user explicitly asks for historical or pre-MVP planning context.
-
----
-
-## 1) Pick a Task
-
-- Choose an `MVP-###` item from `plans/mvp-implementation-backlog.md`.
-- Read its **Context**, **Done when**, and **Verify** sections.
-- If the task requires cross-repo coordination, confirm owners and dependencies first.
-
----
-
-## 1.5) Classify the Task Before Acting
-
-Before making changes, determine which kind of backlog item you are working on:
-
-- **Implementation task**:
-  - goal is code and behavior change
-  - complete the smallest change that satisfies **Done when**
-- **Open-question task**:
-  - goal is a documented decision, narrowed contract, or explicit recorded deferral
-  - do not silently choose an implementation-specific interpretation in code
-- **Validation/review task**:
-  - goal is to verify, review, or corroborate behavior against the backlog and current code
-  - do not broaden into implementation unless explicitly asked
-
-For every task, first extract and restate:
-
-- task ID
-- dependencies
-- assumptions
-- **Done when**
-- **Verify**
-- relevant MVP scenarios
-
-Keep this restatement brief and execution-oriented. It should be a short working summary, not a long analysis section.
-
-If a dependency is still unresolved and the current task cannot be completed safely without inventing semantics, mark the task `blocked` instead of coding around it.
-
-When an `open_question` task needs information beyond the repo:
-
-- use repo context first
-- when external research is available, prefer primary sources
-- record whether the result is a final decision, a narrowed contract, or a recommendation awaiting confirmation
-
----
-
-## 2) Update Status First
-
-In `plans/mvp-implementation-backlog.md`:
-
-- Set the chosen task `Status` to `in_progress` in the Status Tracker table.
-- If you cannot proceed, set `blocked` and add a short reason in the task’s section.
-
----
-
-## 3) Implement Minimally
-
-- Make the smallest change that fully satisfies **Done when**.
-- Prefer fixing root causes over adding workarounds.
-- Keep changes narrowly scoped to the selected task (avoid drive-by refactors).
-
-### Scope Control Rules
-
-- Prefer one `MVP-###` task per implementation pass unless the backlog already makes a tightly-coupled dependency unavoidable.
-- Small supporting edits are acceptable when they are strictly necessary to satisfy the selected task’s **Done when** or **Verify** criteria.
-- Do not solve adjacent backlog items unless they are strictly required to satisfy the selected task’s **Done when** criteria.
-- Do not absorb a second meaningful backlog item just because it touches the same files or component.
-- Do not introduce new abstractions, helpers, configuration, or refactors unless they are necessary for the selected task.
-- If you discover a missing prerequisite or unresolved contract, stop, document it, and update the backlog/task state instead of embedding an implicit decision in code.
-
-Before writing code, run these quick checks:
-
-- **Domain type check**: is there already a repo-level type/helper for this domain (`sds.GRT`, address/signature helpers, etc.)?
-- **Ownership check**: if the change touches concurrency or streams, which type owns the resource, the locking, and the timeout/retry policy?
-- **Determinism check**: if the change touches demo/dev orchestration, should missing config fail fast instead of silently defaulting?
-- **Transport-security check**: if the change touches networking, is insecure/plaintext behavior explicitly scoped to local/dev and not the default for future production paths?
-- **Package-boundary check**: if runtime code is importing from a development-only package, should that dependency be promoted to shared infrastructure instead?
-
-### Protobuf changes
-
-If a task touches `proto/`:
-
-- Update `.proto` first.
-- Regenerate code (`buf generate`).
-- Update conversions/tests that depend on the changed schema.
-
----
-
-## 4) Add/Update Tests
-
-- Prefer extending existing tests when possible.
-- If behavior is user-facing (RPC/CLI), add or extend integration tests under `test/integration/` when practical.
-- Keep tests deterministic; rely on `devenv`/testcontainers when on-chain interactions are needed.
-
----
-
-## 5) Format + Validate
-
-Follow `AGENTS.md` guidance:
-
-- Format changed Go files: `gofmt -w .` (or limited to modified files if preferred).
-- Run:
-  - `go test ./...`
-  - `go vet ./...`
-
-For docs-only, planning-only, or other non-code tasks:
-
-- run the task-specific verification that actually applies
-- do not treat `gofmt`, `go test ./...`, or `go vet ./...` as mandatory unless code changed
-
-If validation fails:
-
-- Fix the failure if it’s caused by your changes.
-- Do not “fix unrelated” failures unless explicitly requested.
-
----
-
-## 6) Corroborate With the Task’s Verify Steps
-
-- Run the exact commands in the task’s **Verify** section.
-- Confirm the expected outcomes (return codes, error codes, logs, state changes).
-- If “Verify” is missing or insufficient, update the backlog entry to make it reproducible.
-
-If the task is an `open_question` item, corroboration should include the concrete output artifact:
-
-- updated docs or contract text
-- narrowed decision record
-- explicit deferral recorded in the backlog or docs
-- downstream task references updated to point at that output when needed
-
----
-
-## 7) Mark Done
-
-In `plans/mvp-implementation-backlog.md`:
-
-- Set `Status` to `done` in the Status Tracker table.
-- Tick the task checkbox in its detailed section.
-- If the implementation changed assumptions, update the task description and/or add follow-up tasks.
-
----
-
-## 8) If Blocked or Deferred
-
-- `blocked`: record the concrete blocker (missing dependency, unclear spec, external repo change required).
-- `deferred`: record the reason (not needed yet, too risky now, awaiting design decision) and what would un-defer it.
-
----
-
-## 8.5) Multi-Agent Coordination
-
-When using multiple agents in parallel:
-
-- assign one primary `MVP-###` task per agent
-- use separate git worktrees when parallel agents may edit code concurrently
-- avoid overlapping file ownership unless one agent is review-only
-- assign one owner for updates to shared planning/status documents when multiple agents are active
-- only the assigned document owner should update shared status tables unless explicitly coordinated otherwise
-- prefer splitting by dependency boundary or component boundary, not by arbitrary file count
-- if a task changes shared contracts or protobufs, finish and merge that work before starting dependent implementation tasks
-
----
-
-## 9) Incorporate Review Learnings
-
-If you are implementing or revisiting code after reviewer feedback:
-
-- Track the remediation work in the relevant plan/review document instead of leaving it as unstructured commentary.
-- Update `AGENTS.md` or workflow docs when the feedback reflects a reusable engineering rule rather than a one-off preference.
-- Prefer addressing the structural issue the reviewer pointed out, not just the narrow line comment.
+# Agent Workflow
+
+This document defines the default workflow for human or LLM agents making
+changes in this repository.
+
+Use it together with `AGENTS.md`, which contains repo-specific build, test,
+style, and commit rules.
+
+The MVP-specific workflow used during MVP execution has been archived at
+`docs/archive/mvp-agent-workflow.md`.
+
+## 1. Identify The Work Item
+
+- Start from the user request and the most relevant active plan or issue.
+- If the request references an archived MVP or review task, use the archived
+  document as historical context and create or update an active follow-up only
+  when new work remains.
+- Prefer one clearly scoped task per implementation pass.
+- Record or restate the task goal, dependencies, acceptance criteria, and
+  verification plan before editing when the work is non-trivial.
+
+Active planning references:
+
+- `plans/post-mvp-backlog.md` for post-MVP follow-up tasks.
+- `docs/provider-runtime-compatibility.md` for runtime/plugin compatibility
+  assumptions.
+- `docs/provider-persistence-boundary.md` for provider runtime and settlement
+  persistence boundaries.
+- `docs/mvp-scope.md` and archived MVP planning docs for historical MVP scope.
+
+## 2. Classify The Task
+
+Before making changes, decide whether the task is:
+
+- **Implementation**: code or behavior must change.
+- **Documentation**: operator, developer, or planning docs must change.
+- **Validation/review**: behavior must be checked without necessarily changing
+  code.
+- **Decision/deferral**: the output is a recorded contract, narrowed scope, or
+  explicit follow-up.
+
+Do not silently answer unresolved product or architecture questions in code. If
+a change depends on a missing decision, document the blocker or create a
+follow-up task.
+
+## 3. Keep Scope Tight
+
+- Make the smallest change that satisfies the request and acceptance criteria.
+- Avoid drive-by refactors.
+- Do not absorb adjacent work just because it touches the same files.
+- If you discover related but non-blocking work, add it to the appropriate
+  active plan instead of expanding the current patch.
+
+Quick checks before implementation:
+
+- **Domain type check**: use existing project types such as `sds.GRT`, address
+  helpers, and signature helpers.
+- **Ownership check**: identify which type owns concurrency, stream lifecycle,
+  retries, and timeouts.
+- **Configuration check**: prefer explicit required config over hidden runtime
+  fallbacks for deployed workflows.
+- **Transport-security check**: keep insecure/plaintext behavior explicit and
+  local/dev-scoped.
+- **Package-boundary check**: do not import development-only packages from
+  production-oriented runtime or CLI code.
+
+## 4. Implement And Test
+
+- Prefer existing patterns and package boundaries.
+- Add focused tests for behavior changes.
+- Extend integration tests when the behavior crosses RPC, CLI, chain, or runtime
+  boundaries and the cost is reasonable.
+- For protobuf changes, edit `.proto` first, regenerate code, and update
+  conversions/tests.
+
+Follow `AGENTS.md` for validation. In general:
+
+- Run `gofmt` on changed Go files.
+- Run `go test ./...` and `go vet ./...` before commits unless the user
+  explicitly asks otherwise.
+- For docs-only changes, run relevant link/staleness checks and `git diff
+  --check`; Go tests are not mandatory unless code changed.
+
+## 5. Update Documentation And Tracking
+
+- Update docs in the same change when behavior, CLI flags, runtime topology,
+  security posture, or operator workflows change.
+- Update `docs/provider-runtime-compatibility.md` when shared runtime/plugin
+  contracts, protobufs, or external runtime compatibility assumptions change.
+- Update `CHANGELOG.md` for user-visible behavior, CLI/API/runtime changes,
+  operator docs, planning structure changes, or notable fixes.
+- Keep archived docs as historical records; do not rely on them as active task
+  trackers.
+
+## 6. Multi-Agent Coordination
+
+When multiple agents work in parallel:
+
+- assign disjoint file or component ownership where possible
+- avoid overlapping writes unless one agent is explicitly review-only
+- appoint one owner for shared planning/status documents
+- merge shared-contract or protobuf work before starting dependent
+  implementation
+- never revert changes you did not make unless the user explicitly asks
+
+## 7. Close The Loop
+
+Before finalizing:
+
+- verify the acceptance criteria or explain what could not be verified
+- check for stale references or docs affected by the change
+- summarize files changed and validation performed
+- call out any follow-up task added to active planning docs

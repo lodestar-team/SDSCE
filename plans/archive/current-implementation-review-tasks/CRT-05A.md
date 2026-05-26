@@ -22,11 +22,11 @@ This slice must coordinate with CRT-05B for anything that touches session/auth i
 
 ## Current Behavior and Evidence
 
-The repository interface already declares a strong contract: `GlobalRepository` says implementations must be safe for concurrent use in [provider/repository/repository.go](../../provider/repository/repository.go).
+The repository interface already declares a strong contract: `GlobalRepository` says implementations must be safe for concurrent use in [provider/repository/repository.go](../../../provider/repository/repository.go).
 
 The current in-memory backend does not fully satisfy that contract:
 
-- `SessionGet` and `WorkerGet` return live pointers from shared maps instead of copies in [provider/repository/inmemory.go](../../provider/repository/inmemory.go).
+- `SessionGet` and `WorkerGet` return live pointers from shared maps instead of copies in [provider/repository/inmemory.go](../../../provider/repository/inmemory.go).
 - `SessionUpdateRAVAndBaseline`, `SessionApplyUsage`, `QuotaIncrement`, and `QuotaDecrement` mutate shared objects in place and then write the same pointer back into the map.
 - `SessionList` returns the stored session pointers directly, which exposes mutable shared state to callers.
 - `QuotaGet` returns the stored `QuotaUsage` pointer directly when present.
@@ -35,8 +35,8 @@ That means the repository is concurrency-safe only in the narrow sense that the 
 
 The runtime-construction posture has a second issue:
 
-- `gateway.New(...)` silently creates an in-memory repository if `config.Repository` is nil in [provider/gateway/gateway.go](../../provider/gateway/gateway.go).
-- the provider CLI still defaults `--repository-dsn` to `inmemory://` in [cmd/sds/impl/provider_gateway.go](../../cmd/sds/impl/provider_gateway.go).
+- `gateway.New(...)` silently creates an in-memory repository if `config.Repository` is nil in [provider/gateway/gateway.go](../../../provider/gateway/gateway.go).
+- the provider CLI still defaults `--repository-dsn` to `inmemory://` in [cmd/sds/impl/provider_gateway.go](../../../cmd/sds/impl/provider_gateway.go).
 
 Those two behaviors combine into a weak fail-fast story. A caller can construct a runtime without making an explicit repository choice, and the system quietly falls back to in-memory state.
 

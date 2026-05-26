@@ -1,182 +1,102 @@
-# Integration Test Contracts
+# Contract And Devenv Reference
 
-This document describes the smart contracts used in horizon-go integration tests and their relationship to the source graphprotocol-contracts.
+This document describes the smart contracts SDS uses for local development,
+integration tests, and operator tooling.
 
-## Overview
+## Contract Sources
 
-The integration tests use a combination of reimplemented and mock contracts to test the Go implementation of TAP (Timeline Aggregation Protocol) without requiring the full protocol stack.
+The local Horizon/devenv stack deploys a mix of upstream Graph Protocol Horizon
+contracts, SDS-specific contract code, and mocks:
 
-## Contracts Tested 1:1 with Source Project
+- `GraphPayments`, `PaymentsEscrow`, and `GraphTallyCollector` artifacts are
+  deployed as the Horizon payment stack used by SDS tests and local flows.
+- `SubstreamsDataService` is the SDS data-service contract used for provider
+  registration and `collect()` calls.
+- `MockGRTToken`, `MockController`, `MockStaking`, and other Graph-directory
+  mocks provide the minimum registry, token, provision, and protocol plumbing
+  required by the local stack.
 
-| Contract | Status |
-|----------|--------|
-| **None** | No contracts are used directly from the source graphprotocol-contracts repo |
+Artifacts are embedded in:
 
-All contracts are either reimplemented with identical critical logic or mocked for testing purposes.
+- `contracts/artifacts/`
+- `horizon/devenv/contracts/`
 
-## Reimplemented Contracts (Faithful to Source Logic)
+The source Solidity used to build the local artifacts lives in:
 
-### GraphTallyCollectorFull
+- `horizon/devenv/build/contracts/SubstreamsDataService.sol`
+- `horizon/devenv/build/contracts/TestMocks.sol`
 
-**File:** `test/integration/build/contracts/GraphTallyCollectorFull.sol`
+## Runtime Contract Roles
 
-The core TAP collector contract reimplemented with **identical EIP-712 logic** to the source.
+| Contract | Role |
+| --- | --- |
+| `SubstreamsDataService` | SDS data-service contract. Registers providers and forwards query-fee collection to `GraphTallyCollector`. |
+| `GraphTallyCollector` | Verifies signed RAVs and tracks incremental collection. The EIP-712 domain is `GraphTallyCollector`, version `1`. |
+| `PaymentsEscrow` | Holds payer escrow and exposes the balance state used by SDS funding and low-funds flows. |
+| `GraphPayments` | Horizon payment distribution contract used by the local payment stack. |
+| `MockGRTToken` | ERC20-compatible GRT token for local/dev tests. |
+| `MockController` | Contract registry used by Horizon contracts in the local stack. |
+| `MockStaking` | Provision/delegation-fee mock used by provider registration and collection validation. |
 
-**Critical Implementation Details:**
+## Go Packages
 
-- **EIP-712 Typehash** (must match source exactly):
-  ```solidity
-  keccak256("ReceiptAggregateVoucher(bytes32 collectionId,address payer,address serviceProvider,address dataService,uint64 timestampNs,uint128 valueAggregate,bytes metadata)")
-  ```
+Shared contract-facing code lives outside development-only packages:
 
-- **EIP-712 Domain:** `name="GraphTallyCollector"`, `version="1"`
+- `contracts/chain/` sends signed transactions and estimates/calls chain RPCs.
+- `contracts/erc20/` wraps token approval/balance/allowance operations.
+- `contracts/horizon/` wraps escrow, collector, data-service, and signer proof
+  helpers used by CLI/operator flows.
+- `horizon/` contains RAV signing, verification, aggregation, and EIP-712
+  helpers.
+- `horizon/devenv/` owns local Anvil deployment and deterministic demo state.
 
-- **RAV Structure** (identical field order and types):
-  ```solidity
-  struct ReceiptAggregateVoucher {
-      bytes32 collectionId;
-      address payer;
-      address serviceProvider;
-      address dataService;
-      uint64 timestampNs;
-      uint128 valueAggregate;
-      bytes metadata;
-  }
-  ```
+Development-only contract deployment helpers should remain in `horizon/devenv`.
+Code used by production-oriented CLI/operator flows should use `contracts/*`
+or other shared packages rather than importing `horizon/devenv`.
 
-- **tokensCollected Mapping:**
-  ```solidity
-  mapping(address dataService => mapping(bytes32 collectionId => mapping(address receiver => mapping(address payer => uint256 tokens)))) public tokensCollected;
-  ```
+## Local Devenv Defaults
 
-- **Signature Recovery:** Uses OpenZeppelin's `ECDSA.recover` (same as source)
+`sds devenv` deploys the local contracts, funds deterministic test accounts,
+sets the default data-service provision minimum to `0`, registers the default
+service provider, and authorizes the deterministic demo signer.
 
-### Authorizable
+The deterministic addresses and local-only private keys are documented in
+`README.md`. They are Anvil/devenv values only and are intentionally public so
+the local reflex stack is reproducible.
 
-**File:** `test/integration/build/contracts/GraphTallyCollectorFull.sol` (embedded)
+## Compatibility Points
 
-Signer authorization contract with thawing period support.
+SDS relies on these contract compatibility points:
 
-**Functions:**
-- `authorizeSigner(address signer)` - Authorize a signer for the caller
-- `revokeSigner(address signer)` - Revoke authorization (after thawing)
-- `thawSigner(address signer)` - Start thawing period
-- `cancelThaw(address signer)` - Cancel pending thaw
-- `isAuthorized(address authorizer, address signer)` - Check authorization
+- RAV EIP-712 domain: `GraphTallyCollector`, version `1`
+- RAV fields and ordering as defined by Horizon `ReceiptAggregateVoucher`
+- Go signature representation converted to Solidity `r || s || v` at the ABI
+  boundary when needed
+- signer authorization checked by the collector/data-service path
+- incremental collection using previously collected value tracking
+- provider registration and provision checks through `SubstreamsDataService`
+  and Horizon staking/payment contracts
 
-**Note:** In tests, `revokeSignerThawingPeriod` is set to 0 for immediate revocation.
+Focused coverage lives in:
 
-## Mock Contracts (Simplified for Testing)
+- `test/integration/rav_test.go`
+- `test/integration/collect_test.go`
+- `test/integration/authorization_test.go`
+- `contracts/horizon/contracts_test.go`
+- `contracts/erc20/erc20_test.go`
 
-**File:** `test/integration/build/contracts/IntegrationTestContracts.sol`
+## Intentional Local Simplifications
 
-### MockGRTToken
+The local/devenv contracts are sufficient for SDS MVP acceptance, but they are
+not a full Graph Network production deployment. The local stack intentionally
+simplifies:
 
-Standard ERC20 token with public minting capability.
+- governance
+- staking/slashing mechanics
+- protocol pause behavior
+- permissionless registry management
+- production GRT token economics
+- real provider provisioning on public testnets
 
-| Function | Description |
-|----------|-------------|
-| `mint(address to, uint256 amount)` | Public mint function for testing |
-
-**Simplification:** No governance or access control on minting.
-
-### MockController
-
-Protocol registry that maps contract IDs to addresses.
-
-| Function | Description |
-|----------|-------------|
-| `setContractProxy(bytes32 id, address contractAddress)` | Register a contract |
-| `getContractProxy(bytes32 id)` | Look up a contract |
-| `paused()` / `partialPaused()` | Always returns false |
-
-**Simplification:** No governance, just a simple `bytes32 => address` mapping.
-
-### MockStaking
-
-Simplified staking contract for provision verification.
-
-| Function | Description |
-|----------|-------------|
-| `setProvision(address sp, address ds, uint256 tokens)` | Set provision amount |
-| `getProviderTokensAvailable(address sp, address ds)` | Get provision amount |
-
-**Simplification:** No actual staking, slashing, or delegation logic.
-
-### MockPaymentsEscrow
-
-Payment escrow with deposit and collection functionality.
-
-| Function | Description |
-|----------|-------------|
-| `deposit(address sender, uint256 amount)` | Deposit GRT to escrow |
-| `getEscrowAmount(address sender, address receiver)` | Query escrow balance |
-| `collect(...)` | Collect payment with PPM-based cuts |
-
-**Simplifications:**
-- Uses `sender => sender` mapping instead of receiver-specific escrow
-- Direct token transfers instead of complex payment routing
-- PPM-based data service cut calculation (1,000,000 = 100%)
-
-### GraphDirectoryMock
-
-**File:** `test/integration/build/contracts/GraphTallyCollectorFull.sol` (embedded)
-
-Abstract contract that looks up mock contracts from the controller.
-
-**Registry Keys:**
-- `keccak256("GraphToken")` - GRT token
-- `keccak256("HorizonStaking")` - Staking contract
-- `keccak256("PaymentsEscrow")` - Escrow contract
-
-## Verification-Only Contract
-
-### GraphTallyVerifier
-
-**File:** `test/integration/build/contracts/GraphTallyVerifier.sol`
-
-Minimal contract for testing EIP-712 signature verification without protocol dependencies.
-
-| Function | Description |
-|----------|-------------|
-| `domainSeparator()` | Returns EIP-712 domain separator |
-| `encodeRAV(rav)` | Computes EIP-712 typed data hash |
-| `recoverRAVSigner(signedRAV)` | Recovers signer from signature |
-| `structHash(rav)` | Computes struct hash (without domain) |
-
-**Used for testing:**
-- Domain separator compatibility between Go and Solidity
-- RAV hash encoding compatibility
-- Signature recovery compatibility
-
-## Critical Compatibility Points
-
-| Aspect | Implementation | Test Coverage |
-|--------|----------------|---------------|
-| EIP-712 Domain Separator | Chain ID + Verifying Contract | `TestDomainSeparatorCompatibility` |
-| RAV Struct Hash | Typehash + ABI-encoded fields | `TestEIP712HashCompatibility` |
-| Signature Format | Go: V+R+S, Solidity: R+S+V (65 bytes) | `TestSignatureRecoveryCompatibility` |
-| Signer Authorization | Payer authorizes signer | `TestAuthorizeSignerFlow` |
-| Incremental Collection | tokensCollected delta tracking | `TestCollectRAVIncremental` |
-
-## What's NOT Tested
-
-The following production features are not covered by integration tests:
-
-- Full protocol governance
-- Staking/slashing mechanics
-- Complex escrow receiver mappings
-- Thawing period enforcement (set to 0 in tests)
-- Multi-hop payment routing via GraphPayments
-- Protocol pause functionality
-
-## Signature Format Note
-
-The Go implementation uses `eth.Signature` which stores signatures as V+R+S (65 bytes). Solidity's `ECDSA.recover` expects R+S+V format, so conversion is required at the Solidity boundary. The `encodeCollectData` function in `collect_test.go` handles this conversion:
-
-```go
-// eth.Signature is V+R+S (65 bytes) but Solidity ECDSA.recover expects R+S+V
-copy(paddedSig[0:32], sig[1:33])   // R (32 bytes)
-copy(paddedSig[32:64], sig[33:65]) // S (32 bytes)
-paddedSig[64] = sig[0]             // V (1 byte)
-```
+Public testnet or production deployments must use the actual deployed Horizon
+contracts and provision/register the SDS data service in that environment.

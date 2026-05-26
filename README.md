@@ -182,6 +182,10 @@ The devenv is deterministic. Key contract addresses:
 
 Test accounts (10 ETH + 10,000 GRT each):
 
+These are deterministic Anvil/devenv accounts for the local reflex setup only.
+They are intentionally documented so the checked-in local stack is reproducible;
+never use these keys outside the local test chain.
+
 | Role | Address | Private Key |
 |------|---------|-------------|
 | Service Provider | `0xa6f1845e54b1d6a95319251f1ca775b4ad406cdf` | `0x41942233cf1d78b6e3262f1806f8da36aafa24a941031aad8e056a1d34640f8d` |
@@ -202,7 +206,7 @@ go test ./test/integration/... -v  # Integration tests (requires Docker)
 
 ### Running Full System with Firecore
 
-`MVP-014` is currently validated through a local-first runtime workflow. The published `ghcr.io/streamingfast/firehose-core:latest` image was checked on 2026-05-25 and validates against the current SDS provider/plugin contract when embedded in a rebuilt dummy-chain image. The published `ghcr.io/streamingfast/dummy-blockchain:v1.7.7`, `:latest`, and `:1cea671` images still lag that `firehose-core` image, so rebuild `dummy-blockchain` locally and point `TestFirecore` at that local image.
+The full local runtime path is validated through a local-first Firecore/dummy-chain workflow. The published `ghcr.io/streamingfast/firehose-core:latest` image was checked on 2026-05-25 and validates against the current SDS provider/plugin contract when embedded in a rebuilt dummy-chain image. The published `ghcr.io/streamingfast/dummy-blockchain:v1.7.7`, `:latest`, and `:1cea671` images still lag that `firehose-core` image, so rebuild `dummy-blockchain` locally and point the Firecore integration tests at that local image.
 
 For the explicit MVP runtime-compatibility contract, validated tuple, and contributor/operator workflow, see [docs/provider-runtime-compatibility.md](docs/provider-runtime-compatibility.md).
 
@@ -218,10 +222,10 @@ docker build \
 # Run the SDS firecore integration test against the local runtime image.
 cd ../data-service
 SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE=ghcr.io/streamingfast/dummy-blockchain:sds-upstream-firecore-latest \
-  go test ./test/integration -run '^TestFirecore$' -v -count=1
+  go test ./test/integration -run '^(TestFirecore|TestFirecoreStopsStreamOnLowFunds)$' -v -count=1
 ```
 
-`TestFirecore` defaults to `ghcr.io/streamingfast/dummy-blockchain:v1.7.7`. Override it with `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE` when validating locally rebuilt runtimes. `MVP-036` documents the current state: published `firehose-core:latest` is compatible, while the published dummy-chain tags still need to be refreshed or replaced before the default image path can be updated.
+`TestFirecore` and `TestFirecoreStopsStreamOnLowFunds` default to `ghcr.io/streamingfast/dummy-blockchain:v1.7.7`. Override them with `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE` when validating locally rebuilt runtimes. `MVP-036` documents the current state: published `firehose-core:latest` is compatible, while the published dummy-chain tags still need to be refreshed or replaced before the default image path can be updated.
 
 A sample firecore configuration is provided in `devel/firecore.config.yaml` that uses dummy-blockchain as the reader node and configures the SDS plugins (auth, session, metering) to connect to the private Plugin Gateway on `:9003`.
 
@@ -294,7 +298,7 @@ Runs alongside the data provider (substreams-tier1) and handles:
 The provider gateway supports two repository backends via the `--repository-dsn` flag:
 
 - **In-memory**: `--repository-dsn="inmemory://"` - Local/demo and test-only; appropriate for a single-process stack
-- **PostgreSQL**: `--repository-dsn="psql://user:pass@host:port/dbname?sslmode=disable"` - Persistent and appropriate for multi-instance or deployed gateways
+- **PostgreSQL**: `--repository-dsn="psql://user:pass@host:port/dbname?sslmode=disable"` - Persistent and appropriate for deployed gateways that need restart-durable state. Full active/active provider runtime topology remains post-MVP work tracked by `PMVP-003` because live `PaymentSession` bindings are process-local.
 
 For local commands that enable the operator listener, set local-only token env vars first:
 

@@ -1,0 +1,332 @@
+# Network Readiness Plan
+
+This document tracks the work required to take the Substreams Data Service (SDS)
+from its current MVP state — proven end-to-end against a local Anvil/Horizon
+devenv — to a service that real providers and consumers can use on **Arbitrum
+One (chain id `42161`)**.
+
+It is the strategic successor to `plans/post-mvp-backlog.md`. Where the post-MVP
+backlog tracks isolated follow-ups, this plan sequences the full path to a live
+network deployment and names the critical path.
+
+## Strategic Context
+
+The MVP was scoped as a **whitelisted soft-release first, permissionless later**
+(per product direction). That split matters because it determines what is on the
+critical path:
+
+- A **whitelisted, query-fee-only** SDS needs the shared Horizon payment
+  contracts (already live on Arb One), one new audited service contract, a
+  working provisioning path, automated settlement, and an operated discovery
+  oracle. It does **not** require indexing rewards/issuance, and therefore does
+  **not** require a GIP or Graph Council issuance vote.
+- A **permissionless** SDS additionally needs on-chain registry-sourced
+  discovery, a provider trust/dispute model, and (if rewards are in scope)
+  council approval. This is deliberately deferred to Track B.
+
+This plan therefore has two tracks. **Track A is the shippable target.** Track B
+is documented so Track A decisions do not foreclose it.
+
+## Target and Key Decisions
+
+- **Target chain:** Arbitrum One (`42161`).
+- **Shared Horizon contracts** (PaymentsEscrow, GraphTallyCollector,
+  GraphPayments, GraphController, GRT) are already deployed on Arb One and are
+  reused as-is. SDS does not redeploy these.
+- **New contract:** `SubstreamsDataService` (extends Horizon `DataService`) is
+  the only SDS-owned contract and must be deployed to Arb One.
+
+### DECISION-REQUIRED: skip Arbitrum Sepolia?
+
+Current direction is to go **straight to Arb One and skip Arbitrum Sepolia**.
+This is recorded here as an explicit decision so it is taken deliberately, not by
+omission.
+
+- **Risk:** the first time `register()` and `collect()` ever exercise a *real*
+  Horizon data-service provision will be on mainnet with real GRT. The local
+  devenv fakes provisioning with `MockStaking`, so a green local suite does not
+  prove the real-chain provisioning path. The testnet runbook already documents
+  that `register()` reverts with `ProvisionManagerProvisionNotFound` without a
+  real provision.
+- **Mitigation if skipping:** the contract audit (NET-02) becomes the sole
+  pre-mainnet correctness gate, and the first Arb One deployment should be
+  rehearsed against an Arb One fork (e.g. Anvil `--fork-url`) so the real
+  provisioning/registration/collection path is exercised without spending real
+  funds.
+- **Owner sign-off:** Juan / product to confirm. Until confirmed, NET tasks treat
+  an Arb One mainnet-fork rehearsal as the substitute for a Sepolia dry run.
+
+## Reference Model
+
+What the network demands of any Horizon data service, by layer, with SDS status:
+
+| Layer | Requirement | SDS today | Track |
+| --- | --- | --- | --- |
+| Service contract | Audited contract on Arb One, provision params set | Custom contract, devenv-only | A (NET-01, NET-02) |
+| Provisioning | Real Horizon provision; `register()` succeeds | Reverts without provision (faked by MockStaking) | A (NET-03) |
+| Payments (TAP) | Automated RAV collection/settlement | Manual collection via CLI only | A (NET-04) |
+| Discovery | Operated provider/pricing source | Curated YAML oracle, not hosted | A (NET-05) |
+| Provider ops | Shippable runtime, monitoring, key custody | One binary; single replica; manual compat | A (NET-06) |
+| Consumer entry | Onboarding path for consumers | Self-hosted sidecar, BYO escrow + keys | A (NET-07) |
+| Economic security | Slashing/disputes or trusted whitelist | Whitelist (trust); no disputes | A whitelist / B trustless |
+| On-chain registry | Permissionless discovery sourcing | Not started | B (NET-08) |
+| Rewards/issuance | Council/GIP approval | Out of scope for soft-release | B (NET-09) |
+
+## Critical Path
+
+Everything else parallelizes around this spine:
+
+1. **NET-01** Deploy contract config + addresses for Arb One.
+2. **NET-02** Audit `SubstreamsDataService` (longest lead time — start first).
+3. **NET-03** Real Horizon provisioning path (the load-bearing blocker:
+   `register()`/`collect()` must succeed against a real provision).
+4. **NET-04** Automated collection (manual CLI does not survive real traffic).
+
+NET-05 through NET-07 can proceed in parallel with NET-02–04. NET-08+ are Track B.
+
+## Status Values
+
+- `not_started`
+- `in_progress`
+- `blocked`
+- `done`
+- `deferred`
+
+## Tasks
+
+| ID | Status | Track | Area | Task |
+| --- | --- | --- | --- | --- |
+| NET-01 | `not_started` | A | contracts | Arb One contract addresses, chain config, and deployment of `SubstreamsDataService` |
+| NET-02 | `not_started` | A | contracts | Security audit of `SubstreamsDataService` (hard gate before any mainnet deploy) |
+| NET-03 | `not_started` | A | contracts | Real Horizon data-service provisioning path (register + provision) |
+| NET-04 | `not_started` | A | settlement | Automated/background RAV collection daemon |
+| NET-05 | `not_started` | A | discovery | Operate the discovery oracle as a hosted service with curated whitelist |
+| NET-06 | `not_started` | A | provider-ops | Provider runtime hardening: image/runtime compat, monitoring, key custody, replica story |
+| NET-07 | `not_started` | A | consumer | Consumer onboarding path (sidecar vs. hosted gateway, funding UX) |
+| NET-08 | `deferred` | B | discovery | Permissionless on-chain registry sourcing in the oracle |
+| NET-09 | `deferred` | B | governance | Issuance/rewards via GIP + Graph Council (only if rewards are in scope) |
+| NET-10 | `deferred` | B | trust | Provider trust/dispute/verifiability model for trustless operation |
+
+---
+
+## NET-01 Arb One Contract Configuration and Deployment
+
+Context:
+
+- The shared Horizon stack (PaymentsEscrow, GraphTallyCollector, GraphPayments,
+  GraphController, GRT) is already live on Arb One; SDS reuses these addresses.
+- `SubstreamsDataService` is SDS-owned and must be deployed to Arb One.
+- Today, real-chain addresses are passed via CLI flags with no Arb One defaults;
+  only Arb Sepolia addresses are documented (in the testnet runbook).
+
+Done when:
+
+- Canonical Arb One contract addresses (shared Horizon + deployed
+  `SubstreamsDataService`) are documented in a single source of truth.
+- The EIP-712 signing domain is confirmed against chain id `42161` and the
+  deployed collector address.
+- A repeatable, reviewed deployment procedure for `SubstreamsDataService` exists
+  (script + parameters), gated behind NET-02.
+
+Verify:
+
+- Dry-run the deployment against an Arb One fork (Anvil `--fork-url`) and confirm
+  the contract reads/writes against the real shared Horizon contracts.
+- Confirm consumer signer proof + funding CLI succeed end-to-end on the fork.
+
+## NET-02 Security Audit of SubstreamsDataService
+
+Context:
+
+- `SubstreamsDataService` collects funds (`collect()` routes value through
+  GraphPayments). It is the only SDS-owned on-chain surface and is currently
+  unaudited.
+- This is a hard gate: no mainnet deployment before audit sign-off, regardless of
+  the Sepolia decision.
+
+Done when:
+
+- The contract has been audited by a reputable firm and all critical/high
+  findings are resolved.
+- The audited bytecode matches the deployment artifact used in NET-01.
+
+Verify:
+
+- Audit report published/internally available.
+- Deployed bytecode hash matches the audited commit.
+
+## NET-03 Real Horizon Provisioning Path
+
+Context:
+
+- This is the documented "Current Known Gap": `SubstreamsDataService.register()`
+  reverts with `ProvisionManagerProvisionNotFound` until a real Horizon provision
+  exists. The devenv hides this with `MockStaking`.
+- Without this, providers cannot register and `collect()` reverts even though
+  payment sessions and RAV acceptance work.
+
+Done when:
+
+- ProvisionManager parameters (min/max provision tokens, thawing period, verifier
+  cut, max slashing) are set for `SubstreamsDataService` on Arb One. For
+  soft-launch, evaluate a low or zero minimum provision to lower the provider
+  onboarding barrier.
+- A whitelisted provider can create a Horizon provision toward
+  `SubstreamsDataService` and call `register()` successfully.
+- `collect()` succeeds against a real provision and routes funds correctly.
+
+Verify:
+
+- Full register → fund → stream → RAV → collect cycle succeeds against an Arb One
+  fork with a real (non-mock) provision.
+- Document the exact provider onboarding steps (stake, provision, register).
+
+## NET-04 Automated Collection Daemon
+
+Context:
+
+- Collection is currently manual: an operator runs `sds provider operator collect`
+  per collectible RAV. There is no background settlement loop, threshold, or
+  retry automation. This does not scale to real traffic.
+- This carries forward the post-MVP "automated/background settlement" follow-up.
+
+Done when:
+
+- A background process discovers collectible RAVs and submits `collect()`
+  transactions on a configurable cadence/threshold.
+- Failed transactions transition to `collect_failed_retryable` and are retried
+  with backoff; settlement key custody remains outside the public gateway
+  process.
+- Operator CLI remains available for manual intervention.
+
+Verify:
+
+- Integration test: accumulated RAVs are collected automatically and reach
+  `collected` without operator action.
+- Test retry behaviour on simulated transaction failure.
+
+## NET-05 Operate the Discovery Oracle
+
+Context:
+
+- Discovery uses a standalone oracle returning a curated provider whitelist and
+  canonical pricing. Whitelist governance is admin/council-only YAML config,
+  which is acceptable for soft-release.
+- For a live service this oracle must actually be hosted with uptime, not just
+  runnable locally.
+
+Done when:
+
+- The oracle is deployed as a reliable hosted service for Arb One with the
+  curated provider set and canonical pricing.
+- Whitelist/pricing update procedure is documented (deployment-managed config).
+- Consumers can resolve a provider control-plane endpoint against it.
+
+Verify:
+
+- Consumer sidecar discovers and connects to a whitelisted Arb One provider via
+  the hosted oracle.
+- Document failover/availability expectations for the oracle.
+
+## NET-06 Provider Runtime Hardening
+
+Context:
+
+- The provider ships as one distroless `sds` binary (gateway + plugin + operator
+  + CLI) plus Postgres. Live payment binding is process-local, so only a single
+  gateway replica is supported today (`PMVP-003`).
+- There is no automatic runtime compatibility probe; the published
+  `dummy-blockchain` images are stale and fail the SDS runtime path. Settlement
+  keys are deliberately kept out of the gateway and used only by the collect CLI.
+
+Done when:
+
+- A compatible firehose-core/Substreams provider runtime profile is documented or
+  published (resolve the stale `dummy-blockchain` image dependency for real
+  chains).
+- Provider monitoring/alerting (beyond basic Prometheus metrics) is defined.
+- Settlement key custody for automated collection (NET-04) uses KMS/HSM or
+  equivalent, not plaintext env vars.
+- The single-replica constraint is documented for operators, or NET (PMVP-003)
+  decoupling is scoped if multi-replica is required for launch.
+
+Verify:
+
+- A provider runs against a real Substreams runtime (not the devenv dummy chain)
+  and serves a paid stream.
+- Key-custody procedure reviewed.
+
+## NET-07 Consumer Onboarding Path
+
+Context:
+
+- Consumers currently self-host the sidecar, fund their own escrow, and hold
+  their own signer keys. This is technically demanding and unlike the centralized
+  Gateway model used for subgraphs.
+- For a soft-release with design partners, BYO sidecar may be acceptable; this
+  task decides and documents the path.
+
+Done when:
+
+- A decision is recorded: self-hosted sidecar vs. a hosted gateway that pays on
+  consumers' behalf.
+- Consumer onboarding (escrow funding, signer authorization, sidecar config) is
+  documented end-to-end for Arb One.
+
+Verify:
+
+- A new consumer can follow the docs to fund, authorize, and stream against a
+  whitelisted provider on Arb One.
+
+## NET-08 Permissionless On-Chain Registry Sourcing (Track B)
+
+Context:
+
+- Permissionless discovery requires the oracle (or the sidecar) to source the
+  provider set from on-chain SDS registry data rather than a curated YAML
+  whitelist. Named as a follow-up in MVP docs but not yet scoped as work.
+
+Done when:
+
+- Provider eligibility/metadata is read from on-chain registry data.
+- Selection logic operates over the permissionless set with at least basic
+  ranking.
+
+Verify:
+
+- A provider that self-registers on-chain becomes discoverable without manual
+  whitelist edits.
+
+## NET-09 Issuance / Rewards Governance (Track B)
+
+Context:
+
+- Only required if SDS providers are to earn indexing rewards/issuance. The
+  whitelisted soft-release explicitly avoids this to ship without a council vote.
+
+Done when:
+
+- A GIP is drafted and approved by the Graph Council to include SDS in the
+  issuance/rewards path.
+
+Verify:
+
+- SDS recognized in the rewards path on Arb One.
+
+## NET-10 Provider Trust / Dispute / Verifiability Model (Track B)
+
+Context:
+
+- Permissionless operation removes the whitelist's implicit trust. Substreams
+  currently have no POI/dispute equivalent, so a provider can serve incorrect
+  data and still collect. Trustless operation depends on solving this.
+- Related to broader ecosystem work on trustless sync/verification markets.
+
+Done when:
+
+- A verifiability or dispute/slashing mechanism for substreams output is designed
+  and integrated, or an explicit alternative trust model is adopted.
+
+Verify:
+
+- A misbehaving permissionless provider can be challenged/penalized.

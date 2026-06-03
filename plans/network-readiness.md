@@ -125,7 +125,7 @@ NET-05 through NET-07 can proceed in parallel with NET-02–04. NET-08+ are Trac
 | --- | --- | --- | --- | --- |
 | NET-01 | `not_started` | A | contracts | Arb One contract addresses, chain config, and deployment of `SubstreamsDataService` |
 | NET-02 | `not_started` | A | contracts | Security audit of `SubstreamsDataService` (hard gate before any mainnet deploy) |
-| NET-03 | `not_started` | A | contracts | Real Horizon data-service provisioning path (register + provision) |
+| NET-03 | `in_progress` | A | contracts | Real Horizon data-service provisioning path (register + provision) |
 | NET-04 | `not_started` | A | settlement | Automated/background RAV collection daemon |
 | NET-05 | `not_started` | A | discovery | Operate the discovery oracle as a hosted service with curated whitelist |
 | NET-06 | `not_started` | A | provider-ops | Provider runtime hardening: image/runtime compat, monitoring, key custody, replica story |
@@ -208,6 +208,20 @@ Verify:
 - Full register → fund → stream → RAV → collect cycle succeeds against an Arb One
   fork with a real (non-mock) provision.
 - Document the exact provider onboarding steps (stake, provision, register).
+
+Findings (fork rehearsal, `devel/arb-one-fork-rehearsal.sh`):
+
+- Validated against a fork of **real Arbitrum One** Horizon contracts (not the
+  devenv mocks). `SubstreamsDataService` deploys cleanly wired to the live
+  Controller + GraphTallyCollector.
+- Reproduced the documented gap: `register()` reverts
+  `ProvisionManagerProvisionNotFound` (selector `0x7b3c09bf`) with no provision.
+- Closed the loop: `stake` → `provision(provider, dataService, tokens, 0, 0)` →
+  `register()` **succeeds** (`isRegistered = true`). The "gap" is therefore
+  **operational provider onboarding, not a code blocker** — identical to the
+  subgraph-service onboarding shape.
+- Remaining for full NET-03: exercise `collect()` end-to-end on the fork (escrow
+  deposit → signed RAV → collect), and document the provider onboarding runbook.
 
 ## NET-04 Automated Collection Daemon
 

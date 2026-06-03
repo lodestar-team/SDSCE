@@ -223,8 +223,14 @@ Findings (fork rehearsal, `devel/arb-one-fork-rehearsal.sh`):
   `register()` **succeeds** (`isRegistered = true`). The "gap" is therefore
   **operational provider onboarding, not a code blocker** — identical to the
   subgraph-service onboarding shape.
-- Remaining for full NET-03: exercise `collect()` end-to-end on the fork (escrow
-  deposit → signed RAV → collect), and document the provider onboarding runbook.
+- **Money path proven** (`devel/arb-one-collect-rehearsal.sh`): escrow deposit →
+  authorize signer → signed RAV → `SubstreamsDataService.collect()` settles
+  against the **real** GraphTallyCollector / PaymentsEscrow / GraphPayments stack
+  on Arb One (`tokensCollected` increments by the RAV value). EIP-712 artifacts
+  produced by `devel/sdsce-signtool`, reusing SDSCE's own signing code.
+- Remaining for full NET-03: document the provider onboarding runbook, and
+  exercise the full streaming → metered RAV → collect path end-to-end (vs. the
+  hand-built RAV used here).
 
 ## NET-04 Automated Collection Daemon
 

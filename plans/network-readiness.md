@@ -129,7 +129,7 @@ NET-05 through NET-07 can proceed in parallel with NET-02–04. NET-08+ are Trac
 | NET-01 | `not_started` | A | contracts | Arb One contract addresses, chain config, and deployment of `SubstreamsDataService` |
 | NET-02 | `not_started` | A | contracts | Security audit of `SubstreamsDataService` (hard gate before any mainnet deploy) |
 | NET-03 | `in_progress` | A | contracts | Real Horizon data-service provisioning path (register + provision) |
-| NET-04 | `not_started` | A | settlement | Automated/background RAV collection daemon |
+| NET-04 | `in_progress` | A | settlement | Automated/background RAV collection daemon |
 | NET-05 | `not_started` | A | discovery | Operate the discovery oracle as a hosted service with curated whitelist |
 | NET-06 | `not_started` | A | provider-ops | Provider runtime hardening: image/runtime compat, monitoring, key custody, replica story |
 | NET-07 | `not_started` | A | consumer | Consumer onboarding path (sidecar vs. hosted gateway, funding UX) |
@@ -255,6 +255,28 @@ Verify:
 - Integration test: accumulated RAVs are collected automatically and reach
   `collected` without operator action.
 - Test retry behaviour on simulated transaction failure.
+
+Progress:
+
+- **Daemon implemented** as `sds provider operator collect-daemon`
+  (`cmd/sds/provider_operator_collect_daemon.go`). It polls the operator API for
+  `collectible` (and `collect_failed_retryable`) records and submits
+  `collect()` automatically, wrapping the same validated logic as the manual
+  `collect` command.
+- **Key custody preserved:** the daemon holds the settlement key and runs as a
+  separate process from the gateway (talks to the operator API), so settlement
+  keys are never mounted into the gateway — consistent with the deployment
+  boundary.
+- **Retry/backoff:** failed records retry with exponential backoff
+  (`--retry-backoff-base`, doubling, capped at 1h) up to `--max-attempts`;
+  `--min-collect-value-wei` skips dust; `--poll-interval` controls cadence;
+  `--once` runs a single sweep (cron-friendly). Bookkeeping marks use a detached
+  context so an in-flight tx is always recorded even during shutdown.
+- **Tested:** unit tests cover the selection/backoff logic
+  (`provider_operator_collect_daemon_test.go`); `go build`/`go vet` clean.
+- Remaining: a full streaming → metered RAV → auto-collect integration test
+  against a running gateway + Postgres, and pending-record reconciliation
+  (records stuck in `collect_pending` after a crash mid-collect).
 
 ## NET-05 Operate the Discovery Oracle
 

@@ -36,6 +36,7 @@ var providerOperatorCmd = Group(
 	providerOperatorRAVsCmd,
 	providerOperatorCollectionsCmd,
 	providerOperatorCollectCmd,
+	providerOperatorCollectDaemonCmd,
 )
 
 var providerOperatorSessionsCmd = Group(

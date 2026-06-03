@@ -7,15 +7,59 @@ A Golang implementation of the payment infrastructure for the Substreams Data Se
 
 ## Network Readiness (Arbitrum One)
 
-SDSCE is being prepared for deployment on **Arbitrum One** (chain id `42161`). The full plan, status, and decisions live in [`plans/network-readiness.md`](plans/network-readiness.md).
+SDSCE's data-service contract is **live on Arbitrum One** (chain id `42161`). The full plan, status, and decisions live in [`plans/network-readiness.md`](plans/network-readiness.md).
 
 - **Smart contract:** `SubstreamsDataService` is **UUPS-upgradeable** (ERC1967 proxy; owner-controlled upgrades via two-step `Ownable2Step` ownership) and charges a fixed **1% burn tax** on collected query fees — the data-service cut is burned (deflationary), with 0% retained by the deployer. Source: [`horizon/devenv/build/contracts/SubstreamsDataService.sol`](horizon/devenv/build/contracts/SubstreamsDataService.sol).
-- **Proven against real Arbitrum One** (via mainnet fork): provisioning + registration (`devel/arb-one-fork-rehearsal.sh`) and the full escrow → signed RAV → `collect()` → burn money path (`devel/arb-one-collect-rehearsal.sh`), plus the full streaming → metered RAV → collect path (`TestFirecore`, using `devel/build-dummy-blockchain.sh`).
 - **Automated settlement:** `sds provider operator collect-daemon` polls for collectible RAVs and submits `collect()` with retry/backoff and stale-pending reclaim.
-- **Docs:** deployment + provider/consumer onboarding runbook ([`docs/arb-one-deployment-runbook.md`](docs/arb-one-deployment-runbook.md)), internal security audit ([`docs/security-audit-substreams-data-service.md`](docs/security-audit-substreams-data-service.md)), and the external-audit brief ([`docs/net-02-audit-brief.md`](docs/net-02-audit-brief.md)).
+- **Docs:** deployment + onboarding runbook ([`docs/arb-one-deployment-runbook.md`](docs/arb-one-deployment-runbook.md)), internal security audit ([`docs/security-audit-substreams-data-service.md`](docs/security-audit-substreams-data-service.md)), external-audit brief ([`docs/net-02-audit-brief.md`](docs/net-02-audit-brief.md)).
 
-> [!NOTE]
-> **Not yet deployed to mainnet.** Deployment is gated on an external audit and a secured (multisig) owner key. See the deployment runbook and audit brief.
+### Live Arbitrum One addresses
+
+| Contract | Address |
+| --- | --- |
+| **SubstreamsDataService (proxy — the data service)** | `0x1c3e9cca124ad19b9ed3c202d2e6cd106944640c` |
+| GraphTallyCollector | `0x8f69F5C07477Ac46FBc491B1E6D91E2bb0111A9e` |
+| PaymentsEscrow | `0xf6Fcc27aAf1fcD8B254498c9794451d82afC673E` |
+| HorizonStaking | `0x00669A4CF01450B64E8A2A20E9b1FCB71E61eF03` |
+| L2GraphToken (GRT) | `0x9623063377AD1B27544C965cCd7342f7EA7e88C7` |
+
+> [!WARNING]
+> The contract is deployed but **unaudited externally** and currently **owner-controlled by an EOA**. There is **no hosted provider gateway or oracle yet**, so the service is not usable end-to-end until at least one provider self-onboards (below). Experimental — do not rely on it for production funds.
+
+## Quickstart: Self-Onboarding on Arbitrum One
+
+Two roles. A **provider** sells Substreams data; a **consumer** pays to stream it. All on-chain steps target chain `42161` and the live addresses above; full flag detail and the exact `cast` commands are in the [deployment runbook](docs/arb-one-deployment-runbook.md). Build the CLI with `go build -o sds ./cmd/sds` (or use the Docker image).
+
+### Provider (run a gateway + onboard)
+
+1. **Postgres** — provision a database and run migrations (`devel/migrate.sh up`).
+2. **Data plane** — run a Substreams runtime (`firecore`) that serves the data you sell.
+3. **Run the gateway** — `sds provider gateway` pointed at chain `42161`, the SDS proxy as data service, `--collector-address` + `--escrow-address` above, your Arb One RPC, your data-plane endpoint, an operator listener, and TLS. (See runbook §Provider Gateway Deployment.)
+4. **Onboard on-chain** (real GRT): `stake` into HorizonStaking → `provision` toward the SDS proxy → `register()`. Exact `cast` commands in runbook §Provider Onboarding.
+5. **Auto-settle** — run `sds provider operator collect-daemon` as a separate process (holds the settlement key) to collect RAVs; the 1% cut is burned.
+
+### Consumer (fund + stream)
+
+1. **Get** a little Arb One ETH (gas) and GRT (to spend).
+2. **Fund escrow** for the provider you'll use:
+   ```bash
+   sds consumer funding deposit --rpc-endpoint=$ARB_ONE_RPC --chain-id=42161 \
+     --grt-token-address=0x9623063377AD1B27544C965cCd7342f7EA7e88C7 \
+     --escrow-address=0xf6Fcc27aAf1fcD8B254498c9794451d82afC673E \
+     --collector-address=0x8f69F5C07477Ac46FBc491B1E6D91E2bb0111A9e \
+     --receiver-address=<PROVIDER_ADDRESS> --payer-private-key-env=PAYER_KEY --amount="<N> GRT"
+   ```
+3. **Authorize a signer** (or sign with the payer key): `sds consumer signer authorize --chain-id=42161 --collector-address=0x8f69… …` (runbook §Consumer Onboarding).
+4. **Run the sidecar** at the provider's control-plane endpoint (direct mode):
+   ```bash
+   sds consumer sidecar --chain-id=42161 \
+     --collector-address=0x8f69F5C07477Ac46FBc491B1E6D91E2bb0111A9e \
+     --signer-private-key=<AUTHORIZED_SIGNER_KEY> \
+     --provider-control-plane-endpoint=<PROVIDER_ENDPOINT>
+   ```
+5. **Stream** — point Substreams at the sidecar: `substreams run <pkg> <module> -e localhost:9002 --plaintext`. RAVs flow as you consume; the provider collects; 1% burns.
+
+Run any command with `--help` for the full flag set.
 
 ## Development
 

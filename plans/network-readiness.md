@@ -285,11 +285,13 @@ Progress:
   `--min-collect-value-wei` skips dust; `--poll-interval` controls cadence;
   `--once` runs a single sweep (cron-friendly). Bookkeeping marks use a detached
   context so an in-flight tx is always recorded even during shutdown.
-- **Tested:** unit tests cover the selection/backoff logic
+- **Pending reclaim:** `--reclaim-pending-after` bounces records stuck in
+  `collect_pending` (e.g. crash mid-collect) back to retryable for re-attempt;
+  safe because collect() on an already-settled RAV is a zero-delta no-op.
+- **Tested:** unit tests cover the selection, backoff, and reclaim logic
   (`provider_operator_collect_daemon_test.go`); `go build`/`go vet` clean.
 - Remaining: a full streaming → metered RAV → auto-collect integration test
-  against a running gateway + Postgres, and pending-record reconciliation
-  (records stuck in `collect_pending` after a crash mid-collect).
+  against a running gateway + Postgres (needs the firehose data plane).
 
 ## NET-05 Operate the Discovery Oracle
 

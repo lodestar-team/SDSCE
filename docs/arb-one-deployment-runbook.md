@@ -186,12 +186,16 @@ sds provider operator collect-daemon \
   --data-service-cut-ppm=<cut> \
   --provider-private-key-env=PROVIDER_KEY \
   --poll-interval=30s --max-attempts=5 --retry-backoff-base=1m \
-  --min-collect-value-wei=<dust floor>
+  --min-collect-value-wei=<dust floor> \
+  --reclaim-pending-after=15m
 ```
 
 Failed collects retry with exponential backoff (capped at 1h) up to
 `--max-attempts`; `--min-collect-value-wei` avoids burning gas on dust;
-`--once` runs a single sweep (cron-friendly). For one-off manual settlement use
+`--once` runs a single sweep (cron-friendly). `--reclaim-pending-after` re-attempts
+records stuck in `collect_pending` (e.g. after a crash mid-collect) — set it
+comfortably above `--receipt-timeout`; re-attempting an already-settled RAV is a
+safe zero-delta no-op. For one-off manual settlement use
 `sds provider operator collect` (see `docs/direct-provider-testnet-public-runbook.md`).
 
 ## Troubleshooting

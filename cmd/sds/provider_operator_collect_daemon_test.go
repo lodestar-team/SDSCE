@@ -50,6 +50,28 @@ func TestAutoCollectorShouldCollect(t *testing.T) {
 	}
 }
 
+func TestAutoCollectorShouldReclaimPending(t *testing.T) {
+	now := time.Now()
+	pending := providerv1.CollectionState_COLLECTION_STATE_COLLECT_PENDING
+	collectible := providerv1.CollectionState_COLLECTION_STATE_COLLECTIBLE
+
+	t.Run("disabled when reclaimAfter is zero", func(t *testing.T) {
+		c := &autoCollector{reclaimAfter: 0}
+		require.False(t, c.shouldReclaimPending(daemonTestRecord(pending, 1, 1, now.Add(-time.Hour)), now))
+	})
+
+	c := &autoCollector{reclaimAfter: 10 * time.Minute}
+	t.Run("stale pending is reclaimed", func(t *testing.T) {
+		require.True(t, c.shouldReclaimPending(daemonTestRecord(pending, 1, 1, now.Add(-15*time.Minute)), now))
+	})
+	t.Run("fresh pending is left alone", func(t *testing.T) {
+		require.False(t, c.shouldReclaimPending(daemonTestRecord(pending, 1, 1, now.Add(-5*time.Minute)), now))
+	})
+	t.Run("non-pending is ignored", func(t *testing.T) {
+		require.False(t, c.shouldReclaimPending(daemonTestRecord(collectible, 1, 1, now.Add(-time.Hour)), now))
+	})
+}
+
 func TestAutoCollectorBackoffFor(t *testing.T) {
 	c := &autoCollector{backoffBase: time.Minute}
 

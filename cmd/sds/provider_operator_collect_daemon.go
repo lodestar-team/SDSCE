@@ -53,6 +53,7 @@ var providerOperatorCollectDaemonCmd = Command(
 		flags.Uint32("max-attempts", 5, "Maximum attempts before a retryable record is skipped")
 		flags.Duration("retry-backoff-base", time.Minute, "Base backoff before retrying a failed record (doubles per attempt, capped at 1h)")
 		flags.String("min-collect-value-wei", "0", "Skip collection records whose value is below this amount in wei")
+		flags.Duration("reclaim-pending-after", 0, "Re-attempt collections stuck in collect_pending longer than this, e.g. after a crash mid-collect (0 disables; set comfortably above --receipt-timeout)")
 		flags.Bool("once", false, "Run a single sweep and exit")
 	}),
 )
@@ -81,6 +82,7 @@ func runProviderOperatorCollectDaemon(cmd *cobra.Command, args []string) error {
 		minValue:           minValue,
 		maxAttempts:        sflags.MustGetUint32(cmd, "max-attempts"),
 		backoffBase:        sflags.MustGetDuration(cmd, "retry-backoff-base"),
+		reclaimAfter:       sflags.MustGetDuration(cmd, "reclaim-pending-after"),
 		opTimeout:          sflags.MustGetDuration(cmd, "timeout"),
 		txTimeout:          sflags.MustGetDuration(cmd, "rpc-timeout") + sflags.MustGetDuration(cmd, "receipt-timeout"),
 	}
@@ -127,6 +129,7 @@ type autoCollector struct {
 	minValue           *big.Int
 	maxAttempts        uint32
 	backoffBase        time.Duration
+	reclaimAfter       time.Duration
 	opTimeout          time.Duration
 	txTimeout          time.Duration
 }
@@ -149,6 +152,63 @@ func (c *autoCollector) sweep(ctx context.Context) {
 		}
 		c.collectOne(ctx, record)
 	}
+
+	c.reclaimStalePending(ctx)
+}
+
+// reclaimStalePending bounces collect_pending records that have been stuck longer
+// than reclaimAfter (e.g. the daemon crashed between marking pending and
+// confirming the receipt) back to retryable, so the next sweep re-attempts them.
+// Re-attempting is safe: collect() on an already-settled RAV collects a zero
+// delta, so a duplicate attempt is a no-op rather than a double charge.
+func (c *autoCollector) reclaimStalePending(ctx context.Context) {
+	if c.reclaimAfter <= 0 {
+		return
+	}
+
+	listCtx, cancel := context.WithTimeout(ctx, c.opTimeout)
+	resp, err := c.operatorClient.client.ListCollections(listCtx, providerOperatorRequest(c.operatorClient, &providerv1.ListCollectionsRequest{
+		Limit: collectDaemonListLimit,
+		State: providerv1.CollectionState_COLLECTION_STATE_COLLECT_PENDING,
+	}))
+	cancel()
+	if err != nil {
+		if ctx.Err() == nil {
+			logDaemon("reclaim: list pending failed: %v", err)
+		}
+		return
+	}
+
+	now := time.Now()
+	for _, record := range resp.Msg.GetCollections() {
+		if ctx.Err() != nil {
+			return
+		}
+		if !c.shouldReclaimPending(record, now) {
+			continue
+		}
+		id := collectionRecordID(record)
+		markCtx, markCancel := context.WithTimeout(ctx, c.opTimeout)
+		err := markCollectionRetryable(markCtx, c.operatorClient, record, record.GetLastTxHash(),
+			fmt.Errorf("reclaimed stale collect_pending after %s", c.reclaimAfter))
+		markCancel()
+		if err != nil {
+			logDaemon("reclaim %s: mark retryable failed: %v", id, err)
+			continue
+		}
+		logDaemon("reclaim %s: stale collect_pending -> retryable (re-attempt next sweep)", id)
+	}
+}
+
+func (c *autoCollector) shouldReclaimPending(record *providerv1.CollectionRecord, now time.Time) bool {
+	if c.reclaimAfter <= 0 {
+		return false
+	}
+	if record.GetState() != providerv1.CollectionState_COLLECTION_STATE_COLLECT_PENDING {
+		return false
+	}
+	updatedAt := time.Unix(0, int64(record.GetUpdatedAtNs()))
+	return now.Sub(updatedAt) >= c.reclaimAfter
 }
 
 func (c *autoCollector) listEligible(ctx context.Context) ([]*providerv1.CollectionRecord, error) {

@@ -476,11 +476,38 @@ func deployAllContracts(ctx context.Context, rpcClient *rpc.Client, chainID uint
 	if err != nil {
 		return fmt.Errorf("loading SubstreamsDataService artifact: %w", err)
 	}
-	dataService.Address, err = deployContract(ctx, rpcClient, deployer.PrivateKey, chainID, dataServiceArtifact, dataService.ABI, controller.Address, collector.Address)
+
+	// SubstreamsDataService is UUPS-upgradeable: deploy the implementation, then an
+	// ERC1967 proxy initialized to it. The deployer becomes the owner (upgrade and
+	// parameter authority); all subsequent calls target the proxy address.
+	implAddr, err := deployContract(ctx, rpcClient, deployer.PrivateKey, chainID, dataServiceArtifact, dataService.ABI, controller.Address, collector.Address)
 	if err != nil {
-		return fmt.Errorf("deploying SubstreamsDataService: %w", err)
+		return fmt.Errorf("deploying SubstreamsDataService implementation: %w", err)
 	}
-	zlog.Info("SubstreamsDataService deployed", zap.Stringer("address", dataService.Address))
+	zlog.Info("SubstreamsDataService implementation deployed", zap.Stringer("address", implAddr))
+
+	initFn := dataService.ABI.FindFunctionByName("initialize")
+	if initFn == nil {
+		return fmt.Errorf("initialize function not found in SubstreamsDataService ABI")
+	}
+	initData, err := initFn.NewCall(deployer.Address, big.NewInt(0)).Encode()
+	if err != nil {
+		return fmt.Errorf("encoding SubstreamsDataService initialize calldata: %w", err)
+	}
+
+	proxyArtifact, err := loadContractArtifact("ERC1967Proxy")
+	if err != nil {
+		return fmt.Errorf("loading ERC1967Proxy artifact: %w", err)
+	}
+	proxyABI := mustLoadContract("ERC1967Proxy").ABI
+	dataService.Address, err = deployContract(ctx, rpcClient, deployer.PrivateKey, chainID, proxyArtifact, proxyABI, implAddr, initData)
+	if err != nil {
+		return fmt.Errorf("deploying SubstreamsDataService proxy: %w", err)
+	}
+	zlog.Info("SubstreamsDataService proxy deployed",
+		zap.Stringer("address", dataService.Address),
+		zap.Stringer("implementation", implAddr),
+	)
 
 	return nil
 }

@@ -5,31 +5,41 @@ import { IGraphPayments } from "@graphprotocol/interfaces/contracts/horizon/IGra
 import { IGraphTallyCollector } from "@graphprotocol/interfaces/contracts/horizon/IGraphTallyCollector.sol";
 import { IDataService } from "@graphprotocol/interfaces/contracts/data-service/IDataService.sol";
 
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import { DataService } from "@graphprotocol/horizon/contracts/data-service/DataService.sol";
 
 /**
  * @title SubstreamsDataService
- * @notice A minimal data service contract for Substreams indexing and querying
- * @dev Implements the strict minimum required for a DataService to work with GraphTallyCollector
- * Note: DataService already extends IDataService and all necessary upgradeable contracts
+ * @notice A minimal Horizon data service for Substreams indexing and querying.
+ * @dev Upgradeable (UUPS) so SDSCE can patch issues or extend the service. The
+ * contract is deployed behind an ERC1967 proxy; the implementation constructor
+ * wires the immutable Controller (via {DataService}/{GraphDirectory}) and
+ * GraphTallyCollector and disables initializers, while {initialize} sets the
+ * owner and provision range on the proxy.
+ *
+ * Upgrade authority and privileged parameters are both controlled by the
+ * {OwnableUpgradeable} owner. SDSCE is unaffiliated with The Graph governance, so
+ * this owner is an SDSCE-controlled address rather than the Graph governor.
  */
 contract SubstreamsDataService is
+    Initializable,
+    OwnableUpgradeable,
+    UUPSUpgradeable,
     DataService
 {
     /// @notice GraphTallyCollector address for payment collection
     IGraphTallyCollector public immutable GRAPH_TALLY_COLLECTOR;
-
-    /// @notice Owner authorized to set data service parameters (the deployer)
-    /// @dev SDSCE is unaffiliated with The Graph governance, so privileged
-    /// parameters are controlled by an SDSCE-set owner rather than the Graph
-    /// governor. Set once at construction; immutable thereafter.
-    address public immutable OWNER;
 
     /// @notice Mapping of service provider to their registration status
     mapping(address => bool) public isRegistered;
 
     /// @notice Mapping of service provider to their payments destination
     mapping(address => address) public paymentsDestination;
+
+    /// @dev Reserved storage to allow future upgrades to append state safely.
+    uint256[50] private __gap;
 
     /// @notice Emitted when an indexer sets their payments destination
     event PaymentsDestinationSet(address indexed indexer, address indexed destination);
@@ -43,15 +53,6 @@ contract SubstreamsDataService is
     /// @notice Error when payment type is not supported
     error SubstreamsDataServiceInvalidPaymentType(IGraphPayments.PaymentTypes paymentType);
 
-    /// @notice Error when a privileged call is made by an address other than the owner
-    error SubstreamsDataServiceNotOwner(address caller);
-
-    /// @notice Restricts a call to the contract owner
-    modifier onlyOwner() {
-        require(msg.sender == OWNER, SubstreamsDataServiceNotOwner(msg.sender));
-        _;
-    }
-
     /**
      * @notice Modifier to check if indexer is registered
      */
@@ -61,7 +62,10 @@ contract SubstreamsDataService is
     }
 
     /**
-     * @notice Constructor
+     * @notice Constructor for the implementation contract.
+     * @dev Sets immutables (baked into implementation bytecode, shared across
+     * upgrades) and disables initializers so the implementation cannot be
+     * initialized directly — only through the proxy via {initialize}.
      * @param controller The Graph Controller address
      * @param graphTallyCollector The GraphTallyCollector address
      */
@@ -70,13 +74,27 @@ contract SubstreamsDataService is
         address graphTallyCollector
     ) DataService(controller) {
         GRAPH_TALLY_COLLECTOR = IGraphTallyCollector(graphTallyCollector);
-        OWNER = msg.sender;
         _disableInitializers();
     }
 
     /**
-     * @notice Initialize the contract
-     * @param minimumProvisionTokens Minimum tokens required for provision
+     * @notice Initialize the proxy.
+     * @param initialOwner Owner authorized to set parameters and upgrade the contract
+     * @param minimumProvisionTokens Minimum tokens required for a provider provision
+     */
+    function initialize(
+        address initialOwner,
+        uint256 minimumProvisionTokens
+    ) external initializer {
+        __Ownable_init(initialOwner);
+        __UUPSUpgradeable_init();
+        __DataService_init();
+        _setProvisionTokensRange(minimumProvisionTokens, type(uint256).max);
+    }
+
+    /**
+     * @notice Set the provision tokens range accepted by the data service.
+     * @dev Owner-only. Sets the minimum; maximum is unbounded.
      */
     function setProvisionTokensRange(
         uint256 minimumProvisionTokens
@@ -191,4 +209,7 @@ contract SubstreamsDataService is
         paymentsDestination[indexer] = destination;
         emit PaymentsDestinationSet(indexer, destination);
     }
+
+    /// @dev UUPS upgrade authorization — only the owner may upgrade the implementation.
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

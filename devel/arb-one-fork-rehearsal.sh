@@ -17,6 +17,7 @@ ARB_ONE_RPC="${ARB_ONE_RPC:?set ARB_ONE_RPC to an Arbitrum One archive RPC URL}"
 FORK_BLOCK="${FORK_BLOCK:-469557443}"
 RPC="http://localhost:8545"
 ARTIFACT="contracts/artifacts/SubstreamsDataService.json"
+PROXY_ARTIFACT="contracts/artifacts/ERC1967Proxy.json"
 
 # --- Verified Arbitrum One Horizon addresses (graphprotocol/contracts, horizon-arbitrumOne) ---
 CONTROLLER=0x0a8491544221dd212964fbb96487467291b2C97e
@@ -43,19 +44,27 @@ for i in $(seq 1 30); do cast chain-id --rpc-url "$RPC" >/dev/null 2>&1 && break
 [ "$(cast chain-id --rpc-url "$RPC")" = "42161" ] || { echo "fork is not Arb One"; exit 1; }
 echo "fork up: chain 42161 @ $(cast block-number --rpc-url "$RPC")"
 
-step "Deploy SubstreamsDataService(controller, collector) against live Horizon"
-BYTECODE=$(python3 -c "import json;print(json.load(open('$ARTIFACT'))['bytecode']['object'])")
-SDS=$(cast send --rpc-url "$RPC" --private-key "$DEPLOYER_PK" --create "$BYTECODE" \
+step "Deploy SubstreamsDataService (UUPS proxy) against live Horizon"
+OWNER=$(cast wallet address "$DEPLOYER_PK")
+IMPL_BYTECODE=$(python3 -c "import json;print(json.load(open('$ARTIFACT'))['bytecode']['object'])")
+PROXY_BYTECODE=$(python3 -c "import json;print(json.load(open('$PROXY_ARTIFACT'))['bytecode']['object'])")
+# 1. implementation
+IMPL=$(cast send --rpc-url "$RPC" --private-key "$DEPLOYER_PK" --create "$IMPL_BYTECODE" \
   "constructor(address,address)" "$CONTROLLER" "$COLLECTOR" --json | python3 -c "import sys,json;print(json.load(sys.stdin)['contractAddress'])")
-echo "deployed: $SDS"
+# 2. ERC1967 proxy initialized to the implementation (owner = deployer, minProvision = 0)
+INIT_DATA=$(cast calldata "initialize(address,uint256)" "$OWNER" 0)
+SDS=$(cast send --rpc-url "$RPC" --private-key "$DEPLOYER_PK" --create "$PROXY_BYTECODE" \
+  "constructor(address,bytes)" "$IMPL" "$INIT_DATA" --json | python3 -c "import sys,json;print(json.load(sys.stdin)['contractAddress'])")
+echo "impl:  $IMPL"
+echo "proxy: $SDS (owner $OWNER)"
 
 step "setProvisionTokensRange access control (NET-11)"
-NOTOWNER_SEL=$(cast sig "SubstreamsDataServiceNotOwner(address)")
-echo "-- non-owner (provider) call -> expect SubstreamsDataServiceNotOwner ($NOTOWNER_SEL)"
+NOTOWNER_SEL=$(cast sig "OwnableUnauthorizedAccount(address)")
+echo "-- non-owner (provider) call -> expect OwnableUnauthorizedAccount ($NOTOWNER_SEL)"
 if cast send --rpc-url "$RPC" --private-key "$PROVIDER_PK" "$SDS" "setProvisionTokensRange(uint256)" 0 2>/tmp/owner_err; then
   echo "UNEXPECTED: non-owner set the provision range"; exit 1
 fi
-grep -q "${NOTOWNER_SEL#0x}" /tmp/owner_err && echo "OK: non-owner rejected with SubstreamsDataServiceNotOwner" || { echo "reverted for the wrong reason:"; cat /tmp/owner_err; exit 1; }
+grep -q "${NOTOWNER_SEL#0x}" /tmp/owner_err && echo "OK: non-owner rejected with OwnableUnauthorizedAccount" || { echo "reverted for the wrong reason:"; cat /tmp/owner_err; exit 1; }
 echo "-- owner (deployer) call -> expect success"
 cast send --rpc-url "$RPC" --private-key "$DEPLOYER_PK" "$SDS" "setProvisionTokensRange(uint256)" 0 >/dev/null
 echo "range: $(cast call --rpc-url "$RPC" "$SDS" "getProvisionTokensRange()(uint256,uint256)" | tr '\n' ' ')"

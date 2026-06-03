@@ -21,6 +21,7 @@ ARB_ONE_RPC="${ARB_ONE_RPC:?set ARB_ONE_RPC to an Arbitrum One archive RPC URL}"
 FORK_BLOCK="${FORK_BLOCK:-469557443}"
 RPC="http://localhost:8545"
 ARTIFACT="contracts/artifacts/SubstreamsDataService.json"
+PROXY_ARTIFACT="contracts/artifacts/ERC1967Proxy.json"
 
 # --- Verified Arbitrum One Horizon addresses (graphprotocol/contracts, horizon-arbitrumOne) ---
 CONTROLLER=0x0a8491544221dd212964fbb96487467291b2C97e
@@ -60,13 +61,18 @@ for i in $(seq 1 30); do cast chain-id --rpc-url "$RPC" >/dev/null 2>&1 && break
 [ "$(cast chain-id --rpc-url "$RPC")" = "42161" ] || { echo "fork is not Arb One"; exit 1; }
 echo "fork up @ $(cast block-number --rpc-url "$RPC")"
 
-step "Deploy SubstreamsDataService + set provision range"
-BYTECODE=$(python3 -c "import json;print(json.load(open('$ARTIFACT'))['bytecode']['object'])")
-SDS=$(cast send --rpc-url "$RPC" --private-key "$DEPLOYER_PK" --create "$BYTECODE" \
+step "Deploy SubstreamsDataService (UUPS proxy) + set provision range"
+OWNER=$(cast wallet address "$DEPLOYER_PK")
+IMPL_BYTECODE=$(python3 -c "import json;print(json.load(open('$ARTIFACT'))['bytecode']['object'])")
+PROXY_BYTECODE=$(python3 -c "import json;print(json.load(open('$PROXY_ARTIFACT'))['bytecode']['object'])")
+IMPL=$(cast send --rpc-url "$RPC" --private-key "$DEPLOYER_PK" --create "$IMPL_BYTECODE" \
   "constructor(address,address)" "$CONTROLLER" "$COLLECTOR" --json | python3 -c "import sys,json;print(json.load(sys.stdin)['contractAddress'])")
-# owner-gated (NET-11): deployer is OWNER, so this call is authorized
+INIT_DATA=$(cast calldata "initialize(address,uint256)" "$OWNER" 0)
+SDS=$(cast send --rpc-url "$RPC" --private-key "$DEPLOYER_PK" --create "$PROXY_BYTECODE" \
+  "constructor(address,bytes)" "$IMPL" "$INIT_DATA" --json | python3 -c "import sys,json;print(json.load(sys.stdin)['contractAddress'])")
+# owner-gated (NET-11): deployer is OWNER (set in initialize), so this re-assert is authorized
 send --private-key "$DEPLOYER_PK" "$SDS" "setProvisionTokensRange(uint256)" 0
-echo "SDS: $SDS"
+echo "SDS proxy: $SDS (impl $IMPL, owner $OWNER)"
 
 step "Fund provider + payer with GRT (impersonate staking on the fork)"
 for acct in "$PROVIDER" "$PAYER" "$STAKING"; do

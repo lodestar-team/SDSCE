@@ -20,6 +20,10 @@ ln -sf /horizon-contracts/packages/horizon/contracts/payments/PaymentsEscrow.sol
 ln -sf /horizon-contracts/packages/horizon/contracts/payments/GraphPayments.sol ./src/
 ln -sf /horizon-contracts/packages/horizon/contracts/payments/collectors/GraphTallyCollector.sol ./src/
 
+# Symlink the OZ ERC1967 proxy so forge compiles it; SDSCE deploys the upgradeable
+# SubstreamsDataService behind this UUPS proxy.
+ln -sf lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol ./src/
+
 # Build all contracts
 forge build
 
@@ -40,8 +44,9 @@ contracts=(
     "MockProxyAdmin"
     "MockCuration"
 
-    # Our data service contract
+    # Our data service contract + its UUPS proxy
     "SubstreamsDataService"
+    "ERC1967Proxy"
 )
 
 # Extract artifacts
@@ -59,6 +64,8 @@ for contract in "${contracts[@]}"; do
         ARTIFACT_PATH="out/GraphPayments.sol/${contract}.json"
     elif [ -f "out/GraphTallyCollector.sol/${contract}.json" ]; then
         ARTIFACT_PATH="out/GraphTallyCollector.sol/${contract}.json"
+    elif [ -f "out/ERC1967Proxy.sol/${contract}.json" ]; then
+        ARTIFACT_PATH="out/ERC1967Proxy.sol/${contract}.json"
     fi
 
     if [ -z "$ARTIFACT_PATH" ]; then

@@ -179,7 +179,25 @@ compatibility across upgrades, and future versions must use `reinitializer(N)` (
 document the upgrade checklist (reinitializer versioning, preserve inheritance order,
 preserve immutables per L-01).
 
-## 7. Conclusion
+## 7. Remediation Status (post-audit hardening)
+
+A hardening pass was applied after the initial review:
+
+| ID | Status | Resolution |
+| --- | --- | --- |
+| L-01 | Mitigated (process) | Upgrade discipline in the deployment runbook: identical immutable args per upgrade; assert `GRAPH_TALLY_COLLECTOR()` post-upgrade. |
+| L-02 | Fixed (code) | `Ownable2StepUpgradeable` — transfer requires `acceptOwnership()`; production owner should be a multisig. |
+| L-03 | Enforced (docs) | Runbook mandates atomic deploy (init calldata in proxy constructor) + post-deploy `owner()` assertion; tooling already does this. |
+| I-01 | Addressed (code) | Provider-supplied `dataServiceCut` no longer used (fixed valid `BURN_TAX_PPM` 1% enforced); zero `paymentsDestination` rejected. |
+| I-02 | Fixed (code) | `collect()` is now `nonReentrant`. |
+| I-03 | Documented | Upgrade/storage checklist in the runbook; CI gate still to be added. |
+
+Note: a fixed **1% burn tax** (data-service cut burned, 0% to deployer) was added
+after this review; verified on a real Arbitrum One fork and the integration suite,
+but the contract must be re-frozen and re-submitted to the external auditor at its
+final commit.
+
+## 8. Conclusion
 
 The contract is minimal, correctly follows the OZ UUPS pattern, and gates collection
 such that the fund-moving paths cannot be turned against third parties — consumer

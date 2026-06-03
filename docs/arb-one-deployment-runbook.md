@@ -84,21 +84,64 @@ graphTallyCollector)`; the deployer becomes `OWNER`.
 export ARB_ONE_RPC=https://<your-arb-one-rpc>
 CONTROLLER=0x0a8491544221dd212964fbb96487467291b2C97e
 COLLECTOR=0x8f69F5C07477Ac46FBc491B1E6D91E2bb0111A9e
-BYTECODE=$(python3 -c "import json;print(json.load(open('contracts/artifacts/SubstreamsDataService.json'))['bytecode']['object'])")
+IMPL_BYTECODE=$(python3 -c "import json;print(json.load(open('contracts/artifacts/SubstreamsDataService.json'))['bytecode']['object'])")
+PROXY_BYTECODE=$(python3 -c "import json;print(json.load(open('contracts/artifacts/ERC1967Proxy.json'))['bytecode']['object'])")
 
-cast send --rpc-url "$ARB_ONE_RPC" --private-key "$DEPLOYER_KEY" --create "$BYTECODE" \
+# 1. Deploy the implementation. (_disableInitializers() means it cannot be
+#    initialized directly — that is correct; it is only used behind the proxy.)
+cast send --rpc-url "$ARB_ONE_RPC" --private-key "$DEPLOYER_KEY" --create "$IMPL_BYTECODE" \
   "constructor(address,address)" "$CONTROLLER" "$COLLECTOR"
-# record the deployed address as SDS_ADDRESS
+# record the deployed address as IMPL_ADDRESS
 
-# owner-only: set the minimum provision range (0 lowers the provider barrier for
-# the soft launch; raise later as policy requires)
-cast send --rpc-url "$ARB_ONE_RPC" --private-key "$DEPLOYER_KEY" "$SDS_ADDRESS" \
-  "setProvisionTokensRange(uint256)" 0
+# 2. Deploy the ERC1967 proxy, ATOMICALLY initialized to the implementation.
+#    OWNER_ADDRESS controls parameters AND upgrades — use a multisig/timelock for
+#    production (audit L-02). NEVER deploy the proxy with empty init data and call
+#    initialize() in a separate tx — that is front-runnable (audit L-03).
+INIT_DATA=$(cast calldata "initialize(address,uint256)" "$OWNER_ADDRESS" 0)
+cast send --rpc-url "$ARB_ONE_RPC" --private-key "$DEPLOYER_KEY" --create "$PROXY_BYTECODE" \
+  "constructor(address,bytes)" "$IMPL_ADDRESS" "$INIT_DATA"
+# record the PROXY address as SDS_ADDRESS — this is the data-service address users
+# and providers interact with. The implementation address is never used directly.
+
+# 3. Verify ownership landed as intended (and is the multisig).
+cast call --rpc-url "$ARB_ONE_RPC" "$SDS_ADDRESS" "owner()(address)"
+# initialize() already set the provision range to 0; to change it later (owner-only):
+# cast send ... "$SDS_ADDRESS" "setProvisionTokensRange(uint256)" <min>
 ```
 
-> The deployed bytecode must match the audited commit (NET-02). The artifact is
-> built with solc 0.8.27, optimizer disabled, evmVersion cancun; rebuild via the
-> Dockerised `horizon/devenv/build` to reproduce it.
+> The deployed implementation bytecode must match the audited commit (NET-02). The
+> artifact is built with solc 0.8.27, optimizer disabled, evmVersion cancun; rebuild
+> via the Dockerised `horizon/devenv/build` to reproduce it. Ownership transfer is
+> two-step (`Ownable2Step`): the new owner must call `acceptOwnership()`.
+
+## Upgrading the Contract
+
+`SubstreamsDataService` is UUPS-upgradeable; upgrades are owner-authorized. To
+upgrade, deploy a new implementation and call `upgradeToAndCall` on the **proxy**
+from the owner:
+
+```bash
+# deploy NEW implementation with IDENTICAL constructor args (see warning below)
+cast send ... --create "$NEW_IMPL_BYTECODE" "constructor(address,address)" "$CONTROLLER" "$COLLECTOR"
+# owner upgrades the proxy (empty calldata if no re-init needed)
+cast send --rpc-url "$ARB_ONE_RPC" --private-key "$OWNER_KEY" "$SDS_ADDRESS" \
+  "upgradeToAndCall(address,bytes)" "$NEW_IMPL_ADDRESS" 0x
+```
+
+Upgrade discipline (from the audit):
+
+- **Preserve immutables (L-01).** `controller` and `GRAPH_TALLY_COLLECTOR` are
+  `immutable` — they live in the implementation bytecode, not proxy storage. Each
+  new implementation **must** be built with byte-identical constructor args, or the
+  proxy will silently use different values. After upgrading, assert
+  `GRAPH_TALLY_COLLECTOR()` is unchanged.
+- **Keep UUPS.** New implementations must keep inheriting `UUPSUpgradeable` with an
+  `onlyOwner` `_authorizeUpgrade`, or upgradeability is lost permanently.
+- **Re-initialization.** If a new version needs init logic, use `reinitializer(N)`
+  with an incrementing `N` — never the `initializer` modifier again.
+- **Storage layout (I-03).** Only append new state (the `__gap` reserves space);
+  never reorder/insert. Validate layout with the OpenZeppelin Upgrades plugin before
+  shipping.
 
 ## Provider Onboarding (stake → provision → register)
 

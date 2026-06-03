@@ -7,8 +7,9 @@ import { IGraphToken } from "@graphprotocol/interfaces/contracts/contracts/token
 import { IDataService } from "@graphprotocol/interfaces/contracts/data-service/IDataService.sol";
 
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import { Ownable2StepUpgradeable } from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import { DataService } from "@graphprotocol/horizon/contracts/data-service/DataService.sol";
 
 /**
@@ -26,8 +27,9 @@ import { DataService } from "@graphprotocol/horizon/contracts/data-service/DataS
  */
 contract SubstreamsDataService is
     Initializable,
-    OwnableUpgradeable,
+    Ownable2StepUpgradeable,
     UUPSUpgradeable,
+    ReentrancyGuardUpgradeable,
     DataService
 {
     /// @notice GraphTallyCollector address for payment collection
@@ -61,6 +63,9 @@ contract SubstreamsDataService is
 
     /// @notice Error when payment type is not supported
     error SubstreamsDataServiceInvalidPaymentType(IGraphPayments.PaymentTypes paymentType);
+
+    /// @notice Error when a zero payments destination is supplied
+    error SubstreamsDataServiceZeroPaymentsDestination();
 
     /**
      * @notice Modifier to check if indexer is registered
@@ -96,7 +101,9 @@ contract SubstreamsDataService is
         uint256 minimumProvisionTokens
     ) external initializer {
         __Ownable_init(initialOwner);
+        __Ownable2Step_init();
         __UUPSUpgradeable_init();
+        __ReentrancyGuard_init();
         __DataService_init();
         _setProvisionTokensRange(minimumProvisionTokens, type(uint256).max);
     }
@@ -149,6 +156,7 @@ contract SubstreamsDataService is
         IGraphPayments.PaymentTypes paymentType,
         bytes calldata data
     ) external override
+      nonReentrant
       onlyAuthorizedForProvision(indexer)
       onlyValidProvision(indexer)
       onlyRegisteredIndexer(indexer)
@@ -231,6 +239,7 @@ contract SubstreamsDataService is
      * @notice Internal function to set payments destination
      */
     function _setPaymentsDestination(address indexer, address destination) internal {
+        require(destination != address(0), SubstreamsDataServiceZeroPaymentsDestination());
         paymentsDestination[indexer] = destination;
         emit PaymentsDestinationSet(indexer, destination);
     }

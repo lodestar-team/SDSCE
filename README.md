@@ -5,6 +5,18 @@ A Golang implementation of the payment infrastructure for the Substreams Data Se
 > [!WARNING]
 > **Community Edition — experimental and unaffiliated.** This is the **Substreams Data Service Community Edition (SDSCE)**, a community-maintained effort to bring the Substreams Data Service to the network. It is **not affiliated with, endorsed by, or supported by the Graph Foundation or Edge & Node.** The "Community Edition" name is deliberate: it leaves room for an official Substreams Data Service to be deployed by the Foundation or Edge & Node in future, distinct from this one. Treat SDSCE as **experimental software**: it is unaudited, may change without notice, and carries no warranty. Do not use it with production funds or rely on it for production workloads without conducting your own review.
 
+## Network Readiness (Arbitrum One)
+
+SDSCE is being prepared for deployment on **Arbitrum One** (chain id `42161`). The full plan, status, and decisions live in [`plans/network-readiness.md`](plans/network-readiness.md).
+
+- **Smart contract:** `SubstreamsDataService` is **UUPS-upgradeable** (ERC1967 proxy; owner-controlled upgrades via two-step `Ownable2Step` ownership) and charges a fixed **1% burn tax** on collected query fees — the data-service cut is burned (deflationary), with 0% retained by the deployer. Source: [`horizon/devenv/build/contracts/SubstreamsDataService.sol`](horizon/devenv/build/contracts/SubstreamsDataService.sol).
+- **Proven against real Arbitrum One** (via mainnet fork): provisioning + registration (`devel/arb-one-fork-rehearsal.sh`) and the full escrow → signed RAV → `collect()` → burn money path (`devel/arb-one-collect-rehearsal.sh`), plus the full streaming → metered RAV → collect path (`TestFirecore`, using `devel/build-dummy-blockchain.sh`).
+- **Automated settlement:** `sds provider operator collect-daemon` polls for collectible RAVs and submits `collect()` with retry/backoff and stale-pending reclaim.
+- **Docs:** deployment + provider/consumer onboarding runbook ([`docs/arb-one-deployment-runbook.md`](docs/arb-one-deployment-runbook.md)), internal security audit ([`docs/security-audit-substreams-data-service.md`](docs/security-audit-substreams-data-service.md)), and the external-audit brief ([`docs/net-02-audit-brief.md`](docs/net-02-audit-brief.md)).
+
+> [!NOTE]
+> **Not yet deployed to mainnet.** Deployment is gated on an external audit and a secured (multisig) owner key. See the deployment runbook and audit brief.
+
 ## Development
 
 ### Prerequisites
@@ -347,6 +359,14 @@ Core RAV/Receipt implementation:
 - Receipt and RAV types with signing/verification
 - Receipt aggregation with validation rules
 
+#### Smart Contract (`SubstreamsDataService`)
+
+The on-chain data service (`horizon/devenv/build/contracts/SubstreamsDataService.sol`), built on The Graph's Horizon `DataService`:
+- **UUPS-upgradeable** behind an ERC1967 proxy; `initialize(owner, minProvisionTokens)` sets the owner; `_authorizeUpgrade` is `onlyOwner`.
+- **Two-step ownership** (`Ownable2Step`) — owner controls parameters and upgrades; intended to be a multisig in production.
+- **Fixed 1% burn tax** on `collect()`: the data-service cut is burned, 0% retained by the deployer.
+- Collection is gated by Horizon provision + authorization + registration; `slash()` is a deliberate no-op (whitelist trust model). Built artifacts: `contracts/artifacts/{SubstreamsDataService,ERC1967Proxy}.json`.
+
 #### Sidecar Package (`sidecar/`)
 
 Shared components between consumer and provider:
@@ -364,6 +384,9 @@ Service definitions are in `proto/`:
 
 ## References
 
+- [Network Readiness plan](plans/network-readiness.md) — Arbitrum One deployment roadmap (NET-01…NET-11)
+- [Arbitrum One deployment & onboarding runbook](docs/arb-one-deployment-runbook.md)
+- [Security audit report](docs/security-audit-substreams-data-service.md) and [external-audit brief](docs/net-02-audit-brief.md)
 - [EIP-712: Typed structured data hashing and signing](https://eips.ethereum.org/EIPS/eip-712)
 - [The Graph Protocol](https://thegraph.com/)
 - [Timeline Aggregation Protocol (TAP)](https://github.com/semiotic-ai/timeline-aggregation-protocol)

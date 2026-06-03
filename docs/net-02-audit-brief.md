@@ -3,150 +3,145 @@
 A hand-off-ready brief for an external auditor of the SDSCE on-chain contract. The
 audit is the gate to any Arbitrum One mainnet deployment (`plans/network-readiness.md`).
 
+## Frozen Commit
+
+- **Audit target commit:** `f28962f` — git tag **`net-02-audit-freeze`** in
+  `lodestar-team/SDSCE`.
+- The implementation bytecode deployed to mainnet must match this commit (rebuild
+  reproducibly — see Build / Reproduction).
+- An internal review was already performed: `docs/security-audit-substreams-data-service.md`
+  (0 critical/high; 3 low + 3 informational, with remediation status). This brief and
+  that report describe the same frozen contract.
+
 ## Summary
 
-SDSCE (Substreams Data Service Community Edition) adds **one** SDSCE-owned smart
-contract, `SubstreamsDataService`, on top of The Graph's existing, separately
-audited Horizon payment stack. The contract is a minimal Horizon "data service"
-verifier that lets a provisioned provider collect query-fee payments for
-Substreams data via the GraphTally (TAP) Receipt Aggregate Voucher (RAV) flow.
-
-This brief scopes the audit to that one contract and its interaction with the
-shared Horizon contracts.
+SDSCE adds **one** SDSCE-owned smart contract, `SubstreamsDataService`, on top of
+The Graph's existing, separately-audited Horizon payment stack. It is a Horizon
+"data service" verifier that lets a provisioned provider collect GraphTally (TAP)
+query-fee RAVs and routes payment through the shared Horizon contracts. It is
+**UUPS-upgradeable** behind an ERC1967 proxy and applies a **fixed 1% burn tax** on
+collected query fees (the data-service cut is burned; 0% retained by the deployer).
 
 ## In Scope
 
-- `horizon/devenv/build/contracts/SubstreamsDataService.sol` (the only SDSCE-owned
-  contract), at the reviewed/frozen commit handed to the auditor.
-- Its integration surface with the shared Horizon contracts it calls:
-  `GraphTallyCollector`, `PaymentsEscrow`, `GraphPayments`, `HorizonStaking`
-  (via the `DataService` / `ProvisionManager` base from `@graphprotocol/horizon`).
+- `horizon/devenv/build/contracts/SubstreamsDataService.sol` at commit `f28962f`.
+- Its integration with the shared Horizon contracts it calls: `GraphTallyCollector`,
+  `PaymentsEscrow`, `GraphPayments`, `HorizonStaking` (via the `@graphprotocol/horizon`
+  `DataService`/`ProvisionManager` base), and `L2GraphToken` (for the burn).
 
 ## Out of Scope
 
 - The shared Horizon contracts themselves (HorizonStaking, PaymentsEscrow,
-  GraphPayments, GraphTallyCollector, Controller, L2GraphToken). These are
-  deployed and maintained by The Graph and have been audited separately; SDSCE
-  reuses them unmodified on Arbitrum One.
-- Off-chain components (provider gateway, consumer sidecar, oracle, collection
-  daemon) except where their on-chain assumptions bear on contract safety.
+  GraphPayments, GraphTallyCollector, Controller, L2GraphToken) — deployed and
+  audited by The Graph; reused unmodified on Arbitrum One.
+- Off-chain components except where their on-chain assumptions bear on contract safety.
 
 ## Build / Reproduction
 
 - Compiler: **solc 0.8.27**, **optimizer disabled**, **evmVersion cancun**.
-- Dependencies: `@graphprotocol/horizon` and `@graphprotocol/interfaces` pinned at
-  the commit in `horizon/devenv/build/Dockerfile`
-  (`graphprotocol/contracts@41fd64b1f27bd9dd3fc5ca818eba63e4dcf6c73e`), OZ v5.1.0.
-- Reproduce the artifact via the Dockerised build in `horizon/devenv/build`
-  (`build.sh`). Deployed bytecode must match the audited commit.
+- Dependencies: `@graphprotocol/horizon` + `@graphprotocol/interfaces` pinned at
+  `graphprotocol/contracts@41fd64b1f27bd9dd3fc5ca818eba63e4dcf6c73e`, OZ (upgradeable) v5.1.0.
+- Reproduce both artifacts (`SubstreamsDataService`, `ERC1967Proxy`) via the Dockerised
+  build in `horizon/devenv/build` (`build.sh`). Deployed impl bytecode must match `f28962f`.
 
 ## Contract Overview
 
-`SubstreamsDataService is DataService` (which is `GraphDirectory, ProvisionManager,
-DataServiceV1Storage, IDataService`). State it adds:
+`SubstreamsDataService is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable,
+ReentrancyGuardUpgradeable, DataService` (where `DataService` is `GraphDirectory,
+ProvisionManager, DataServiceV1Storage, IDataService`). Deployed behind an ERC1967
+proxy.
 
-- `IGraphTallyCollector public immutable GRAPH_TALLY_COLLECTOR`
-- `address public immutable OWNER` (set to `msg.sender` at construction)
-- `mapping(address => bool) public isRegistered`
-- `mapping(address => address) public paymentsDestination`
+Storage / immutables:
+- `GRAPH_TALLY_COLLECTOR` (immutable), Controller (immutable via `GraphDirectory`) —
+  set in the implementation constructor.
+- `isRegistered`, `paymentsDestination` mappings; `uint256[50] __gap`.
+- `BURN_TAX_PPM = 10_000` (1%, constant).
 
-External/public entry points and their guards:
+Lifecycle:
+- Constructor sets immutables and calls `_disableInitializers()` (implementation
+  cannot be initialized directly).
+- `initialize(initialOwner, minimumProvisionTokens)` (`initializer`): `__Ownable_init`,
+  `__Ownable2Step_init`, `__UUPSUpgradeable_init`, `__ReentrancyGuard_init`,
+  `__DataService_init`, then sets the provision range.
+- `_authorizeUpgrade(address)` is `onlyOwner`.
+
+Entry points and guards:
 
 | Function | Guard | Notes |
 | --- | --- | --- |
-| `constructor(controller, graphTallyCollector)` | — | sets immutables, `OWNER = msg.sender`, `_disableInitializers()` |
-| `setProvisionTokensRange(uint256)` | `onlyOwner` | sets `[min, type(uint256).max]` provision range |
-| `register(indexer, data)` | `onlyAuthorizedForProvision` + `onlyValidProvision` | sets `isRegistered`, decodes `data` as `paymentsDestination` |
-| `acceptProvisionPendingParameters(indexer, _)` | `onlyAuthorizedForProvision` | accepts pending provision params |
+| `initialize` | `initializer` | sets owner + provision range on the proxy |
+| `setProvisionTokensRange` | `onlyOwner` | min provision; max unbounded |
+| `register` | `onlyAuthorizedForProvision` + `onlyValidProvision` | sets `isRegistered`; decodes + sets `paymentsDestination` (rejects zero) |
+| `acceptProvisionPendingParameters` | `onlyAuthorizedForProvision` | accepts pending provision params |
 | `startService` / `stopService` | — | no-ops |
-| `collect(indexer, paymentType, data)` | `onlyAuthorizedForProvision` + `onlyValidProvision` + `onlyRegisteredIndexer` | QueryFee only; decodes `(SignedRAV, dataServiceCut)`; calls collector |
-| `slash(_, _)` | — | **intentional no-op** (see trust model) |
-| `setPaymentsDestination(dest)` | — | `msg.sender` sets its own destination |
+| `collect` | `nonReentrant` + `onlyAuthorizedForProvision` + `onlyValidProvision` + `onlyRegisteredIndexer` | QueryFee only; **fixed 1% data-service cut, burned** |
+| `slash` | — | **intentional no-op** (trust model) |
+| `setPaymentsDestination` | — | `msg.sender` sets its own (rejects zero) |
+| `transferOwnership` / `acceptOwnership` | `onlyOwner` / pending | two-step (`Ownable2Step`) |
 
-Payment path: `collect()` → `_collectQueryFees()` →
-`GRAPH_TALLY_COLLECTOR.collect(QueryFee, abi.encode(signedRav, dataServiceCut, paymentsDestination[indexer]), 0)`.
-It requires `signedRav.rav.serviceProvider == indexer`.
+Burn-tax flow in `collect()` → `_collectQueryFees()`: the provider-supplied cut is
+ignored; the call passes `BURN_TAX_PPM` to `GraphTallyCollector.collect`. GraphPayments
+routes `tokensDataService` (1% of the post-protocol-tax amount) to this contract; the
+contract measures the GRT it received (balance delta) and **burns it** via
+`IGraphToken.burn` (emitting `BurnTaxApplied`), retaining nothing.
 
 ## Trust Model & Deliberate Decisions
 
-The auditor should evaluate against this intended model, not assume a fully
-trustless one:
-
-1. **Whitelisted soft-release.** Providers are vetted off-chain (oracle whitelist),
-   not permissionlessly. The contract does not gate provider eligibility itself.
-2. **Consumer risk is bounded by escrow.** A consumer can lose at most what it
-   deposited into `PaymentsEscrow` for a (collector, provider) pair.
-3. **No on-chain slashing — by design.** `slash()` is a deliberate no-op: SDSCE
-   has no DisputeManager integration and no verifiable-output model for Substreams.
-   This is acceptable under the whitelist model and is a known, documented decision
-   (not an oversight). The audit should confirm the *absence* of slashing does not
-   enable fund loss beyond the escrow bound, not flag the no-op itself.
-4. **SDSCE-controlled owner.** Privileged parameters are controlled by `OWNER`
-   (the deployer), deliberately *not* the Graph governor, because SDSCE is
-   unaffiliated with The Graph.
+- Whitelisted soft-release; providers vetted off-chain.
+- Consumer risk bounded by `PaymentsEscrow` balance.
+- `slash()` is a deliberate no-op (documented; **not** a finding).
+- Owner is an SDSCE-controlled address (intended multisig), controlling parameters
+  **and** upgrades — not the Graph governor (SDSCE is unaffiliated).
+- Fixed 1% data-service cut is burned (deflationary); deployer retains 0%.
 
 ## Areas of Particular Focus
 
-Findings/questions already identified internally that the audit should resolve:
+1. **UUPS upgrade safety.** `_authorizeUpgrade` is `onlyOwner` — confirm no upgrade
+   path bypasses it; confirm `_disableInitializers()` prevents implementation
+   takeover; confirm storage layout (OZ namespaced for Ownable/UUPS/ReentrancyGuard/
+   Initializable; sequential `DataServiceV1Storage` then the two mappings then `__gap`)
+   supports safe future appends; confirm future re-init must use `reinitializer(N)`.
+2. **Immutables across upgrades (L-01).** `controller`/`GRAPH_TALLY_COLLECTOR` live in
+   implementation bytecode, not proxy storage — an upgrade with different args silently
+   changes them. Assess the documented mitigation (identical args + post-upgrade assert)
+   vs. moving them to initialized storage.
+3. **Burn-tax accounting.** `collect()` burns the balance delta received during the
+   external collector call. Confirm the balance-before/after accounting cannot be
+   gamed (e.g. by direct GRT transfers into the contract or reentry — `collect` is
+   `nonReentrant`), and that burning the received cut cannot revert/lock collection.
+4. **Collection authorization & value flow.** `onlyAuthorizedForProvision` +
+   `onlyValidProvision` + `onlyRegisteredIndexer`, `serviceProvider == indexer`, and
+   payer-signed RAVs verified by the collector — confirm no unauthorized or
+   double-collection path; confirm zero-`paymentsDestination` rejection is complete.
+5. **Ownership.** Two-step (`Ownable2Step`) transfer; owner governs params + upgrades.
+   Confirm there is no renounce/lock footgun and that a multisig owner is supported.
+6. **Atomic initialization (L-03).** Confirm the deployment is only safe when the proxy
+   is constructed with init calldata (front-running of a separate `initialize` would
+   seize ownership). Deployment tooling and the runbook enforce this.
 
-1. **Initializer / upgradeability (highest priority).** The constructor calls
-   `_disableInitializers()` and the contract never calls `__DataService_init` /
-   `__ProvisionManager_init_unchained`. It functions in **direct (non-proxy)
-   deployment** because the controller is immutable and the provision range is set
-   post-deploy via `setProvisionTokensRange`. Confirm: (a) no required base-contract
-   state is left uninitialized in a way that affects `register`/`collect`/provision
-   validation; (b) the intended deployment is direct and non-upgradeable, and the
-   pattern is safe; (c) there is no path to (re)initialize or hijack the implementation.
-2. **Access control on privileged setters.** `setProvisionTokensRange` is
-   `onlyOwner` (`OWNER = msg.sender`, immutable). Confirm no other state-mutating
-   function lacks appropriate authorization, and that the owner model is sufficient
-   (no transfer/renounce is provided — is that intended?).
-3. **`collect()` correctness & value flow.** Verify: the `(SignedRAV,
-   dataServiceCut)` decoding; the `serviceProvider == indexer` check; that
-   `paymentsDestination[indexer]` cannot be abused to misroute funds; behavior when
-   `paymentsDestination` is unset (zero address); `dataServiceCut` bounds (the
-   off-chain CLI caps at 1e6 PPM — is the contract itself safe for arbitrary cut
-   values passed directly?); and reentrancy across the external collector call.
-4. **Provision gates.** `onlyAuthorizedForProvision` + `onlyValidProvision` +
-   `onlyRegisteredIndexer` — confirm these correctly bind collection to a real,
-   in-range Horizon provision and a registered provider, with no bypass.
-5. **Registration data handling.** `register` decodes `data` as a single address
-   (`paymentsDestination`); confirm malformed/oversized `data` cannot cause
-   unexpected behavior, and that re-registration semantics are safe.
-6. **Interaction assumptions with shared Horizon contracts** on Arbitrum One
-   (payment cuts, protocol tax, delegation routing) — confirm SDSCE makes no
-   incorrect assumptions about GraphPayments distribution.
+## Existing Test / PoC Harness
 
-## Existing Test / PoC Harness (for the auditor)
-
-The contract is exercised end-to-end; auditors can reuse these:
-
-- `devel/arb-one-fork-rehearsal.sh` — provision + register against **real
-  Arbitrum One** Horizon contracts (Anvil fork); reproduces the
-  `ProvisionManagerProvisionNotFound` revert then a successful register.
-- `devel/arb-one-collect-rehearsal.sh` — escrow deposit → authorize signer →
-  signed RAV → `collect()` settling on a real-Arb-One fork.
-- `go test ./test/integration -run 'TestCollectRAV'` — collect + incremental
-  collect against the devenv.
-- `go test ./test/integration -run 'TestAuthorize|TestRevoke|TestUnauthorized'` —
-  signer authorization lifecycle.
-- `go test ./test/integration -run TestFirecore` (with
-  `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE` from `devel/build-dummy-blockchain.sh`) —
-  full streaming → metered RAV → on-chain collect.
+- `devel/arb-one-fork-rehearsal.sh` — provision + register against **real Arbitrum One**
+  Horizon (Anvil fork); also exercises owner-gated `setProvisionTokensRange`.
+- `devel/arb-one-collect-rehearsal.sh` — escrow → authorize signer → signed RAV →
+  `collect()` → **burn** on a real-Arb-One fork (asserts data service retains 0 GRT and
+  total supply drops).
+- `go test ./test/integration -run 'TestCollectRAV'` and `'TestAuthorize|TestRevoke|TestUnauthorized'`.
+- `go test ./test/integration -run TestFirecore` (with `SDS_TEST_DUMMY_BLOCKCHAIN_IMAGE`
+  from `devel/build-dummy-blockchain.sh`) — full streaming → metered RAV → collect → burn.
 
 ## Deliverables Requested
 
-- Findings classified by severity (critical/high/medium/low/informational) with
-  remediation guidance.
-- Explicit sign-off on the initializer/upgradeability pattern (focus area 1).
-- Confirmation that consumer fund loss is bounded by escrow under the stated trust
-  model.
-- A reviewed/frozen commit hash whose bytecode matches the deployment artifact.
+- Severity-classified findings with remediation guidance.
+- Explicit sign-off on the UUPS upgrade pattern, storage layout, and the burn-tax
+  accounting.
+- Confirmation that consumer fund loss is bounded by escrow under the stated trust model.
+- A reviewed/frozen commit hash whose bytecode matches the deployment artifact (expected: `f28962f`).
 
 ## References
 
 - Contract: `horizon/devenv/build/contracts/SubstreamsDataService.sol`
+- Internal audit: `docs/security-audit-substreams-data-service.md`
 - Roadmap & decisions: `plans/network-readiness.md` (NET-02, NET-11, NET-10)
+- Deployment, onboarding & upgrade procedure: `docs/arb-one-deployment-runbook.md`
 - Contract roles & EIP-712 domain: `docs/contracts.md`
-- Deployment & onboarding: `docs/arb-one-deployment-runbook.md`
-- Verified Arbitrum One Horizon addresses: `docs/arb-one-deployment-runbook.md`

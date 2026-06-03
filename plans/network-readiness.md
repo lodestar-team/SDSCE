@@ -40,7 +40,20 @@ is documented so Track A decisions do not foreclose it.
   `subgraph-service-arbitrumOne` deployment also exists — the direct precedent
   for an SDS-owned DataService on Arb One.
 - **New contract:** `SubstreamsDataService` (extends Horizon `DataService`) is
-  the only SDS-owned contract and must be deployed to Arb One.
+  the only SDS-owned contract. **Deployed to Arbitrum One mainnet:**
+
+| Item | Address |
+| --- | --- |
+| SubstreamsDataService (proxy — use this) | `0x1c3e9cca124ad19b9ed3c202d2e6cd106944640c` |
+| SubstreamsDataService implementation | `0x6f0bb704f4badbc033d7a3924b928449d7567a72` |
+| Owner (controls params + upgrades) | `0xCfBB471617Ae3F6fDa2D9F142115d59deAB50C5b` |
+
+Deployed from the `net-02-audit-freeze` (`f28962f`) contract via
+`devel/deploy-arb-one.sh`; on-chain state verified (owner, collector, `BURN_TAX_PPM
+= 10000`, ERC1967 impl slot). **Caveats:** deployed **without external audit** (owner
+decision) and the **owner is an EOA** — transfer to a multisig (two-step) before
+relying on it for real funds. No provider is registered yet, so the service is not
+yet usable end-to-end (needs provider onboarding + a hosted oracle).
 
 ### Verified Arbitrum One Addresses
 
@@ -126,7 +139,7 @@ NET-05 through NET-07 can proceed in parallel with NET-02–04. NET-08+ are Trac
 
 | ID | Status | Track | Area | Task |
 | --- | --- | --- | --- | --- |
-| NET-01 | `in_progress` | A | contracts | Arb One contract addresses, chain config, and deployment of `SubstreamsDataService` |
+| NET-01 | `done` | A | contracts | Arb One contract addresses, chain config, and deployment of `SubstreamsDataService` |
 | NET-02 | `in_progress` | A | contracts | Security audit of `SubstreamsDataService` (hard gate before any mainnet deploy) |
 | NET-03 | `in_progress` | A | contracts | Real Horizon data-service provisioning path (register + provision) |
 | NET-04 | `in_progress` | A | settlement | Automated/background RAV collection daemon |

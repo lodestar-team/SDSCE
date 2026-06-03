@@ -126,7 +126,7 @@ NET-05 through NET-07 can proceed in parallel with NET-02–04. NET-08+ are Trac
 
 | ID | Status | Track | Area | Task |
 | --- | --- | --- | --- | --- |
-| NET-01 | `not_started` | A | contracts | Arb One contract addresses, chain config, and deployment of `SubstreamsDataService` |
+| NET-01 | `in_progress` | A | contracts | Arb One contract addresses, chain config, and deployment of `SubstreamsDataService` |
 | NET-02 | `not_started` | A | contracts | Security audit of `SubstreamsDataService` (hard gate before any mainnet deploy) |
 | NET-03 | `in_progress` | A | contracts | Real Horizon data-service provisioning path (register + provision) |
 | NET-04 | `in_progress` | A | settlement | Automated/background RAV collection daemon |
@@ -164,6 +164,16 @@ Verify:
 - Dry-run the deployment against an Arb One fork (Anvil `--fork-url`) and confirm
   the contract reads/writes against the real shared Horizon contracts.
 - Confirm consumer signer proof + funding CLI succeed end-to-end on the fork.
+
+Progress:
+
+- Arb One addresses verified and recorded (see above) and in
+  `docs/arb-one-deployment-runbook.md`.
+- The deployment procedure (deploy `SubstreamsDataService`, set provision range,
+  onboard provider/consumer) is documented in that runbook and proven on an Arb
+  One fork via `devel/arb-one-fork-rehearsal.sh` and
+  `devel/arb-one-collect-rehearsal.sh`. The actual mainnet deploy stays gated
+  behind NET-02 (audit).
 
 ## NET-02 Security Audit of SubstreamsDataService
 
@@ -228,9 +238,12 @@ Findings (fork rehearsal, `devel/arb-one-fork-rehearsal.sh`):
   against the **real** GraphTallyCollector / PaymentsEscrow / GraphPayments stack
   on Arb One (`tokensCollected` increments by the RAV value). EIP-712 artifacts
   produced by `devel/sdsce-signtool`, reusing SDSCE's own signing code.
-- Remaining for full NET-03: document the provider onboarding runbook, and
-  exercise the full streaming → metered RAV → collect path end-to-end (vs. the
-  hand-built RAV used here).
+- **Provider onboarding runbook written:** `docs/arb-one-deployment-runbook.md`
+  documents the exact stake → provision → register → fund → authorize → collect
+  steps for Arb One, derived from the proven rehearsals.
+- Remaining for full NET-03: exercise the full streaming → metered RAV → collect
+  path end-to-end (vs. the hand-built RAV used here), which needs the firehose
+  data plane (dummy-blockchain runtime).
 
 ## NET-04 Automated Collection Daemon
 

@@ -241,9 +241,14 @@ Findings (fork rehearsal, `devel/arb-one-fork-rehearsal.sh`):
 - **Provider onboarding runbook written:** `docs/arb-one-deployment-runbook.md`
   documents the exact stake → provision → register → fund → authorize → collect
   steps for Arb One, derived from the proven rehearsals.
-- Remaining for full NET-03: exercise the full streaming → metered RAV → collect
-  path end-to-end (vs. the hand-built RAV used here), which needs the firehose
-  data plane (dummy-blockchain runtime).
+- **Full streaming path proven end-to-end.** `TestFirecore` /
+  `TestFirecoreStopsStreamOnLowFunds` pass against a rebuilt dummy-blockchain data
+  plane: a real metered Substreams stream drives provider-originated RAV requests,
+  the consumer signs, the provider accepts (24 RAVs, 24 usage events), and
+  low-funds terminates the stream. The stale-image gap (`MVP-036`) is resolved
+  locally by `devel/build-dummy-blockchain.sh` (rebuilds on `firehose-core:latest`).
+  NET-03 is functionally complete; the only remaining step is the on-chain
+  mainnet deploy, gated by the NET-02 audit.
 
 ## NET-04 Automated Collection Daemon
 
@@ -343,6 +348,14 @@ Verify:
 - A provider runs against a real Substreams runtime (not the devenv dummy chain)
   and serves a paid stream.
 - Key-custody procedure reviewed.
+
+Progress:
+
+- The stale published `dummy-blockchain` image dependency is resolved for the
+  local/test runtime path: `devel/build-dummy-blockchain.sh` rebuilds it on
+  `firehose-core:latest`, and `TestFirecore` passes against it. Still open:
+  publishing/pinning a long-lived compatible chain image, provider monitoring,
+  and KMS/HSM settlement-key custody.
 
 ## NET-07 Consumer Onboarding Path
 

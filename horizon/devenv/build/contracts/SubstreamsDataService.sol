@@ -3,6 +3,7 @@ pragma solidity 0.8.27;
 
 import { IGraphPayments } from "@graphprotocol/interfaces/contracts/horizon/IGraphPayments.sol";
 import { IGraphTallyCollector } from "@graphprotocol/interfaces/contracts/horizon/IGraphTallyCollector.sol";
+import { IGraphToken } from "@graphprotocol/interfaces/contracts/contracts/token/IGraphToken.sol";
 import { IDataService } from "@graphprotocol/interfaces/contracts/data-service/IDataService.sol";
 
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -32,6 +33,11 @@ contract SubstreamsDataService is
     /// @notice GraphTallyCollector address for payment collection
     IGraphTallyCollector public immutable GRAPH_TALLY_COLLECTOR;
 
+    /// @notice Data-service cut applied on every collection, in PPM (1% = 10000).
+    /// @dev SDSCE charges a fixed 1% data-service cut which is burned (deflationary).
+    /// The deployer retains 0% — the entire cut received by this contract is burned.
+    uint256 public constant BURN_TAX_PPM = 10_000;
+
     /// @notice Mapping of service provider to their registration status
     mapping(address => bool) public isRegistered;
 
@@ -43,6 +49,9 @@ contract SubstreamsDataService is
 
     /// @notice Emitted when an indexer sets their payments destination
     event PaymentsDestinationSet(address indexed indexer, address indexed destination);
+
+    /// @notice Emitted when the 1% data-service cut is burned on a collection
+    event BurnTaxApplied(address indexed indexer, uint256 tokensBurned);
 
     /// @notice Error when indexer is not registered
     error SubstreamsDataServiceIndexerNotRegistered(address indexer);
@@ -182,7 +191,10 @@ contract SubstreamsDataService is
      * @return The amount of tokens collected
      */
     function _collectQueryFees(address indexer, bytes calldata data) private returns (uint256) {
-        (IGraphTallyCollector.SignedRAV memory signedRav, uint256 dataServiceCut) = abi.decode(
+        // The provider-supplied dataServiceCut is intentionally ignored: SDSCE
+        // enforces a fixed BURN_TAX_PPM (1%) data-service cut, so collection terms
+        // cannot be set by the caller.
+        (IGraphTallyCollector.SignedRAV memory signedRav, ) = abi.decode(
             data,
             (IGraphTallyCollector.SignedRAV, uint256)
         );
@@ -192,12 +204,25 @@ contract SubstreamsDataService is
             SubstreamsDataServiceIndexerMismatch(signedRav.rav.serviceProvider, indexer)
         );
 
-        // Collect via GraphTallyCollector
+        // GraphPayments routes the data-service cut (BURN_TAX_PPM of the
+        // post-protocol-tax amount) to this contract and the remainder to the
+        // provider's payments destination. Measure what this contract receives so we
+        // can burn exactly that amount.
+        IGraphToken graphToken = _graphToken();
+        uint256 balanceBefore = graphToken.balanceOf(address(this));
+
         uint256 tokensCollected = GRAPH_TALLY_COLLECTOR.collect(
             IGraphPayments.PaymentTypes.QueryFee,
-            abi.encode(signedRav, dataServiceCut, paymentsDestination[indexer]),
+            abi.encode(signedRav, BURN_TAX_PPM, paymentsDestination[indexer]),
             0 // collect full amount
         );
+
+        // Burn the data-service cut (0% retained by the deployer).
+        uint256 taxReceived = graphToken.balanceOf(address(this)) - balanceBefore;
+        if (taxReceived > 0) {
+            graphToken.burn(taxReceived);
+            emit BurnTaxApplied(indexer, taxReceived);
+        }
 
         return tokensCollected;
     }

@@ -111,8 +111,20 @@ COLLECT_DATA=$(/tmp/sdsce-signtool collect-data --chain-id 42161 --collector "$C
 BEFORE=$(cast call --rpc-url "$RPC" "$COLLECTOR" "tokensCollected(address,bytes32,address,address)(uint256)" "$SDS" "$COLLECTION_ID" "$PROVIDER" "$PAYER" | awk '{print $1}')
 echo "tokensCollected before: $BEFORE"
 
+SUPPLY_BEFORE=$(cast call --rpc-url "$RPC" "$GRT" "totalSupply()(uint256)" | awk '{print $1}')
+
 step "SubstreamsDataService.collect(provider, QueryFee=0, data)"
 send --private-key "$PROVIDER_PK" "$SDS" "collect(address,uint8,bytes)" "$PROVIDER" 0 "$COLLECT_DATA"
+
+step "Burn tax (NET): 1% data-service cut burned, 0% retained by deployer"
+SDS_GRT=$(cast call --rpc-url "$RPC" "$GRT" "balanceOf(address)(uint256)" "$SDS" | awk '{print $1}')
+SUPPLY_AFTER=$(cast call --rpc-url "$RPC" "$GRT" "totalSupply()(uint256)" | awk '{print $1}')
+BURNED=$(python3 -c "print($SUPPLY_BEFORE - $SUPPLY_AFTER)")
+echo "data service GRT balance after collect: $SDS_GRT (expect 0 - fully burned)"
+echo "GRT totalSupply delta (total burned, incl. protocol tax): $BURNED"
+[ "$SDS_GRT" = "0" ] || { echo "FAIL: data service retained GRT (burn tax not fully burned)"; exit 1; }
+python3 -c "import sys; sys.exit(0 if $BURNED > 0 else 1)" || { echo "FAIL: total supply did not drop (no burn occurred)"; exit 1; }
+echo "OK: data service retained 0 GRT and total supply decreased (burn confirmed)"
 AFTER=$(cast call --rpc-url "$RPC" "$COLLECTOR" "tokensCollected(address,bytes32,address,address)(uint256)" "$SDS" "$COLLECTION_ID" "$PROVIDER" "$PAYER" | awk '{print $1}')
 echo "tokensCollected after:  $AFTER"
 

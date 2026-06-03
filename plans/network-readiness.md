@@ -136,7 +136,7 @@ NET-05 through NET-07 can proceed in parallel with NET-02–04. NET-08+ are Trac
 | NET-08 | `deferred` | B | discovery | Permissionless on-chain registry sourcing in the oracle |
 | NET-09 | `deferred` | B | governance | Issuance/rewards via GIP + Graph Council (only if rewards are in scope) |
 | NET-10 | `deferred` | B | trust | Provider trust/dispute/verifiability model for trustless operation |
-| NET-11 | `not_started` | A | contracts | Harden `SubstreamsDataService` before audit (access control, upgradeability, slashing) |
+| NET-11 | `in_progress` | A | contracts | Harden `SubstreamsDataService` before audit (access control, upgradeability, slashing) |
 
 ---
 
@@ -417,3 +417,29 @@ Verify:
 
 - Tests prove unauthorized callers cannot mutate provision parameters.
 - Contract is frozen at a reviewed commit before handing to the NET-02 auditor.
+
+Progress:
+
+- **Access control added & verified.** `setProvisionTokensRange` is now gated by
+  an `onlyOwner` modifier; `OWNER` is set to `msg.sender` (the deployer) at
+  construction — no constructor/ABI change, so devenv (which deploys and calls
+  the setter as the deployer) is unaffected. SDSCE controls this rather than the
+  Graph governor, since SDSCE is unaffiliated. Proven on the Arb One fork: a
+  non-owner call reverts `SubstreamsDataServiceNotOwner`; the owner succeeds; the
+  full provision+register+collect flow still passes
+  (`devel/arb-one-fork-rehearsal.sh`, `devel/arb-one-collect-rehearsal.sh`).
+- **Slashing: deliberate no-op (decided).** `slash()` stays a no-op by design —
+  SDSCE uses a whitelist trust model and bounds consumer risk to escrow, rather
+  than on-chain slashing/disputes (which would need DisputeManager + a verifiable
+  substreams-output model). Documented in the contract; revisit only for Track B
+  / permissionless (NET-10).
+- **Still open for the audit:** the initializer/upgradeability story. The
+  constructor calls `_disableInitializers()` and never calls `__DataService_init`;
+  it works in direct (non-proxy) deployment because the controller is immutable
+  and the provision range is set post-deploy, but the deployment/upgrade pattern
+  should be confirmed and frozen before audit.
+
+Note: the contract artifact (`contracts/artifacts/SubstreamsDataService.json` and
+the `horizon/devenv/contracts/` copy) was recompiled with solc 0.8.27, optimizer
+disabled, evmVersion cancun — matching the original build settings — so the only
+delta is the source change.

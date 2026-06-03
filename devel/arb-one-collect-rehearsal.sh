@@ -64,6 +64,7 @@ step "Deploy SubstreamsDataService + set provision range"
 BYTECODE=$(python3 -c "import json;print(json.load(open('$ARTIFACT'))['bytecode']['object'])")
 SDS=$(cast send --rpc-url "$RPC" --private-key "$DEPLOYER_PK" --create "$BYTECODE" \
   "constructor(address,address)" "$CONTROLLER" "$COLLECTOR" --json | python3 -c "import sys,json;print(json.load(sys.stdin)['contractAddress'])")
+# owner-gated (NET-11): deployer is OWNER, so this call is authorized
 send --private-key "$DEPLOYER_PK" "$SDS" "setProvisionTokensRange(uint256)" 0
 echo "SDS: $SDS"
 

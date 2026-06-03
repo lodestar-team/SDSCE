@@ -19,6 +19,12 @@ contract SubstreamsDataService is
     /// @notice GraphTallyCollector address for payment collection
     IGraphTallyCollector public immutable GRAPH_TALLY_COLLECTOR;
 
+    /// @notice Owner authorized to set data service parameters (the deployer)
+    /// @dev SDSCE is unaffiliated with The Graph governance, so privileged
+    /// parameters are controlled by an SDSCE-set owner rather than the Graph
+    /// governor. Set once at construction; immutable thereafter.
+    address public immutable OWNER;
+
     /// @notice Mapping of service provider to their registration status
     mapping(address => bool) public isRegistered;
 
@@ -36,6 +42,15 @@ contract SubstreamsDataService is
 
     /// @notice Error when payment type is not supported
     error SubstreamsDataServiceInvalidPaymentType(IGraphPayments.PaymentTypes paymentType);
+
+    /// @notice Error when a privileged call is made by an address other than the owner
+    error SubstreamsDataServiceNotOwner(address caller);
+
+    /// @notice Restricts a call to the contract owner
+    modifier onlyOwner() {
+        require(msg.sender == OWNER, SubstreamsDataServiceNotOwner(msg.sender));
+        _;
+    }
 
     /**
      * @notice Modifier to check if indexer is registered
@@ -55,6 +70,7 @@ contract SubstreamsDataService is
         address graphTallyCollector
     ) DataService(controller) {
         GRAPH_TALLY_COLLECTOR = IGraphTallyCollector(graphTallyCollector);
+        OWNER = msg.sender;
         _disableInitializers();
     }
 
@@ -64,8 +80,7 @@ contract SubstreamsDataService is
      */
     function setProvisionTokensRange(
         uint256 minimumProvisionTokens
-    ) external {
-        // Set provision tokens range (for testing, we allow calling this directly)
+    ) external onlyOwner {
         _setProvisionTokensRange(minimumProvisionTokens, type(uint256).max);
     }
 
@@ -126,8 +141,12 @@ contract SubstreamsDataService is
 
     /// @inheritdoc IDataService
     function slash(address, bytes calldata) external pure override {
-        // Slashing not implemented in minimal version
-        // Would require DisputeManager integration
+        // Intentional no-op. SDSCE operates under a whitelist trust model rather
+        // than an on-chain slashing/dispute mechanism: providers are vetted off
+        // chain, and consumer risk is bounded by their escrow balance. Slashing
+        // would require DisputeManager integration and a verifiable-output model
+        // for substreams, which is out of scope for the Community Edition. This
+        // is a deliberate trust-model decision, not a missing feature.
     }
 
     /**

@@ -49,7 +49,14 @@ SDS=$(cast send --rpc-url "$RPC" --private-key "$DEPLOYER_PK" --create "$BYTECOD
   "constructor(address,address)" "$CONTROLLER" "$COLLECTOR" --json | python3 -c "import sys,json;print(json.load(sys.stdin)['contractAddress'])")
 echo "deployed: $SDS"
 
-step "setProvisionTokensRange(0)  [NB: unguarded setter, see NET-11]"
+step "setProvisionTokensRange access control (NET-11)"
+NOTOWNER_SEL=$(cast sig "SubstreamsDataServiceNotOwner(address)")
+echo "-- non-owner (provider) call -> expect SubstreamsDataServiceNotOwner ($NOTOWNER_SEL)"
+if cast send --rpc-url "$RPC" --private-key "$PROVIDER_PK" "$SDS" "setProvisionTokensRange(uint256)" 0 2>/tmp/owner_err; then
+  echo "UNEXPECTED: non-owner set the provision range"; exit 1
+fi
+grep -q "${NOTOWNER_SEL#0x}" /tmp/owner_err && echo "OK: non-owner rejected with SubstreamsDataServiceNotOwner" || { echo "reverted for the wrong reason:"; cat /tmp/owner_err; exit 1; }
+echo "-- owner (deployer) call -> expect success"
 cast send --rpc-url "$RPC" --private-key "$DEPLOYER_PK" "$SDS" "setProvisionTokensRange(uint256)" 0 >/dev/null
 echo "range: $(cast call --rpc-url "$RPC" "$SDS" "getProvisionTokensRange()(uint256,uint256)" | tr '\n' ' ')"
 

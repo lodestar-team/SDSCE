@@ -30,11 +30,34 @@ is documented so Track A decisions do not foreclose it.
 ## Target and Key Decisions
 
 - **Target chain:** Arbitrum One (`42161`).
-- **Shared Horizon contracts** (PaymentsEscrow, GraphTallyCollector,
-  GraphPayments, GraphController, GRT) are already deployed on Arb One and are
-  reused as-is. SDS does not redeploy these.
+- **Shared Horizon contracts** are already deployed on Arb One and are reused
+  as-is. SDS does not redeploy these. **Confirmed live** via the canonical
+  `graphprotocol/contracts` Ignition deployment
+  (`packages/horizon/ignition/deployments/horizon-arbitrumOne`). A
+  `subgraph-service-arbitrumOne` deployment also exists — the direct precedent
+  for an SDS-owned DataService on Arb One.
 - **New contract:** `SubstreamsDataService` (extends Horizon `DataService`) is
   the only SDS-owned contract and must be deployed to Arb One.
+
+### Verified Arbitrum One Addresses
+
+Source of truth: `graphprotocol/contracts`,
+`packages/horizon/ignition/deployments/horizon-arbitrumOne/deployed_addresses.json`.
+Re-verify against that file before any deployment; addresses below are recorded
+for working reference, not as a substitute for the registry.
+
+| Contract | Arbitrum One address |
+| --- | --- |
+| HorizonStaking (proxy) | `0x00669A4CF01450B64E8A2A20E9b1FCB71E61eF03` |
+| GraphTallyCollector | `0x8f69F5C07477Ac46FBc491B1E6D91E2bb0111A9e` |
+| PaymentsEscrow (proxy) | `0xf6Fcc27aAf1fcD8B254498c9794451d82afC673E` |
+| GraphPayments (proxy) | `0x7Aae8ae011927BC36Cb4d0d3e81f2E6E30daE06D` |
+| Controller | `0x0a8491544221dd212964fbb96487467291b2C97e` |
+| L2GraphToken (GRT) | `0x9623063377AD1B27544C965cCd7342f7EA7e88C7` |
+
+Note: the earlier per-layer research draft quoted a GRT address
+(`0x9623063677CD4f0fb4EbC29f1E7668326F095236`) that is **incorrect**; the address
+above is from the deployment registry.
 
 ### DECISION-REQUIRED: skip Arbitrum Sepolia?
 
@@ -76,11 +99,15 @@ What the network demands of any Horizon data service, by layer, with SDS status:
 
 Everything else parallelizes around this spine:
 
-1. **NET-01** Deploy contract config + addresses for Arb One.
-2. **NET-02** Audit `SubstreamsDataService` (longest lead time — start first).
-3. **NET-03** Real Horizon provisioning path (the load-bearing blocker:
+1. **NET-11** Harden the contract (must precede the audit — it is currently a
+   testing-grade artifact).
+2. **NET-02** Audit `SubstreamsDataService` (longest lead time — start scoping in
+   parallel with NET-11).
+3. **NET-01** Deploy contract config + addresses for Arb One (shared Horizon
+   addresses already verified — see above).
+4. **NET-03** Real Horizon provisioning path (the load-bearing blocker:
    `register()`/`collect()` must succeed against a real provision).
-4. **NET-04** Automated collection (manual CLI does not survive real traffic).
+5. **NET-04** Automated collection (manual CLI does not survive real traffic).
 
 NET-05 through NET-07 can proceed in parallel with NET-02–04. NET-08+ are Track B.
 
@@ -106,6 +133,7 @@ NET-05 through NET-07 can proceed in parallel with NET-02–04. NET-08+ are Trac
 | NET-08 | `deferred` | B | discovery | Permissionless on-chain registry sourcing in the oracle |
 | NET-09 | `deferred` | B | governance | Issuance/rewards via GIP + Graph Council (only if rewards are in scope) |
 | NET-10 | `deferred` | B | trust | Provider trust/dispute/verifiability model for trustless operation |
+| NET-11 | `not_started` | A | contracts | Harden `SubstreamsDataService` before audit (access control, upgradeability, slashing) |
 
 ---
 
@@ -330,3 +358,39 @@ Done when:
 Verify:
 
 - A misbehaving permissionless provider can be challenged/penalized.
+
+## NET-11 Harden SubstreamsDataService Before Audit
+
+Context:
+
+- The current `SubstreamsDataService` is, by its own header, "the strict minimum
+  required for a DataService to work with GraphTallyCollector" — a testing-grade
+  artifact, not a mainnet contract. It must be hardened before the NET-02 audit so
+  the audit reviews production-intent code.
+- Concrete issues found on review of
+  `horizon/devenv/build/contracts/SubstreamsDataService.sol`:
+  - `setProvisionTokensRange(uint256)` is `external` with **no access control**
+    (comment: "for testing, we allow calling this directly"). On mainnet anyone
+    could rewrite the data service's min/max provision bounds. Critical.
+  - `slash(address, bytes)` is a **no-op** ("Slashing not implemented... Would
+    require DisputeManager integration"). There is no economic security / no way
+    to penalize a misbehaving provider. Acceptable under the whitelist trust model
+    but must be a conscious decision, and is a hard blocker for permissionless
+    (links to NET-10).
+  - Upgradeability/initializer story is unclear: the constructor calls
+    `_disableInitializers()` and no `initialize` is exposed beyond
+    `setProvisionTokensRange`. Confirm whether it is deployed directly or behind a
+    proxy, and that the chosen pattern is safe.
+
+Done when:
+
+- Privileged setters (`setProvisionTokensRange`, any parameter mutators) are
+  access-controlled to a governance/owner role.
+- A deliberate decision is recorded on slashing: implement DisputeManager
+  integration, or explicitly accept no-slashing under the whitelist model.
+- The deployment/upgradeability pattern is confirmed and safe.
+
+Verify:
+
+- Tests prove unauthorized callers cannot mutate provision parameters.
+- Contract is frozen at a reviewed commit before handing to the NET-02 auditor.

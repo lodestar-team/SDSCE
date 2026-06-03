@@ -1,9 +1,9 @@
-# Substreams Data Service
+# Substreams Data Service Community Edition (SDSCE)
 
-A Golang implementation of the payment infrastructure for Substreams Data Service on The Graph Network. This project provides sidecar services for both consumers and providers to handle payment sessions, RAV (Receipt Aggregate Voucher) signing, and on-chain settlement via the Graph Protocol's Horizon contracts.
+A Golang implementation of the payment infrastructure for the Substreams Data Service on The Graph Network. This project provides sidecar services for both consumers and providers to handle payment sessions, RAV (Receipt Aggregate Voucher) signing, and on-chain settlement via the Graph Protocol's Horizon contracts.
 
 > [!WARNING]
-> **Community Edition — experimental and unaffiliated.** This is a community-maintained edition of the Substreams Data Service. It is **not affiliated with, endorsed by, or supported by the Graph Foundation or Edge & Node.** Treat it as **experimental software**: it is unaudited, may change without notice, and carries no warranty. Do not use it with production funds or rely on it for production workloads without conducting your own review.
+> **Community Edition — experimental and unaffiliated.** This is the **Substreams Data Service Community Edition (SDSCE)**, a community-maintained effort to bring the Substreams Data Service to the network. It is **not affiliated with, endorsed by, or supported by the Graph Foundation or Edge & Node.** The "Community Edition" name is deliberate: it leaves room for an official Substreams Data Service to be deployed by the Foundation or Edge & Node in future, distinct from this one. Treat SDSCE as **experimental software**: it is unaudited, may change without notice, and carries no warranty. Do not use it with production funds or rely on it for production workloads without conducting your own review.
 
 ## Development
 

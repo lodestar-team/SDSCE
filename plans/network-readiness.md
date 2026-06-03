@@ -1,9 +1,12 @@
 # Network Readiness Plan
 
-This document tracks the work required to take the Substreams Data Service (SDS)
-from its current MVP state — proven end-to-end against a local Anvil/Horizon
-devenv — to a service that real providers and consumers can use on **Arbitrum
-One (chain id `42161`)**.
+This document tracks the work required to take the **Substreams Data Service
+Community Edition (SDSCE)** from its current MVP state — proven end-to-end against
+a local Anvil/Horizon devenv — to a service that real providers and consumers can
+use on **Arbitrum One (chain id `42161`)**.
+
+SDSCE is a community-maintained edition, unaffiliated with the Graph Foundation or
+Edge & Node; the name deliberately leaves room for an official deployment later.
 
 It is the strategic successor to `plans/post-mvp-backlog.md`. Where the post-MVP
 backlog tracks isolated follow-ups, this plan sequences the full path to a live

@@ -127,7 +127,7 @@ NET-05 through NET-07 can proceed in parallel with NET-02–04. NET-08+ are Trac
 | ID | Status | Track | Area | Task |
 | --- | --- | --- | --- | --- |
 | NET-01 | `in_progress` | A | contracts | Arb One contract addresses, chain config, and deployment of `SubstreamsDataService` |
-| NET-02 | `not_started` | A | contracts | Security audit of `SubstreamsDataService` (hard gate before any mainnet deploy) |
+| NET-02 | `in_progress` | A | contracts | Security audit of `SubstreamsDataService` (hard gate before any mainnet deploy) |
 | NET-03 | `in_progress` | A | contracts | Real Horizon data-service provisioning path (register + provision) |
 | NET-04 | `in_progress` | A | settlement | Automated/background RAV collection daemon |
 | NET-05 | `not_started` | A | discovery | Operate the discovery oracle as a hosted service with curated whitelist |
@@ -195,6 +195,15 @@ Verify:
 
 - Audit report published/internally available.
 - Deployed bytecode hash matches the audited commit.
+
+Progress:
+
+- **Audit brief drafted and hand-off-ready:** `docs/net-02-audit-brief.md` — scope
+  (the one SDSCE contract; shared Horizon out of scope), build/repro, contract
+  surface, trust model, prioritized focus areas (the initializer/upgradeability
+  question first, then access control, collect() value flow, provision gates), the
+  existing PoC harness, and requested deliverables. The audit itself is external
+  (needs a firm); everything to brief one is ready.
 
 ## NET-03 Real Horizon Provisioning Path
 

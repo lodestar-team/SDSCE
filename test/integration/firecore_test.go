@@ -273,6 +273,69 @@ func TestFirecore(t *testing.T) {
 		zap.Int64("worker_count", evidence.WorkerCount),
 		zap.Int64("usage_event_count", evidence.UsageEventCount),
 	)
+
+	// Full circle: the RAV produced by the live metered stream is collectible
+	// on-chain (satisfies collect()'s on-chain gates against the live contracts).
+	verifyFirecoreProducedRAVCollectible(t, ctx, env, evidence.SessionID)
+}
+
+// verifyFirecoreProducedRAVCollectible proves the full circle: a RAV produced by a
+// real metered Substreams stream (not a hand-built one) satisfies the on-chain
+// gates SubstreamsDataService.collect() enforces. It reads the collectible the
+// stream left in the provider repository and checks, against the live contracts,
+// that the GraphTallyCollector recovers its EIP-712 signature to an authorized
+// signer and that the service provider is registered — i.e. collect() would
+// accept it. The GRT-moving collect for realistic values is covered by
+// TestCollectRAV and the Arbitrum One fork rehearsal (devel/arb-one-collect-rehearsal.sh);
+// the value here is intentionally dust (the test's PricePerBlock is 1 wei).
+func verifyFirecoreProducedRAVCollectible(t *testing.T, ctx context.Context, env *TestEnv, sessionID string) {
+	t.Helper()
+
+	repo, err := paymentgateway.NewRepositoryFromDSN(ctx, PostgresTestDSN, zap.NewNop())
+	require.NoError(t, err, "open provider repository")
+	defer repo.Close()
+
+	collectibleState := repository.CollectionStateCollectible
+	var record *repository.CollectionRecord
+	require.Eventually(t, func() bool {
+		records, err := repo.CollectionList(ctx, repository.CollectionFilter{State: &collectibleState})
+		if err != nil {
+			return false
+		}
+		for _, r := range records {
+			if r.Key.SessionID == sessionID && r.SignedRAV != nil {
+				record = r
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 100*time.Millisecond, "expected a collectible record from the streamed session")
+
+	rav := record.SignedRAV
+	require.Positive(t, rav.Message.ValueAggregate.Sign(), "streamed RAV must carry a positive value")
+
+	// The live GraphTallyCollector must recover the RAV's EIP-712 signature to the
+	// streaming signer (the payer signs its own RAVs in this harness).
+	recovered, err := callRecoverRAVSigner(env, rav)
+	require.NoError(t, err, "collector must recover the streamed RAV signer")
+	require.Equal(t, env.Payer.Address, recovered, "recovered signer must match the streaming signer")
+
+	// collect()'s on-chain signature gate checks isAuthorized(payer, signer). The
+	// demo state authorizes a separate signer, so authorize the payer-as-signer
+	// here, exactly as a real consumer would before settlement.
+	require.NoError(t, env.AuthorizeSigner(env.Payer.PrivateKey), "authorize the streaming signer for collection")
+
+	// Settle the stream-produced RAV on-chain via SubstreamsDataService.collect() —
+	// the same step the automated collection daemon performs.
+	collected, err := callDataServiceCollect(env, rav, 100000)
+	require.NoError(t, err, "stream-produced RAV must be collectible on-chain")
+	require.Equal(t, rav.Message.ValueAggregate.Uint64(), collected, "collected amount must equal the streamed RAV value")
+
+	firecoreLog.Info("full-circle: stream-produced RAV settled on-chain",
+		zap.String("session_id", sessionID),
+		zap.Stringer("recovered_signer", recovered),
+		zap.Uint64("collected", collected),
+	)
 }
 
 func TestFirecoreStopsStreamOnLowFunds(t *testing.T) {

@@ -3,3 +3,5 @@
 /sds
 # audit skill scratch workspace
 .context/
+.env
+.env.*

@@ -26,6 +26,12 @@ SDSCE's data-service contract is **live on Arbitrum One** (chain id `42161`). Th
 > [!WARNING]
 > The contract is deployed but **unaudited externally** and currently **owner-controlled by an EOA**. There is **no hosted provider gateway or oracle yet**, so the service is not usable end-to-end until at least one provider self-onboards (below). Experimental — do not rely on it for production funds.
 
+### Arbitrum Sepolia testnet
+
+A testnet sandbox for the same contract runs on **Arbitrum Sepolia** (chain id `421614`). Deploy the mainnet-hardened contract with the parameterized [`devel/deploy-arb-sepolia.sh`](devel/deploy-arb-sepolia.sh) (wired to the Sepolia Horizon Controller + GraphTallyCollector; refuses any chain other than `421614`).
+
+The full provision → register → collect path — including the 1% burn — has been rehearsed end-to-end against the real Sepolia Horizon contracts on an anvil fork; the exact commands and reconciled settlement maths are in [`docs/arb-sepolia-fork-rehearsal.md`](docs/arb-sepolia-fork-rehearsal.md). Sepolia Horizon addresses and CLI workflows are in the [direct-provider testnet runbook](docs/direct-provider-testnet-public-runbook.md).
+
 ## Quickstart: Self-Onboarding on Arbitrum One
 
 Two roles. A **provider** sells Substreams data; a **consumer** pays to stream it. All on-chain steps target chain `42161` and the live addresses above; full flag detail and the exact `cast` commands are in the [deployment runbook](docs/arb-one-deployment-runbook.md). Build the CLI with `go build -o sds ./cmd/sds` (or use the Docker image).
